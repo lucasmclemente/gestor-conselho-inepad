@@ -1,178 +1,168 @@
 import React, { useState } from 'react';
 import { 
-  LayoutDashboard, FileText, CheckCircle, Clock, AlertCircle, 
-  Calendar, Users, ClipboardList, Plus, Save, Award, User, Layers, Search, Upload
+  LayoutDashboard, Calendar, Settings, LogOut, Search, Bell, 
+  Plus, ChevronRight, Mail, UserPlus, Clock, MapPin, 
+  CheckCircle2, AlertCircle, FileText, BarChart3, PieChart as PieChartIcon
 } from 'lucide-react';
+import { 
+  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
+  PieChart, Pie, Cell, Legend 
+} from 'recharts';
 
 const App = () => {
-  const [activeTab, setActiveTab] = useState('dashboard');
+  const [activeMenu, setActiveMenu] = useState('dashboard');
+  const [view, setView] = useState('list'); // 'list' ou 'details'
+  const [activeMeetingTab, setActiveMeetingTab] = useState('info');
+
+  // Dados fictícios para os gráficos do Dashboard
+  const barData = [
+    { name: '2024-05-15', pauta: 3, acoes: 2 },
+    { name: '2024-06-10', pauta: 1, acoes: 0 },
+    { name: '2026-02-13', pauta: 0, acoes: 0 },
+  ];
+
+  const pieData = [
+    { name: 'Concluídas', value: 1, color: '#10b981' },
+    { name: 'Pendentes', value: 1, color: '#f59e0b' },
+  ];
 
   return (
-    <div className="min-h-screen bg-[#f8fafc] flex font-sans">
-      {/* Sidebar - Identidade Visual INEPAD */}
-      <aside className="w-72 bg-[#0f172a] text-slate-300 flex flex-col shadow-xl">
-        <div className="p-8 flex items-center gap-3 border-b border-slate-800">
-          <Award className="text-blue-400" size={28} />
-          <span className="font-bold text-white text-lg tracking-tight">GovCorp INEPAD</span>
+    <div className="min-h-screen bg-[#f8fafc] flex font-sans text-slate-900">
+      {/* Sidebar Lateral */}
+      <aside className="w-64 bg-[#1e1b4b] text-slate-300 flex flex-col shadow-2xl">
+        <div className="p-6 flex items-center gap-3 mb-4">
+          <div className="bg-indigo-600 p-2 rounded-lg shadow-lg">
+            <CheckCircle2 className="text-white" size={24} />
+          </div>
+          <span className="font-bold text-white text-xl tracking-tight">GovCorp</span>
         </div>
         
-        <nav className="flex-1 p-4 space-y-1">
-          <button onClick={() => setActiveTab('dashboard')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium transition-all ${activeTab === 'dashboard' ? 'bg-blue-600 text-white' : 'hover:bg-slate-800'}`}>
-            <LayoutDashboard size={18} /> Dashboard
+        <nav className="flex-1 px-4 space-y-2">
+          <button 
+            onClick={() => {setActiveMenu('dashboard'); setView('list');}}
+            className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-semibold transition-all ${activeMenu === 'dashboard' ? 'bg-indigo-600 text-white shadow-lg' : 'hover:bg-indigo-900/50 hover:text-white'}`}
+          >
+            <LayoutDashboard size={20} /> Dashboard
           </button>
           
-          <div className="pt-6 pb-2 px-4 text-[10px] font-bold text-slate-500 uppercase tracking-widest">Secretaria de Conselho</div>
-          
-          <button onClick={() => setActiveTab('convocacao')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium transition-all ${activeTab === 'convocacao' ? 'bg-blue-600 text-white' : 'hover:bg-slate-800'}`}>
-            <Calendar size={18} /> Convocação e Pautas
+          <button 
+            onClick={() => setActiveMenu('reunioes')}
+            className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-semibold transition-all ${activeMenu === 'reunioes' ? 'bg-indigo-600 text-white shadow-lg' : 'hover:bg-indigo-900/50 hover:text-white'}`}
+          >
+            <Calendar size={20} /> Reuniões
           </button>
           
-          <button onClick={() => setActiveTab('reuniao')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium transition-all ${activeTab === 'reuniao' ? 'bg-blue-600 text-white' : 'hover:bg-slate-800'}`}>
-            <Layers size={18} /> Aba da Reunião
-          </button>
-          
-          <button onClick={() => setActiveTab('acoes')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium transition-all ${activeTab === 'acoes' ? 'bg-blue-600 text-white' : 'hover:bg-slate-800'}`}>
-            <ClipboardList size={18} /> Ações e Atas
+          <button 
+            onClick={() => setActiveMenu('configuracoes')}
+            className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-semibold transition-all ${activeMenu === 'configuracoes' ? 'bg-indigo-900/50 text-slate-400' : 'hover:bg-indigo-900/50 hover:text-white'}`}
+          >
+            <Settings size={20} /> Configurações
           </button>
         </nav>
 
-        <div className="p-6 border-t border-slate-800 bg-[#0a0f1d]">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-full bg-blue-900/50 flex items-center justify-center border border-blue-500/30 text-blue-400 font-bold">
-              LC
-            </div>
-            <div className="text-xs">
-              <p className="font-bold text-white">Consultor Inepad</p>
-              <p className="text-slate-500">Gestão de Governança</p>
-            </div>
-          </div>
+        <div className="p-6 mt-auto">
+          <button className="flex items-center gap-3 text-sm font-semibold hover:text-white transition-colors">
+            <LogOut size={20} /> Sair
+          </button>
         </div>
       </aside>
 
-      {/* Área Principal */}
-      <main className="flex-1 overflow-y-auto">
-        <header className="h-20 bg-white border-b border-slate-200 flex items-center justify-between px-10 shadow-sm sticky top-0 z-10">
-          <h2 className="text-lg font-bold text-slate-800 uppercase tracking-tight">
-            {activeTab === 'dashboard' && 'Acompanhamento de Decisões'}
-            {activeTab === 'convocacao' && 'Preparação de Reunião'}
-            {activeTab === 'reuniao' && 'Painel Deliberativo'}
-            {activeTab === 'acoes' && 'Planos de Ação e Repositório'}
-          </h2>
-          <div className="flex items-center gap-4 text-xs font-medium text-slate-500">
-            <span className="text-blue-600 font-bold tracking-widest uppercase">INEPAD Conselhos</span>
-            <span className="text-slate-300">|</span>
-            <span>{new Date().toLocaleDateString('pt-BR')}</span>
+      {/* Conteúdo Principal */}
+      <main className="flex-1 flex flex-col h-screen overflow-hidden">
+        {/* Header Superior */}
+        <header className="h-20 bg-white border-b border-slate-200 flex items-center justify-between px-10 shrink-0">
+          <div className="relative w-96">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
+            <input 
+              type="text" 
+              placeholder="Buscar reuniões, atas ou decisões..." 
+              className="w-full pl-10 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm outline-none focus:ring-2 focus:ring-indigo-500"
+            />
+          </div>
+          
+          <div className="flex items-center gap-6">
+            <button className="relative p-2 text-slate-400 hover:text-indigo-600 transition-colors">
+              <Bell size={22} />
+              <span className="absolute top-1 right-1 w-2 h-2 bg-red-500 rounded-full border-2 border-white"></span>
+            </button>
+            <div className="flex items-center gap-3 pl-6 border-l border-slate-200 text-right leading-tight">
+              <div>
+                <p className="font-bold text-slate-800 text-sm">Ricardo Oliveira</p>
+                <p className="text-slate-500 text-[10px] font-medium uppercase tracking-wider">Secretário Geral</p>
+              </div>
+              <div className="w-10 h-10 rounded-full bg-slate-100 border-2 border-slate-200 overflow-hidden">
+                <img src="https://ui-avatars.com/api/?name=Ricardo+Oliveira&background=10b981&color=fff" alt="Perfil" />
+              </div>
+            </div>
           </div>
         </header>
 
-        <div className="p-10 max-w-6xl mx-auto">
+        {/* Área de Scroll do Conteúdo */}
+        <div className="flex-1 overflow-y-auto p-10 bg-white/50">
           
-          {/* DASHBOARD: Acompanhamento de Decisões */}
-          {activeTab === 'dashboard' && (
-            <div className="space-y-8 animate-in fade-in duration-500">
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
-                <div className="bg-white p-8 rounded-2xl border border-slate-200 shadow-sm">
-                  <div className="flex justify-between items-center mb-4">
-                    <div className="p-3 bg-green-50 rounded-xl text-green-600"><CheckCircle size={24}/></div>
-                    <span className="text-3xl font-black text-slate-800">0</span>
-                  </div>
-                  <p className="text-xs font-bold text-slate-400 uppercase tracking-wider">Deliberações Pendentes</p>
-                </div>
-                <div className="bg-white p-8 rounded-2xl border border-slate-200 shadow-sm">
-                  <div className="flex justify-between items-center mb-4">
-                    <div className="p-3 bg-blue-50 rounded-xl text-blue-600"><FileText size={24}/></div>
-                    <span className="text-3xl font-black text-slate-800">0</span>
-                  </div>
-                  <p className="text-xs font-bold text-slate-400 uppercase tracking-wider">Atas Pendentes</p>
-                </div>
-                <div className="bg-white p-8 rounded-2xl border border-slate-200 shadow-sm">
-                  <div className="flex justify-between items-center mb-4">
-                    <div className="p-3 bg-red-50 rounded-xl text-red-600"><Clock size={24}/></div>
-                    <span className="text-3xl font-black text-slate-800">0</span>
-                  </div>
-                  <p className="text-xs font-bold text-slate-400 uppercase tracking-wider">Ações Atrasadas</p>
-                </div>
-              </div>
-
-              <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-16 text-center">
-                <Search className="mx-auto mb-4 text-slate-200" size={48} />
-                <h3 className="text-slate-800 font-bold mb-1 uppercase text-sm">Status das Decisões</h3>
-                <p className="text-slate-400 text-xs">Utilize os filtros para acompanhar o status das deliberações do conselho.</p>
-              </div>
-            </div>
-          )}
-
-          {/* CONVOCAÇÃO: Organização das Pautas e Participantes */}
-          {activeTab === 'convocacao' && (
-            <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-10 space-y-8">
-              <div className="grid grid-cols-2 gap-8">
-                <div className="space-y-3">
-                  <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Data e Horário</label>
-                  <input type="datetime-local" className="w-full p-4 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:border-blue-500 transition-all text-sm" />
-                </div>
-                <div className="space-y-3">
-                  <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Agenda / Localização</label>
-                  <input type="text" placeholder="Link da reunião ou Sala de reunião" className="w-full p-4 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:border-blue-500 text-sm" />
-                </div>
-              </div>
-              <div className="space-y-3">
-                <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Participantes Convidados</label>
-                <textarea rows={2} placeholder="Nomes e respectivos cargos..." className="w-full p-4 bg-slate-50 border border-slate-200 rounded-xl outline-none text-sm" />
-              </div>
-              <div className="space-y-3">
-                <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Ordem do Dia / Pautas da Reunião</label>
-                <textarea rows={6} placeholder="Descreva os tópicos na ordem em que serão discutidos..." className="w-full p-4 bg-slate-50 border border-slate-200 rounded-xl outline-none text-sm" />
-              </div>
-              <button className="bg-blue-900 text-white px-8 py-4 rounded-xl font-bold uppercase text-[10px] tracking-widest flex items-center gap-2 shadow-lg shadow-blue-900/20">
-                <Save size={16} /> Salvar e Enviar Convocação
-              </button>
-            </div>
-          )}
-
-          {/* ABA REUNIÃO: Deliberações e Materiais */}
-          {activeTab === 'reuniao' && (
-            <div className="space-y-8">
-              <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-8">
-                <div className="flex justify-between items-center mb-8 pb-4 border-b border-slate-50">
-                  <h3 className="font-bold text-slate-800 uppercase text-xs tracking-widest">Materiais e Deliberações</h3>
-                  <button className="bg-blue-50 text-blue-600 px-4 py-2 rounded-lg text-[10px] font-bold flex items-center gap-2 hover:bg-blue-100">
-                    <Plus size={14}/> Adicionar Item (Políticas, Orçamentos, etc)
-                  </button>
-                </div>
-                <div className="p-20 text-center border-2 border-dashed border-slate-100 rounded-xl">
-                  <Layers className="mx-auto mb-4 text-slate-200" size={40} />
-                  <p className="text-slate-400 text-xs font-medium">Anexe documentos para aprovação durante a reunião.</p>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* AÇÕES E ATAS: Planos de Ação e Inclusão de Documentos */}
-          {activeTab === 'acoes' && (
-            <div className="space-y-8">
-              <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-8">
-                <h3 className="font-bold text-slate-800 uppercase text-xs tracking-widest mb-6 border-b border-slate-50 pb-4">Planos de Ação e Seguimento</h3>
-                <div className="text-center py-8">
-                  <ClipboardList className="mx-auto mb-3 text-slate-200" size={32} />
-                  <p className="text-slate-400 text-xs uppercase tracking-widest">Nenhuma ação pendente</p>
-                </div>
-              </div>
+          {/* VISÃO: DASHBOARD */}
+          {activeMenu === 'dashboard' && (
+            <div className="space-y-10 animate-in fade-in duration-500">
+              <h1 className="text-2xl font-black text-slate-800 tracking-tight flex items-center gap-3">
+                <LayoutDashboard className="text-indigo-600" size={28} /> Dashboard de Governança
+              </h1>
               
-              <div className="bg-slate-50 p-10 rounded-2xl border-2 border-dashed border-slate-200 text-center">
-                <Upload className="mx-auto mb-4 text-slate-300" size={40} />
-                <h3 className="font-bold text-slate-800 text-sm mb-1 uppercase">Repositório de Atas</h3>
-                <p className="text-xs text-slate-400 mb-6 font-medium tracking-tight">Arquive aqui as atas assinadas e registradas do Conselho.</p>
-                <button className="bg-white text-slate-600 border border-slate-200 px-6 py-2 rounded-lg text-[10px] font-bold hover:bg-slate-50 transition-all">
-                  Selecionar Arquivo PDF
-                </button>
+              {/* Cards de Métricas */}
+              <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+                {[
+                  { label: 'Ações Concluídas', value: '1/2', icon: <CheckCircle2 size={22}/>, color: 'indigo' },
+                  { label: 'Deliberações Aprovadas', value: '2/2', icon: <Clock size={22}/>, color: 'amber' },
+                  { label: 'ATAs Registradas', value: '1', icon: <FileText size={22}/>, color: 'emerald' },
+                  { label: 'Ações Atrasadas', value: '0', icon: <AlertCircle size={22}/>, color: 'red' },
+                ].map((card, i) => (
+                  <div key={i} className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm flex items-center gap-5">
+                    <div className={`p-3 rounded-xl bg-${card.color}-50 text-${card.color}-600`}>{card.icon}</div>
+                    <div>
+                      <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">{card.label}</p>
+                      <p className="text-2xl font-black text-slate-800">{card.value}</p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              {/* Gráficos */}
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                <div className="bg-white p-8 rounded-3xl border border-slate-100 shadow-sm">
+                  <h3 className="font-bold text-slate-800 mb-8 flex items-center gap-2 uppercase text-xs tracking-widest">Status das Ações do Conselho</h3>
+                  <div className="h-64">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <PieChart>
+                        <Pie data={pieData} innerRadius={60} outerRadius={80} paddingAngle={5} dataKey="value">
+                          {pieData.map((entry, index) => <Cell key={`cell-${index}`} fill={entry.color} />)}
+                        </Pie>
+                        <Tooltip />
+                        <Legend verticalAlign="bottom" height={36} />
+                      </PieChart>
+                    </ResponsiveContainer>
+                  </div>
+                </div>
+
+                <div className="bg-white p-8 rounded-3xl border border-slate-100 shadow-sm">
+                  <h3 className="font-bold text-slate-800 mb-8 flex items-center gap-2 uppercase text-xs tracking-widest">Decisões por Reunião</h3>
+                  <div className="h-64">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <BarChart data={barData}>
+                        <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                        <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{fontSize: 12, fill: '#94a3b8'}} />
+                        <YAxis axisLine={false} tickLine={false} tick={{fontSize: 12, fill: '#94a3b8'}} />
+                        <Tooltip cursor={{fill: '#f8fafc'}} />
+                        <Legend />
+                        <Bar dataKey="pauta" name="Itens de Pauta" fill="#6366f1" radius={[4, 4, 0, 0]} />
+                        <Bar dataKey="acoes" name="Planos de Ação" fill="#10b981" radius={[4, 4, 0, 0]} />
+                      </BarChart>
+                    </ResponsiveContainer>
+                  </div>
+                </div>
               </div>
             </div>
           )}
 
-        </div>
-      </main>
-    </div>
-  );
-};
-
-export default App;
+          {/* VISÃO: REUNIÕES */}
+          {activeMenu === 'reunioes' && view === 'list' && (
+            <div className="space-y-8 animate-in slide-in-from-right duration-500">
+              <div className="flex justify
