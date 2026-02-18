@@ -21,51 +21,51 @@ const App = () => {
       pautas: [{title: 'Aprovação de Verba', duration: '20', responsible: 'Ricardo Oliveira'}],
       materiais: [{id: 1, name: 'DRE_Projetado.pdf', uploadedBy: 'Ricardo', date: '10/12/25'}],
       deliberacoes: [{id: 101, title: 'Verba Marketing 2026', votes: [{status: 'Aprovado', name: 'Ricardo Oliveira', saved: true}]}],
-      acoes: [{id: 201, title: 'Contratar agência', date: '2025-12-30', status: 'Concluído', resp: 'Ricardo Oliveira'}],
+      acoes: [{id: 201, title: 'Contratar agência de branding', date: '2025-12-30', status: 'Concluído', resp: 'Ricardo Oliveira'}],
       atas: [{id: 301, name: 'Ata_Assinada_Q4.pdf', uploadedBy: 'Ricardo', date: '10/12/25'}]
     }
   ]);
 
-  // --- RASCUNHO ATUAL ---
+  // --- RASCUNHO / EDITOR ATIVO ---
   const blankMeeting = {
     id: 0, title: '', status: 'AGENDADA', date: '', time: '', type: 'Híbrida', location: '', address: '', link: '',
     participants: [] as any[], pautas: [] as any[], materiais: [] as any[], deliberacoes: [] as any[], acoes: [] as any[], atas: [] as any[]
   };
   const [currentMeeting, setCurrentMeeting] = useState(blankMeeting);
 
-  // --- CÁLCULOS DINÂMICOS (CORREÇÃO DATA ATRASADA) ---
+  // --- CÁLCULOS DINÂMICOS DO DASHBOARD ---
   const stats = useMemo(() => {
-    // Normaliza "Hoje" para o início do dia para comparação justa
     const today = new Date();
     today.setHours(0, 0, 0, 0);
 
-    const allActions = meetings.flatMap(m => m.acoes || []);
+    const allActionsWithMeeting = meetings.flatMap(m => 
+      (m.acoes || []).map(a => ({ ...a, meetingTitle: m.title }))
+    );
     const allDelibs = meetings.flatMap(m => m.deliberacoes || []);
     
-    const completedActions = allActions.filter(a => a.status === 'Concluído').length;
+    const completedActionsCount = allActionsWithMeeting.filter(a => a.status === 'Concluído').length;
     
-    // Lógica Corrigida para Ações Atrasadas
-    const delayedActions = allActions.filter(a => {
+    // Lógica de Ações Atrasadas (Deadline < Hoje e não concluído)
+    const delayedActionsCount = allActionsWithMeeting.filter(a => {
       if (!a.date || a.status === 'Concluído') return false;
       const deadline = new Date(a.date);
-      // Ajuste para evitar erro de fuso horário na string de data
       deadline.setHours(deadline.getHours() + (deadline.getTimezoneOffset() / 60)); 
       deadline.setHours(0,0,0,0);
       return deadline < today;
     }).length;
 
-    const approvedDelibs = allDelibs.filter(d => 
+    const approvedDelibsCount = allDelibs.filter(d => 
       d.votes?.some((v:any) => v.status === 'Aprovado' || v.status === 'Aprovado com Ressalvas')
     ).length;
 
     const totalAtas = meetings.reduce((acc, m) => acc + (m.atas?.length || 0), 0);
 
     return {
-      actions: `${completedActions}/${allActions.length || 0}`,
-      delib: `${approvedDelibs}/${allDelibs.length || 0}`,
+      actionsLabel: `${completedActionsCount}/${allActionsWithMeeting.length || 0}`,
+      delibLabel: `${approvedDelibsCount}/${allDelibs.length || 0}`,
       atas: totalAtas,
-      delayed: delayedActions,
-      allDelibs: allDelibs.slice(0, 5)
+      delayed: delayedActionsCount,
+      allActions: allActionsWithMeeting
     };
   }, [meetings]);
 
@@ -81,9 +81,8 @@ const App = () => {
   const [newDelib, setNewDelib] = useState({ title: '', mats: [] as string[], voters: [] as string[] });
   const [newAcao, setNewAcao] = useState({ title: '', resp: '', date: '', status: 'Pendente' });
 
-  // --- FUNÇÕES DE PERSISTÊNCIA ---
   const handleSave = () => {
-    if (!currentMeeting.title) return alert("Defina um título para a reunião!");
+    if (!currentMeeting.title) return alert("Defina um título!");
     const entry = currentMeeting.id === 0 ? { ...currentMeeting, id: Date.now() } : currentMeeting;
     setMeetings(currentMeeting.id === 0 ? [entry, ...meetings] : meetings.map(m => m.id === entry.id ? entry : m));
     setView('list');
@@ -122,15 +121,15 @@ const App = () => {
 
         <div className="flex-1 overflow-y-auto p-8 bg-[#f8fafc]">
           
-          {/* DASHBOARD CORRIGIDO */}
+          {/* TELA: DASHBOARD */}
           {activeMenu === 'dashboard' && (
             <div className="space-y-8 animate-in fade-in">
               <div className="flex justify-between items-end"><h1 className="text-2xl font-black italic text-slate-800 tracking-tighter">Visão Estratégica</h1><div className="text-[10px] font-black text-slate-400 uppercase tracking-widest italic">Guaxupé, {new Date().toLocaleDateString('pt-BR')}</div></div>
               
               <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
                 {[
-                  {l:'Ações Concluídas', v:stats.actions, i:<CheckCircle2/>, c:'blue'}, 
-                  {l:'Deliberações Aprovadas', v:stats.delib, i:<FileText/>, c:'indigo'}, 
+                  {l:'Ações Concluídas', v:stats.actionsLabel, i:<CheckCircle2/>, c:'blue'}, 
+                  {l:'Deliberações Aprovadas', v:stats.delibLabel, i:<FileText/>, c:'indigo'}, 
                   {l:'ATAs Registradas', v:stats.atas, i:<FileCheck/>, c:'green'}, 
                   {l:'Ações Atrasadas', v:stats.delayed, i:<AlertCircle/>, c:'red'}
                 ].map((s,i)=>(
@@ -178,28 +177,34 @@ const App = () => {
                 </div>
               </div>
 
+              {/* TELA: MONITORAMENTO DO PLANO DE AÇÕES (ATUALIZADO) */}
               <div className="bg-white p-8 rounded-[40px] border border-slate-100 shadow-sm overflow-hidden">
-                 <h3 className="text-[10px] font-black uppercase tracking-widest mb-6 flex items-center gap-2 italic text-slate-500"><ClipboardList size={16}/> Monitoramento de Decisões</h3>
+                 <h3 className="text-[10px] font-black uppercase tracking-widest mb-6 flex items-center gap-2 italic text-slate-500"><Target size={16}/> Monitoramento do Plano de Ações</h3>
                  <table className="w-full text-left">
                    <thead className="bg-slate-50 font-black uppercase text-[9px] text-slate-400 border-b italic">
-                     <tr><th className="p-4">Data</th><th className="p-4">Reunião</th><th className="p-4">Item de Deliberação</th><th className="p-4">Resultado Final</th></tr>
+                     <tr><th className="p-4">Ação</th><th className="p-4">Reunião</th><th className="p-4">Status da Ação</th><th className="p-4">Responsável</th></tr>
                    </thead>
                    <tbody className="text-xs font-bold italic">
-                     {meetings.flatMap(m => m.deliberacoes || []).map((d, i) => (
+                     {stats.allActions.map((a, i) => (
                        <tr key={i} className="border-t hover:bg-slate-50/50 transition-colors">
-                         <td className="p-4 text-slate-400">13/02/2026</td>
-                         <td className="p-4 text-slate-800">{meetings.find(m => m.deliberacoes.includes(d))?.title}</td>
-                         <td className="p-4 text-slate-700 underline decoration-blue-200">{d.title}</td>
-                         <td className="p-4"><span className="px-3 py-1 bg-green-50 text-green-600 rounded-full text-[9px] font-black uppercase tracking-tighter">Registrada em Ata</span></td>
+                         <td className="p-4 text-slate-800 underline decoration-blue-200">{a.title}</td>
+                         <td className="p-4 text-slate-400 text-[10px] uppercase font-black">{a.meetingTitle}</td>
+                         <td className="p-4">
+                           <span className={`px-3 py-1 rounded-full text-[8px] font-black uppercase tracking-tighter ${a.status === 'Concluído' ? 'bg-green-100 text-green-700' : 'bg-blue-100 text-blue-700'}`}>
+                             {a.status}
+                           </span>
+                         </td>
+                         <td className="p-4 text-slate-500">{a.resp}</td>
                        </tr>
                      ))}
                    </tbody>
                  </table>
+                 {stats.allActions.length === 0 && <div className="p-10 text-center text-slate-300 font-black uppercase text-[10px] italic">Nenhuma ação registrada no sistema.</div>}
               </div>
             </div>
           )}
 
-          {/* GESTÃO DE REUNIÕES (EDITOR COMPLETO) */}
+          {/* GESTÃO DE REUNIÕES (EDITOR COMPLETO PRESERVADO) */}
           {activeMenu === 'reunioes' && (view === 'list' ? (
             <div className="space-y-6 animate-in fade-in">
               <div className="flex justify-between items-center"><h1 className="text-2xl font-black italic tracking-tighter">Gestão de Reuniões</h1><button onClick={()=>{setCurrentMeeting(blankMeeting); setView('details');}} className="bg-blue-600 text-white px-6 py-2.5 rounded-2xl font-black text-xs uppercase tracking-widest shadow-xl shadow-blue-600/20 transition-all">+ Nova Reunião</button></div>
@@ -231,7 +236,7 @@ const App = () => {
                     <h3 className="text-[10px] font-black uppercase mb-4 italic flex items-center gap-2 text-slate-400"><Clock size={16}/> Logística Híbrida</h3>
                     <div className="flex gap-2">{['Online', 'Presencial', 'Híbrida'].map(t => (<button key={t} onClick={()=>setCurrentMeeting({...currentMeeting, type: t})} className={`flex-1 py-2 border rounded-xl text-[9px] font-black uppercase transition-all ${currentMeeting.type === t ? 'bg-blue-600 text-white shadow-md' : 'bg-slate-50 text-slate-400'}`}>{t}</button>))}</div>
                     <div className="grid grid-cols-2 gap-2"><input type="date" value={currentMeeting.date} onChange={e=>setCurrentMeeting({...currentMeeting, date: e.target.value})} className="p-3 border rounded-xl text-xs font-bold italic outline-none" /><input type="time" value={currentMeeting.time} onChange={e=>setCurrentMeeting({...currentMeeting, time: e.target.value})} className="p-3 border rounded-xl text-xs font-bold italic outline-none" /></div>
-                    <input placeholder="Link ou Local da Reunião" className="w-full p-3 border rounded-xl text-xs font-bold outline-none bg-slate-50 italic shadow-inner" value={currentMeeting.type === 'Online' ? currentMeeting.link : currentMeeting.address} onChange={e=>setCurrentMeeting({...currentMeeting, [currentMeeting.type === 'Online' ? 'link' : 'address']: e.target.value})} />
+                    <input placeholder="Link ou Local" className="w-full p-3 border rounded-xl text-xs font-bold outline-none bg-slate-50 italic" value={currentMeeting.type === 'Online' ? currentMeeting.link : currentMeeting.address} onChange={e=>setCurrentMeeting({...currentMeeting, [currentMeeting.type === 'Online' ? 'link' : 'address']: e.target.value})} />
                   </div>
                 </div>
               )}
@@ -253,7 +258,7 @@ const App = () => {
               {/* ABA MATERIAIS */}
               {tab === 'materiais' && (
                 <div className="bg-white p-8 rounded-[40px] border shadow-sm animate-in fade-in space-y-8">
-                  <div className="flex justify-between items-center border-b pb-4"><h3 className="font-black text-[10px] uppercase italic tracking-widest text-slate-500">Documentação de Apoio</h3><button onClick={()=>fileRef.current?.click()} className="bg-blue-600 text-white px-6 py-2 rounded-2xl text-[9px] font-black uppercase tracking-widest shadow-xl"><Upload size={14} className="inline mr-2"/>Subir Material</button><input type="file" ref={fileRef} className="hidden" onChange={(e)=>handleUpload(e, 'materiais')} /></div>
+                  <div className="flex justify-between items-center border-b pb-4"><h3 className="font-black text-[10px] uppercase italic tracking-widest text-slate-500">Documentação</h3><button onClick={()=>fileRef.current?.click()} className="bg-blue-600 text-white px-6 py-2 rounded-2xl text-[9px] font-black uppercase tracking-widest shadow-xl"><Upload size={14} className="inline mr-2"/>Subir Material</button><input type="file" ref={fileRef} className="hidden" onChange={(e)=>handleUpload(e, 'materiais')} /></div>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">{currentMeeting.materiais.map(m => (<div key={m.id} className="p-5 bg-white rounded-3xl flex items-center gap-4 border-2 border-slate-50 shadow-sm"><FileText size={24} className="text-blue-600"/><div className="flex-1 text-xs font-bold truncate italic">{m.name}<p className="text-[8px] text-slate-400 font-black uppercase mt-1">{m.uploadedBy} • {m.date}</p></div><button onClick={()=>setCurrentMeeting({...currentMeeting, materiais: currentMeeting.materiais.filter(x=>x.id!==m.id)})}><Trash2 size={18} className="text-red-200 hover:text-red-500"/></button></div>))}</div>
                 </div>
               )}
@@ -262,10 +267,10 @@ const App = () => {
               {tab === 'delib' && (
                 <div className="space-y-6 animate-in fade-in">
                   <div className="bg-white p-8 rounded-[40px] border shadow-sm space-y-4">
-                    <h3 className="text-[10px] font-black uppercase italic text-slate-400 tracking-widest">Nova Pauta para Votação</h3>
-                    <input placeholder="Título da Deliberação Profissional..." className="w-full p-4 border rounded-2xl text-sm font-black italic outline-none bg-slate-50/50" value={newDelib.title} onChange={e=>setNewDelib({...newDelib, title: e.target.value})} />
-                    <div className="flex flex-wrap gap-2 text-[9px] font-black text-slate-400 uppercase italic">Participantes Votantes: {currentMeeting.participants.map((p, i) => (<button key={i} onClick={()=>setNewDelib({...newDelib, voters: newDelib.voters.includes(p.name)?newDelib.voters.filter(v=>v!==p.name):[...newDelib.voters, p.name]})} className={`px-3 py-1.5 rounded-xl border transition-all ${newDelib.voters.includes(p.name)?'bg-blue-600 text-white shadow-md border-blue-600':'bg-white'}`}>{p.name}</button>))}</div>
-                    <button onClick={()=>{if(newDelib.title && newDelib.voters.length > 0){setCurrentMeeting({...currentMeeting, deliberacoes:[...currentMeeting.deliberacoes, {id: Date.now(), title: newDelib.title, votes: newDelib.voters.map(n=>({name:n, status:'Pendente', just:'', saved:false}))}]}); setNewDelib({title:'', mats:[], voters:[]});}}} className="bg-blue-600 text-white px-8 py-3 rounded-2xl font-black text-[10px] uppercase shadow-xl tracking-widest">Habilitar Voto</button>
+                    <h3 className="text-[10px] font-black uppercase italic text-slate-400 tracking-widest">Votação Profissional</h3>
+                    <input placeholder="Título da Deliberação..." className="w-full p-4 border rounded-2xl text-sm font-black italic outline-none bg-slate-50/50" value={newDelib.title} onChange={e=>setNewDelib({...newDelib, title: e.target.value})} />
+                    <div className="flex flex-wrap gap-2 text-[9px] font-black text-slate-400 uppercase italic">Votantes: {currentMeeting.participants.map((p, i) => (<button key={i} onClick={()=>setNewDelib({...newDelib, voters: newDelib.voters.includes(p.name)?newDelib.voters.filter(v=>v!==p.name):[...newDelib.voters, p.name]})} className={`px-3 py-1.5 rounded-xl border transition-all ${newDelib.voters.includes(p.name)?'bg-blue-600 text-white shadow-md border-blue-600':'bg-white'}`}>{p.name}</button>))}</div>
+                    <button onClick={()=>{if(newDelib.title && newDelib.voters.length > 0){setCurrentMeeting({...currentMeeting, deliberacoes:[...currentMeeting.deliberacoes, {id: Date.now(), title: newDelib.title, votes: newDelib.voters.map(n=>({name:n, status:'Pendente', just:'', saved:false}))}]}); setNewDelib({title:'', mats:[], voters:[]});}}} className="bg-blue-600 text-white px-8 py-3 rounded-2xl font-black text-[10px] uppercase shadow-xl tracking-widest">Abrir Votação</button>
                   </div>
                   {currentMeeting.deliberacoes.map(d => (
                     <div key={d.id} className="bg-white rounded-[40px] border shadow-lg overflow-hidden mb-4">
@@ -289,21 +294,21 @@ const App = () => {
                 </div>
               )}
 
-              {/* ABA PLANO DE AÇÃO (MEDE ATRASOS NO DASHBOARD) */}
+              {/* ABA PLANO DE AÇÃO */}
               {tab === 'acoes' && (
                 <div className="space-y-6 animate-in fade-in">
                   <div className="bg-white p-8 rounded-[40px] border shadow-sm space-y-4">
-                    <h3 className="text-[10px] font-black uppercase italic flex items-center gap-2 text-blue-600 tracking-[0.2em]"><Target size={18}/> Registrar Nova Ação</h3>
+                    <h3 className="text-[10px] font-black uppercase italic flex items-center gap-2 text-blue-600 tracking-[0.2em]"><Target size={18}/> Nova Ação do Plano</h3>
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                      <input placeholder="Ação / Tarefa" className="p-4 text-xs border rounded-2xl outline-none font-bold italic bg-slate-50/50" value={newAcao.title} onChange={e=>setNewAcao({...newAcao, title: e.target.value})} />
-                      <select className="p-4 text-xs border rounded-2xl font-black uppercase italic outline-none bg-white" value={newAcao.resp} onChange={e=>setNewAcao({...newAcao, resp: e.target.value})}><option value="">Dono</option>{currentMeeting.participants.map((p,i)=><option key={i} value={p.name}>{p.name}</option>)}</select>
+                      <input placeholder="O que deve ser feito?" className="p-4 text-xs border rounded-2xl outline-none font-bold italic bg-slate-50/50" value={newAcao.title} onChange={e=>setNewAcao({...newAcao, title: e.target.value})} />
+                      <select className="p-4 text-xs border rounded-2xl font-black uppercase italic outline-none bg-white" value={newAcao.resp} onChange={e=>setNewAcao({...newAcao, resp: e.target.value})}><option value="">Responsável</option>{currentMeeting.participants.map((p,i)=><option key={i} value={p.name}>{p.name}</option>)}</select>
                       <input type="date" className="p-4 text-xs border rounded-2xl outline-none font-bold" value={newAcao.date} onChange={e=>setNewAcao({...newAcao, date: e.target.value})} />
                     </div>
                     <button onClick={()=>{if(newAcao.title){setCurrentMeeting({...currentMeeting, acoes: [...currentMeeting.acoes, {...newAcao, id: Date.now()}]}); setNewAcao({title:'', resp:'', date:'', status:'Pendente'});}}} className="w-full py-4 bg-blue-600 text-white rounded-2xl text-[10px] font-black uppercase shadow-xl tracking-widest">Adicionar ao Plano</button>
                   </div>
                   <div className="bg-white rounded-[40px] border shadow-sm overflow-hidden text-[10px] font-bold italic">
                     <table className="w-full text-left"><thead className="bg-slate-50 font-black uppercase text-slate-400 border-b tracking-widest"><tr><th className="p-6">Tarefa</th><th className="p-6">Responsável</th><th className="p-6">Prazo</th><th className="p-6 text-center">Status</th></tr></thead>
-                      <tbody>{currentMeeting.acoes.map(a => (<tr key={a.id} className="border-t hover:bg-slate-50/50"><td className="p-6 text-slate-700 underline decoration-slate-100">{a.title}</td><td className="p-6 text-slate-500">{a.resp}</td><td className="p-6 text-slate-400 font-black uppercase italic">{a.date}</td><td className="p-6 text-center"><select value={a.status} onChange={e => setCurrentMeeting({...currentMeeting, acoes: currentMeeting.acoes.map(x => x.id === a.id ? {...x, status: e.target.value} : x)})} className={`p-2 border rounded-xl font-black uppercase text-[8px] outline-none shadow-sm ${a.status==='Concluído'?'bg-green-100 text-green-700 border-green-200':'bg-blue-100 text-blue-700 border-blue-200'}`}>{['Pendente', 'Andamento', 'Concluído'].map(s => <option key={s} value={s}>{s}</option>)}</select></td></tr>))}</tbody>
+                      <tbody>{currentMeeting.acoes.map(a => (<tr key={a.id} className="border-t hover:bg-slate-50/50 transition-all"><td className="p-6 text-slate-700 underline decoration-slate-100">{a.title}</td><td className="p-6 text-slate-500">{a.resp}</td><td className="p-6 text-slate-400 font-black uppercase italic">{a.date}</td><td className="p-6 text-center"><select value={a.status} onChange={e => setCurrentMeeting({...currentMeeting, acoes: currentMeeting.acoes.map(x => x.id === a.id ? {...x, status: e.target.value} : x)})} className={`p-2 border rounded-xl font-black uppercase text-[8px] outline-none shadow-sm ${a.status==='Concluído'?'bg-green-100 text-green-700 border-green-200':'bg-blue-100 text-blue-700 border-blue-200'}`}>{['Pendente', 'Andamento', 'Concluído'].map(s => <option key={s} value={s}>{s}</option>)}</select></td></tr>))}</tbody>
                     </table>
                   </div>
                 </div>
@@ -313,20 +318,20 @@ const App = () => {
               {tab === 'atas' && (
                 <div className="bg-white p-8 rounded-[40px] border shadow-sm animate-in fade-in space-y-8">
                   <div className="flex justify-between items-center border-b pb-4">
-                    <div><h3 className="text-[10px] font-black uppercase flex items-center gap-2 italic text-green-700 tracking-widest"><FileCheck size={18}/> Registro Oficial de Atas</h3><p className="text-[8px] text-slate-400 font-black uppercase mt-1 tracking-widest italic">Documentação final assinada</p></div>
+                    <div><h3 className="text-[10px] font-black uppercase flex items-center gap-2 italic text-green-700 tracking-widest"><FileCheck size={18}/> Atas Assinadas</h3><p className="text-[8px] text-slate-400 font-black uppercase mt-1 tracking-widest italic">Controle de documentação final</p></div>
                     <button onClick={()=>ataRef.current?.click()} className="bg-green-600 text-white px-6 py-3 rounded-2xl text-[9px] font-black uppercase tracking-widest shadow-xl"><Upload size={14} className="inline mr-2"/>Subir Ata Final</button><input type="file" ref={ataRef} className="hidden" onChange={(e)=>handleUpload(e, 'atas')} />
                   </div>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     {currentMeeting.atas.map(ata => (
                       <div key={ata.id} className="p-5 bg-green-50/50 border border-green-100 rounded-[32px] flex items-center gap-4 group transition-all hover:border-green-300">
-                        <FileCheck size={28} className="text-green-600"/><div className="flex-1 min-w-0 font-bold italic"><p className="text-sm text-slate-700 truncate">{ata.name}</p><p className="text-[8px] text-slate-400 font-black uppercase tracking-widest italic">{ata.uploadedBy} • {ata.date}</p></div><button onClick={()=>setCurrentMeeting({...currentMeeting, atas: currentMeeting.atas.filter(a => a.id !== ata.id)})} className="text-slate-300 hover:text-red-500 opacity-0 group-hover:opacity-100"><Trash2 size={18}/></button>
+                        <FileCheck size={28} className="text-green-600"/><div className="flex-1 min-w-0 font-bold italic"><p className="text-sm text-slate-700 truncate">{ata.name}</p><p className="text-[8px] text-slate-400 font-black uppercase tracking-widest italic">{ata.uploadedBy} • {ata.date}</p></div><button onClick={()=>setCurrentMeeting({...currentMeeting, atas: currentMeeting.atas.filter(a => a.id !== ata.id)})} className="text-slate-300 hover:text-red-500 transition-all opacity-0 group-hover:opacity-100"><Trash2 size={18}/></button>
                       </div>
                     ))}
                   </div>
                 </div>
               )}
             </div>
-          ))}
+          )}
         </div>
       </main>
     </div>
