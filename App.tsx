@@ -20,7 +20,7 @@ const App = () => {
 
   // --- LOGS DE AUDITORIA ---
   const [auditLogs, setAuditLogs] = useState<any[]>([
-    { id: 1, date: '18/02/2026 15:20', user: 'Sistema', action: 'Segurança', details: 'Módulos de Documentação reativados.' }
+    { id: 1, date: '18/02/2026 15:30', user: 'Sistema', action: 'Segurança', details: 'Dashboard e Repositório sincronizados.' }
   ]);
 
   const addLog = (action: string, details: string) => {
@@ -69,14 +69,23 @@ const App = () => {
   const canCreate = isAdm || isSec;
   const canDelete = isAdm;
 
-  // --- DASHBOARD LOGIC ---
+  // --- DASHBOARD LOGIC (RESTAURADA) ---
   const stats = useMemo(() => {
     const allA = meetings.flatMap(m => (m.acoes || []).map(a => ({ ...a, mTitle: m.title })));
+    const allD = meetings.flatMap(m => (m.deliberacoes || []));
     const pending = allA.filter(a => a.status !== 'Concluído');
+    const approvedDelibs = allD.filter(d => d.votes?.some((v:any) => v.status === 'Aprovado')).length;
+
     return { 
         act: `${allA.filter(a=>a.status==='Concluído').length}/${allA.length}`, 
+        del: `${approvedDelibs}/${allD.length}`,
         atas: meetings.reduce((acc, m) => acc + (m.atas?.length || 0), 0),
-        pending, allA
+        pending, allA,
+        chartData: meetings.map(m => ({ n: m.title.substring(0,12), a: m.acoes?.filter(x=>x.status!=='Concluído').length || 0 })),
+        pieData: [
+            { name: 'Concluído', value: allA.filter(a=>a.status==='Concluído').length },
+            { name: 'Pendente', value: pending.length }
+        ]
     };
   }, [meetings]);
 
@@ -97,7 +106,7 @@ const App = () => {
     const isNew = currentMeeting.id === 0;
     const entry = isNew ? { ...currentMeeting, id: Date.now() } : currentMeeting;
     setMeetings(isNew ? [entry, ...meetings] : meetings.map(m => m.id === entry.id ? entry : m));
-    addLog(isNew ? 'Criação' : 'Edição', `Reunião salva: ${currentMeeting.title}`);
+    addLog(isNew ? 'Criação' : 'Edição', `Reunião: ${currentMeeting.title}`);
     setView('list'); setActiveMenu('dashboard');
   };
 
@@ -106,7 +115,7 @@ const App = () => {
     if (f) {
       const entry = { id: Date.now(), name: f.name, uploadedBy: currentUser.name, date: '18/02/2026' };
       setCurrentMeeting(prev => ({ ...prev, [target]: [...prev[target], entry] }));
-      addLog('Upload', `Arquivo ${f.name} adicionado em ${target}.`);
+      addLog('Upload', `Subiu ${f.name} em ${target}`);
     }
   };
 
@@ -118,13 +127,13 @@ const App = () => {
           <div className="p-10 bg-slate-900 text-white text-center border-b-8 border-blue-600">
             <CheckCircle2 size={48} className="mx-auto mb-4 text-blue-500" />
             <h1 className="text-3xl font-black italic tracking-tighter uppercase leading-none">GovCorp</h1>
-            <p className="text-slate-400 text-[10px] font-black uppercase tracking-[0.3em] mt-3">Governance Profissional</p>
+            <p className="text-slate-400 text-[10px] font-black uppercase tracking-[0.3em] mt-3 tracking-widest">INEPAD Governance</p>
           </div>
           <div className="p-10">
             <form onSubmit={handleLogin} className="space-y-4">
               <div className="relative"><Mail className="absolute left-4 top-3.5 text-slate-400" size={18} /><input type="email" placeholder="E-mail" className="w-full pl-12 pr-4 py-3.5 bg-slate-50 border rounded-2xl text-sm font-bold italic outline-none focus:border-blue-500" value={authForm.email} onChange={e=>setAuthForm({...authForm, email: e.target.value})} /></div>
               <div className="relative"><Key className="absolute left-4 top-3.5 text-slate-400" size={18} /><input type="password" placeholder="Senha" className="w-full pl-12 pr-4 py-3.5 bg-slate-50 border rounded-2xl text-sm font-bold italic outline-none focus:border-blue-500" value={authForm.password} onChange={e=>setAuthForm({...authForm, password: e.target.value})} /></div>
-              <button type="submit" className="w-full bg-blue-600 text-white py-4 rounded-2xl font-black text-xs uppercase tracking-widest shadow-xl hover:bg-blue-700 transition-all">Entrar</button>
+              <button type="submit" className="w-full bg-blue-600 text-white py-4 rounded-2xl font-black text-xs uppercase tracking-widest">Acessar Sistema</button>
             </form>
           </div>
         </div>
@@ -139,46 +148,67 @@ const App = () => {
     mainContent = (
       <div className="space-y-8 animate-in fade-in">
         <div className="flex justify-between items-end"><h1 className="text-2xl font-black italic text-slate-800 tracking-tighter">Visão Estratégica</h1>{canCreate && <button onClick={()=>{setCurrentMeeting(blankMeeting); setView('details'); setTab('info'); setActiveMenu('reunioes');}} className="bg-blue-600 text-white px-5 py-2.5 rounded-2xl font-black text-[10px] uppercase shadow-xl hover:scale-105 transition-all">+ Nova Reunião</button>}</div>
+        
         <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-          {[ {l:'Ações Concluídas', v:stats.act, i:<CheckCircle2/>, c:'blue'}, {l:'ATAs Registradas', v:stats.atas, i:<FileCheck/>, c:'green'}, {l:'Pendências', v:stats.pending.length, i:<AlertCircle/>, c:'red'} ].map((s, idx) => (
+          {[ 
+            {l:'Ações Concluídas', v:stats.act, i:<CheckCircle2/>, c:'blue'}, 
+            {l:'Deliberações Aprov.', v:stats.del, i:<FileText/>, c:'indigo'}, 
+            {l:'ATAs Registradas', v:stats.atas, i:<FileCheck/>, c:'green'}, 
+            {l:'Pendências Ativas', v:stats.pending.length, i:<AlertCircle/>, c:'red'} 
+          ].map((s, idx) => (
             <div key={idx} className="bg-white p-6 rounded-[32px] border shadow-sm">
-                <div className={`w-10 h-10 rounded-2xl mb-4 flex items-center justify-center ${s.c==='blue'?'bg-blue-50 text-blue-600':s.c==='red'?'bg-red-50 text-red-600':'bg-green-50 text-green-600'}`}>{s.i}</div>
+                <div className={`w-10 h-10 rounded-2xl mb-4 flex items-center justify-center ${s.c==='blue'?'bg-blue-50 text-blue-600':s.c==='indigo'?'bg-indigo-50 text-indigo-600':s.c==='red'?'bg-red-50 text-red-600':'bg-green-50 text-green-600'}`}>{s.i}</div>
                 <p className="text-[9px] font-black text-slate-400 uppercase italic mb-1">{s.l}</p><p className="text-2xl font-black text-slate-800 tracking-tighter">{s.v}</p>
             </div>
           ))}
         </div>
+
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-          <div className="lg:col-span-2 bg-white p-8 rounded-[40px] border shadow-sm h-96"><h3 className="text-[10px] font-black uppercase mb-6 italic text-slate-500 flex items-center gap-2"><BarChart3 size={16}/> Pendências por Reunião</h3><div className="h-64"><ResponsiveContainer width="100%" height="100%"><BarChart data={meetings.map(m=>({n:m.title.substring(0,10), a:m.acoes?.filter(x=>x.status!=='Concluído').length||0}))}><CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" /><XAxis dataKey="n" axisLine={false} tickLine={false} tick={{fontSize: 9, fontWeight: 900}} /><YAxis hide /><Tooltip cursor={{fill:'#f8fafc'}}/><Bar dataKey="a" fill="#ef4444" radius={[6,6,0,0]} barSize={25}/></BarChart></ResponsiveContainer></div></div>
-          <div className="bg-white p-8 rounded-[40px] border shadow-sm h-96 flex flex-col justify-center text-center"><PieIcon size={40} className="mx-auto text-slate-200 mb-4" /><p className="text-[10px] font-black text-slate-400 uppercase italic">Métricas Ativas</p></div>
+          <div className="lg:col-span-2 bg-white p-8 rounded-[40px] border shadow-sm h-96">
+            <h3 className="text-[10px] font-black uppercase mb-6 italic text-slate-500 flex items-center gap-2"><BarChart3 size={16}/> Pendências por Reunião</h3>
+            <div className="h-64">
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={stats.chartData}>
+                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                  <XAxis dataKey="n" axisLine={false} tickLine={false} tick={{fontSize: 9, fontWeight: 900}} />
+                  <YAxis hide />
+                  <Tooltip cursor={{fill:'#f8fafc'}}/>
+                  <Bar dataKey="a" fill="#ef4444" radius={[6,6,0,0]} barSize={30} />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
+          <div className="bg-white p-8 rounded-[40px] border shadow-sm h-96 flex flex-col">
+            <h3 className="text-[10px] font-black uppercase mb-6 italic text-slate-500 flex items-center gap-2"><PieIcon size={16}/> Saúde das Ações</h3>
+            <div className="flex-1">
+              <ResponsiveContainer width="100%" height="100%">
+                <PieChart>
+                  <Pie data={stats.pieData} innerRadius={60} outerRadius={80} dataKey="value" paddingAngle={8}>
+                    <Cell fill="#10b981"/><Cell fill="#f59e0b"/>
+                  </Pie>
+                  <Tooltip/>
+                  <Legend />
+                </PieChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
+        </div>
+
+        <div className="bg-white p-8 rounded-[40px] border shadow-sm overflow-hidden">
+          <div className="flex justify-between items-center mb-6"><h3 className="text-[10px] font-black uppercase italic text-slate-500 flex items-center gap-2"><Target size={16}/> Plano de Ações (Top 5)</h3><button onClick={() => setActiveMenu('reunioes')} className="text-blue-600 text-[10px] font-black uppercase hover:underline">Ver Reuniões</button></div>
+          <table className="w-full text-left font-bold italic"><thead className="bg-slate-50 text-[9px] font-black uppercase text-slate-400 border-b"><tr><th className="p-4">Tarefa</th><th className="p-4">Reunião</th><th className="p-4 text-center">Status</th><th className="p-4">Dono</th></tr></thead><tbody>
+            {stats.pending.slice(0, 5).map((a, i) => (
+              <tr key={i} className="border-t hover:bg-slate-50/50"><td className="p-4 text-slate-800 underline italic">{a.title}</td><td className="p-4 text-slate-400 text-[10px] uppercase font-black">{a.mTitle}</td><td className="p-4 text-center"><span className="px-3 py-1 rounded-full text-[8px] font-black uppercase bg-amber-100 text-amber-700">{a.status}</span></td><td className="p-4 text-slate-500">{a.resp}</td></tr>
+            ))}
+          </tbody></table>
         </div>
       </div>
     );
   } else if (activeMenu === 'auditoria' && isAdm) {
     mainContent = (
       <div className="space-y-8 animate-in fade-in">
-        <h1 className="text-2xl font-black italic text-slate-800 tracking-tighter flex items-center gap-3"><History className="text-blue-600" size={28}/> Auditoria Profissional</h1>
-        <div className="bg-white rounded-[40px] border shadow-sm overflow-hidden"><table className="w-full text-left font-bold italic"><thead className="bg-slate-50 text-[9px] font-black uppercase text-slate-400 border-b"><tr><th className="p-6">Data/Hora</th><th className="p-6">Usuário</th><th className="p-6">Ação</th><th className="p-6">Detalhes</th></tr></thead><tbody>{auditLogs.map((log) => (<tr key={log.id} className="border-t hover:bg-slate-50/50"><td className="p-6 text-[10px] text-slate-400 font-black">{log.date}</td><td className="p-6 text-xs text-blue-600 font-black uppercase">{log.user}</td><td className="p-6"><span className={`px-3 py-1 rounded-full text-[8px] font-black uppercase ${log.action.includes('Excl') ? 'bg-red-100 text-red-600' : 'bg-blue-100 text-blue-600'}`}>{log.action}</span></td><td className="p-6 text-xs text-slate-600">{log.details}</td></tr>))}</tbody></table></div>
-      </div>
-    );
-  } else if (activeMenu === 'usuarios' && isAdm) {
-    mainContent = (
-      <div className="space-y-8 animate-in fade-in">
-        <h1 className="text-2xl font-black italic text-slate-800 tracking-tighter">Conselheiros</h1>
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-          <div className="bg-white p-6 rounded-[32px] border shadow-sm space-y-4 h-fit">
-             <h3 className="text-[10px] font-black uppercase italic text-slate-400 flex items-center gap-2"><UserPlus size={16}/> Adicionar Membro</h3>
-             <input placeholder="Nome" className="w-full p-3 bg-slate-50 border rounded-xl text-xs font-bold italic outline-none focus:border-blue-400" value={newUserForm.name} onChange={e=>setNewUserForm({...newUserForm, name: e.target.value})} />
-             <input placeholder="Email" className="w-full p-3 bg-slate-50 border rounded-xl text-xs font-bold italic outline-none focus:border-blue-400" value={newUserForm.email} onChange={e=>setNewUserForm({...newUserForm, email: e.target.value})} />
-             <input type="password" placeholder="Senha Temporária" className="w-full p-3 bg-slate-50 border rounded-xl text-xs font-bold outline-none focus:border-blue-400" value={newUserForm.password} onChange={e=>setNewUserForm({...newUserForm, password: e.target.value})} />
-             <select className="w-full p-3 border rounded-xl text-[10px] font-black uppercase italic bg-white" value={newUserForm.role} onChange={e=>setNewUserForm({...newUserForm, role: e.target.value})}>
-               <option value="Administrador">Administrador</option><option value="Secretário">Secretário</option><option value="Conselheiro">Conselheiro</option>
-             </select>
-             <button onClick={()=>{ if(!newUserForm.name || !newUserForm.email || !newUserForm.password) return alert("Preencha tudo."); setUsers([...users, {...newUserForm, id: Date.now()}]); addLog('Segurança', `Novo usuário: ${newUserForm.name}`); setNewUserForm({name:'', email:'', role:'Conselheiro', password:''}); alert("Membro criado!"); }} className="w-full py-3 bg-blue-600 text-white rounded-xl font-black text-[10px] uppercase shadow-lg">Cadastrar</button>
-          </div>
-          <div className="md:col-span-3 bg-white rounded-[40px] border shadow-sm overflow-hidden"><table className="w-full text-left font-bold italic"><thead className="bg-slate-50 text-[9px] font-black uppercase text-slate-400 border-b"><tr><th className="p-6">Nome</th><th className="p-6">Perfil</th><th className="p-6 text-center">Ações</th></tr></thead><tbody>{users.map((u, i) => (
-            <tr key={i} className="border-t"><td className="p-6 text-xs">{u.name}<p className="text-[9px] text-slate-400 font-black tracking-widest">{u.email}</p></td><td className="p-6"><span className="bg-slate-50 p-2 rounded-xl text-[9px] font-black uppercase">{u.role}</span></td><td className="p-6 text-center"><button onClick={()=>{if(u.id!==1){ setUsers(users.filter(x=>x.id!==u.id)); addLog('Exclusão', `Usuário removido: ${u.name}`); }}} className="text-red-300 hover:text-red-500 transition-colors"><Trash2 size={18}/></button></td></tr>
-          ))}</tbody></table></div>
-        </div>
+        <h1 className="text-2xl font-black italic text-slate-800 tracking-tighter flex items-center gap-3"><History className="text-blue-600" size={28}/> Log de Auditoria</h1>
+        <div className="bg-white rounded-[40px] border shadow-sm overflow-hidden"><table className="w-full text-left font-bold italic"><thead className="bg-slate-50 text-[9px] font-black uppercase text-slate-400 border-b italic"><tr><th className="p-6">Data/Hora</th><th className="p-6">Usuário</th><th className="p-6">Ação</th><th className="p-6">Detalhes</th></tr></thead><tbody>{auditLogs.map((log) => (<tr key={log.id} className="border-t hover:bg-slate-50/50"><td className="p-6 text-[10px] text-slate-400 font-black">{log.date}</td><td className="p-6 text-xs text-blue-600 font-black uppercase">{log.user}</td><td className="p-6"><span className={`px-3 py-1 rounded-full text-[8px] font-black uppercase ${log.action.includes('Excl') ? 'bg-red-100 text-red-600' : 'bg-blue-100 text-blue-600'}`}>{log.action}</span></td><td className="p-6 text-xs text-slate-600">{log.details}</td></tr>))}</tbody></table></div>
       </div>
     );
   } else if (activeMenu === 'perfil') {
@@ -196,12 +226,33 @@ const App = () => {
           </div>
           <div className="md:col-span-2 bg-white p-8 rounded-[40px] border shadow-sm space-y-6">
             <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-1"><label className="text-[9px] font-black uppercase text-slate-400 ml-2">Nome Completo</label><input className="w-full p-4 bg-slate-50 border rounded-2xl text-xs font-bold italic outline-none" value={profileForm.name} onChange={e=>setProfileForm({...profileForm, name: e.target.value})} /></div>
-              <div className="space-y-1"><label className="text-[9px] font-black uppercase text-slate-400 ml-2">E-mail</label><input className="w-full p-4 bg-slate-50 border rounded-2xl text-xs font-bold italic outline-none" value={profileForm.email} onChange={e=>setProfileForm({...profileForm, email: e.target.value})} /></div>
+              <div className="space-y-1"><label className="text-[9px] font-black uppercase text-slate-400 ml-2">Nome</label><input className="w-full p-4 bg-slate-50 border rounded-2xl text-xs font-bold italic outline-none focus:border-blue-500" value={profileForm.name} onChange={e=>setProfileForm({...profileForm, name: e.target.value})} /></div>
+              <div className="space-y-1"><label className="text-[9px] font-black uppercase text-slate-400 ml-2">E-mail</label><input className="w-full p-4 bg-slate-50 border rounded-2xl text-xs font-bold italic outline-none focus:border-blue-500" value={profileForm.email} onChange={e=>setProfileForm({...profileForm, email: e.target.value})} /></div>
             </div>
-            <div className="space-y-1"><label className="text-[9px] font-black uppercase text-slate-400 ml-2">Nova Senha</label><input type="password" placeholder="••••••••" className="w-full p-4 bg-slate-50 border rounded-2xl text-xs font-bold outline-none" onChange={e=>setProfileForm({...profileForm, newPass: e.target.value})} /></div>
-            <button onClick={()=>{ if(profileForm.newPass && profileForm.newPass.length < 6) return alert("Senha muito curta."); setUsers(users.map(u=>u.id===currentUser.id?{...u, name:profileForm.name, email:profileForm.email, password: profileForm.newPass || u.password}:u)); setCurrentUser({...currentUser, name:profileForm.name, email:profileForm.email}); addLog('Perfil', 'Dados atualizados.'); alert("Perfil salvo!");}} className="bg-slate-900 text-white px-8 py-3.5 rounded-2xl font-black text-[10px] uppercase flex items-center gap-2 shadow-xl hover:bg-black transition-all"><Save size={16}/> Confirmar Alterações</button>
+            <div className="space-y-1"><label className="text-[9px] font-black uppercase text-slate-400 ml-2">Mudar Senha</label><input type="password" placeholder="••••••••" className="w-full p-4 bg-slate-50 border rounded-2xl text-xs font-bold outline-none" onChange={e=>setProfileForm({...profileForm, newPass: e.target.value})} /></div>
+            <button onClick={()=>{ setUsers(users.map(u=>u.id===currentUser.id?{...u, name:profileForm.name, email:profileForm.email, password: profileForm.newPass || u.password}:u)); setCurrentUser({...currentUser, name:profileForm.name, email:profileForm.email}); addLog('Perfil', 'Dados atualizados.'); alert("Perfil salvo!");}} className="bg-slate-900 text-white px-8 py-3.5 rounded-2xl font-black text-[10px] uppercase flex items-center gap-2 shadow-xl hover:bg-black transition-all"><Save size={16}/> Salvar Alterações</button>
           </div>
+        </div>
+      </div>
+    );
+  } else if (activeMenu === 'usuarios' && isAdm) {
+    mainContent = (
+      <div className="space-y-8 animate-in fade-in">
+        <h1 className="text-2xl font-black italic text-slate-800 tracking-tighter">Gestão de Usuários</h1>
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+          <div className="bg-white p-6 rounded-[32px] border shadow-sm space-y-4 h-fit">
+             <h3 className="text-[10px] font-black uppercase italic text-slate-400 flex items-center gap-2"><UserPlus size={16}/> Novo Membro</h3>
+             <input placeholder="Nome" className="w-full p-3 bg-slate-50 border rounded-xl text-xs font-bold italic outline-none focus:border-blue-400" value={newUserForm.name} onChange={e=>setNewUserForm({...newUserForm, name: e.target.value})} />
+             <input placeholder="Email" className="w-full p-3 bg-slate-50 border rounded-xl text-xs font-bold italic outline-none focus:border-blue-400" value={newUserForm.email} onChange={e=>setNewUserForm({...newUserForm, email: e.target.value})} />
+             <input type="password" placeholder="Senha" className="w-full p-3 bg-slate-50 border rounded-xl text-xs font-bold outline-none" value={newUserForm.password} onChange={e=>setNewUserForm({...newUserForm, password: e.target.value})} />
+             <select className="w-full p-3 border rounded-xl text-[10px] font-black uppercase italic bg-white" value={newUserForm.role} onChange={e=>setNewUserForm({...newUserForm, role: e.target.value})}>
+               <option value="Administrador">Administrador</option><option value="Secretário">Secretário</option><option value="Conselheiro">Conselheiro</option>
+             </select>
+             <button onClick={()=>{ if(!newUserForm.name || !newUserForm.email) return alert("Preencha Nome e E-mail."); setUsers([...users, {...newUserForm, id: Date.now()}]); addLog('Segurança', `Novo usuário: ${newUserForm.name}`); setNewUserForm({name:'', email:'', role:'Conselheiro', password:''}); alert("Membro criado!"); }} className="w-full py-3 bg-blue-600 text-white rounded-xl font-black text-[10px] uppercase shadow-lg">Cadastrar</button>
+          </div>
+          <div className="md:col-span-3 bg-white rounded-[40px] border shadow-sm overflow-hidden"><table className="w-full text-left font-bold italic"><thead className="bg-slate-50 text-[9px] font-black uppercase text-slate-400 border-b"><tr><th className="p-6">Nome</th><th className="p-6">Perfil</th><th className="p-6 text-center">Ações</th></tr></thead><tbody>{users.map((u, i) => (
+            <tr key={i} className="border-t"><td className="p-6 text-xs">{u.name}<p className="text-[9px] text-slate-400 font-black tracking-widest">{u.email}</p></td><td className="p-6"><span className="bg-slate-50 p-2 rounded-xl text-[9px] font-black uppercase">{u.role}</span></td><td className="p-6 text-center"><button onClick={()=>{if(u.id!==1){ setUsers(users.filter(x=>x.id!==u.id)); addLog('Exclusão', `Usuário removido: ${u.name}`); }}} className="text-red-300 hover:text-red-500 transition-colors"><Trash2 size={18}/></button></td></tr>
+          ))}</tbody></table></div>
         </div>
       </div>
     );
@@ -213,24 +264,25 @@ const App = () => {
       </div>
     );
   } else {
-    // EDITOR DE REUNIÃO - TODAS AS ABAS RESTAURADAS
+    // EDITOR DE REUNIÃO - TODAS AS ABAS INTEGRADAS
     mainContent = (
       <div className="animate-in fade-in pb-20">
-        <div className="flex justify-between items-center mb-8"><button onClick={()=>setView('list')} className="text-slate-400 hover:text-blue-600 flex items-center gap-1 text-[10px] font-black uppercase italic transition-all"><ChevronRight className="rotate-180" size={16}/> Voltar</button><button onClick={handleSaveMeeting} className="bg-slate-900 text-white px-8 py-3 rounded-2xl font-black text-[10px] uppercase shadow-xl hover:bg-black transition-all flex items-center gap-2"><Save size={16}/> Salvar no Histórico</button></div>
+        <div className="flex justify-between items-center mb-8"><button onClick={()=>setView('list')} className="text-slate-400 hover:text-blue-600 flex items-center gap-1 text-[10px] font-black uppercase italic transition-all"><ChevronRight className="rotate-180" size={16}/> Voltar</button><button onClick={handleSaveMeeting} className="bg-slate-900 text-white px-8 py-3 rounded-2xl font-black text-[10px] uppercase shadow-xl hover:bg-black transition-all flex items-center gap-2"><Save size={16}/> Salvar Reunião</button></div>
         <input placeholder="Título da Reunião..." className="text-3xl font-black text-slate-800 tracking-tighter bg-transparent outline-none w-full italic mb-8 border-b-2 border-slate-100 focus:border-blue-300 pb-2 shadow-none" value={currentMeeting.title} onChange={e=>setCurrentMeeting({...currentMeeting, title: e.target.value})} />
         <div className="border-b border-slate-200 flex gap-6 mb-8 overflow-x-auto scrollbar-hide font-black text-[9px] uppercase italic tracking-widest">{['Informações', 'Ordem do Dia', 'Materiais', 'Deliberações', 'Planos de Ação', 'Atas'].map((t, i) => (<button key={i} onClick={()=>setTab(['info', 'pauta', 'materiais', 'delib', 'acoes', 'atas'][i])} className={`pb-3 transition-all relative whitespace-nowrap ${tab === ['info', 'pauta', 'materiais', 'delib', 'acoes', 'atas'][i] ? 'text-blue-600 border-b-2 border-blue-600' : 'text-slate-400'}`}>{t}</button>))}</div>
         
+        {/* CONTEÚDO DAS ABAS */}
         {tab === 'info' && (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6 animate-in fade-in">
-            <div className="bg-white p-6 rounded-[32px] border shadow-sm"><h3 className="text-[10px] font-black uppercase mb-4 italic text-slate-400 flex items-center gap-2"><UserPlus size={16}/> Participantes</h3><div className="space-y-2 mb-4">{currentMeeting.participants.map((p:any, i:any) => (<div key={i} className="flex justify-between p-3 bg-slate-50 rounded-2xl text-xs font-bold italic border border-slate-100"><div>{p.name}<p className="text-[9px] text-slate-400 font-black">{p.email}</p></div><button onClick={()=>setCurrentMeeting({...currentMeeting, participants: currentMeeting.participants.filter((_:any, idx:any)=>idx!==i)})}><X size={14}/></button></div>))}</div><div className="space-y-2 p-3 bg-slate-50 rounded-2xl border-2 border-dashed border-slate-200"><input placeholder="Nome" className="w-full p-2 text-xs border rounded-xl outline-none" value={tmpPart.name} onChange={e=>setTmpPart({...tmpPart, name:e.target.value})} /><input placeholder="Email" className="w-full p-2 text-xs border rounded-xl outline-none" value={tmpPart.email} onChange={e=>setTmpPart({...tmpPart, email:e.target.value})} /><button onClick={()=>{if(tmpPart.name){setCurrentMeeting({...currentMeeting, participants:[...currentMeeting.participants, tmpPart]}); setTmpPart({name:'', email:''});}}} className="w-full py-2 bg-blue-600 text-white rounded-xl text-[9px] font-black uppercase">Adicionar</button></div><button onClick={()=>alert("Convites enviados!")} className="w-full mt-4 py-3 border-2 border-blue-600 text-blue-600 rounded-2xl text-[9px] font-black uppercase flex items-center justify-center gap-2 shadow-sm"><Send size={14}/> Convocação Oficial</button></div>
+            <div className="bg-white p-6 rounded-[32px] border shadow-sm"><h3 className="text-[10px] font-black uppercase mb-4 italic text-slate-400 flex items-center gap-2"><UserPlus size={16}/> Participantes</h3><div className="space-y-2 mb-4">{currentMeeting.participants.map((p:any, i:any) => (<div key={i} className="flex justify-between p-3 bg-slate-50 rounded-2xl text-xs font-bold italic border border-slate-100"><div>{p.name}<p className="text-[9px] text-slate-400 font-black">{p.email}</p></div><button onClick={()=>setCurrentMeeting({...currentMeeting, participants: currentMeeting.participants.filter((_:any, idx:any)=>idx!==i)})}><X size={14}/></button></div>))}</div><div className="space-y-2 p-3 bg-slate-50 rounded-2xl border-2 border-dashed border-slate-200"><input placeholder="Nome" className="w-full p-2 text-xs border rounded-xl outline-none" value={tmpPart.name} onChange={e=>setTmpPart({...tmpPart, name:e.target.value})} /><input placeholder="Email" className="w-full p-2 text-xs border rounded-xl outline-none" value={tmpPart.email} onChange={e=>setTmpPart({...tmpPart, email:e.target.value})} /><button onClick={()=>{if(tmpPart.name){setCurrentMeeting({...currentMeeting, participants:[...currentMeeting.participants, tmpPart]}); setTmpPart({name:'', email:''});}}} className="w-full py-2 bg-blue-600 text-white rounded-xl text-[9px] font-black uppercase">Adicionar</button></div><button onClick={()=>alert("E-mails enviados!")} className="w-full mt-4 py-3 border-2 border-blue-600 text-blue-600 rounded-2xl text-[9px] font-black uppercase flex items-center justify-center gap-2 shadow-sm"><Send size={14}/> Convocação Oficial</button></div>
             <div className="bg-white p-6 rounded-[32px] border shadow-sm space-y-4 h-full"><h3 className="text-[10px] font-black uppercase mb-4 italic text-slate-400 flex items-center gap-2"><Clock size={16}/> Logística</h3><div className="flex gap-2">{['Online', 'Presencial', 'Híbrida'].map(t => (<button key={t} onClick={()=>setCurrentMeeting({...currentMeeting, type: t})} className={`flex-1 py-2 border rounded-xl text-[9px] font-black uppercase transition-all ${currentMeeting.type === t ? 'bg-blue-600 text-white shadow-md border-blue-600' : 'bg-slate-50 text-slate-400'}`}>{t}</button>))}</div><div className="grid grid-cols-2 gap-2"><input type="date" value={currentMeeting.date} onChange={e=>setCurrentMeeting({...currentMeeting, date: e.target.value})} className="p-3 border rounded-xl text-xs font-bold italic bg-slate-50 outline-none" /><input type="time" value={currentMeeting.time} onChange={e=>setCurrentMeeting({...currentMeeting, time: e.target.value})} className="p-3 border rounded-xl text-xs font-bold italic bg-slate-50 outline-none" /></div><input placeholder="Link ou Sala" className="w-full p-3 border rounded-xl text-xs font-bold outline-none bg-slate-50 italic" value={currentMeeting.type === 'Online' ? currentMeeting.link : currentMeeting.address} onChange={e=>setCurrentMeeting({...currentMeeting, [currentMeeting.type === 'Online' ? 'link' : 'address']: e.target.value})} /></div>
           </div>
         )}
         {tab === 'pauta' && (
-          <div className="bg-white p-8 rounded-[40px] border shadow-sm animate-in fade-in space-y-6"><div className="flex justify-between items-center font-black uppercase text-[10px] italic text-slate-500"><h3>Ordem do Dia</h3></div><div className="space-y-3">{currentMeeting.pautas.map((p:any, i:any) => (<div key={i} className="flex gap-4 p-5 border rounded-3xl bg-slate-50/50 text-xs items-center shadow-sm font-bold italic"><GripVertical className="text-slate-200"/><div className="flex-1">{p.title}</div><div className="font-black text-slate-400 uppercase text-[9px]">{p.resp}</div><div className="font-black text-blue-600">{p.dur} MIN</div><button onClick={()=>setCurrentMeeting({...currentMeeting, pautas: currentMeeting.pautas.filter((_:any, idx:any)=>idx!==i)})}><Trash2 size={16}/></button></div>))}</div><div className="p-8 bg-slate-50 rounded-[32px] border-2 border-dashed grid grid-cols-4 gap-3"><input placeholder="Assunto" className="col-span-2 p-3 text-xs border rounded-xl outline-none" value={tmpPauta.title} onChange={e=>setTmpPauta({...tmpPauta, title:e.target.value})} /><select className="p-3 text-xs border rounded-xl outline-none font-black uppercase italic bg-white" value={tmpPauta.resp} onChange={e=>setTmpPauta({...tmpPauta, resp:e.target.value})}><option value="">Dono</option>{currentMeeting.participants.map((p:any, idx:any)=>(<option key={idx} value={p.name}>{p.name}</option>))}</select><input type="number" placeholder="Min" className="p-3 text-xs border rounded-xl outline-none" value={tmpPauta.dur} onChange={e=>setTmpPauta({...tmpPauta, dur:e.target.value})} /><button onClick={()=>{if(tmpPauta.title){setCurrentMeeting({...currentMeeting, pautas:[...currentMeeting.pautas, tmpPauta]}); setTmpPauta({title:'', resp:'', dur:''});}}} className="col-span-4 bg-blue-600 text-white rounded-2xl py-3 font-black text-[10px] uppercase shadow-lg">Adicionar</button></div></div>
+          <div className="bg-white p-8 rounded-[40px] border shadow-sm animate-in fade-in space-y-6"><div className="flex justify-between items-center font-black uppercase text-[10px] italic text-slate-500"><h3>Ordem do Dia</h3></div><div className="space-y-3">{currentMeeting.pautas.map((p:any, i:any) => (<div key={i} className="flex gap-4 p-5 border rounded-3xl bg-slate-50/50 text-xs items-center shadow-sm font-bold italic"><GripVertical className="text-slate-200"/><div className="flex-1">{p.title}</div><div className="font-black text-slate-400 uppercase text-[9px]">{p.resp}</div><div className="font-black text-blue-600">{p.dur} MIN</div><button onClick={()=>setCurrentMeeting({...currentMeeting, pautas: currentMeeting.pautas.filter((_:any, idx:any)=>idx!==i)})}><Trash2 size={16}/></button></div>))}</div><div className="p-8 bg-slate-50 rounded-[32px] border-2 border-dashed grid grid-cols-4 gap-3"><input placeholder="Assunto" className="col-span-2 p-3 text-xs border rounded-xl outline-none" value={tmpPauta.title} onChange={e=>setTmpPauta({...tmpPauta, title:e.target.value})} /><select className="p-3 text-xs border rounded-xl outline-none font-black uppercase italic bg-white" value={tmpPauta.resp} onChange={e=>setTmpPauta({...tmpPauta, resp:e.target.value})}><option value="">Dono</option>{currentMeeting.participants.map((p:any, idx:any)=>(<option key={idx} value={p.name}>{p.name}</option>))}</select><input type="number" placeholder="Min" className="p-3 text-xs border rounded-xl outline-none" value={tmpPauta.dur} onChange={e=>setTmpPauta({...tmpPauta, dur:e.target.value})} /><button onClick={()=>{if(tmpPauta.title){setCurrentMeeting({...currentMeeting, pautas:[...currentMeeting.pautas, tmpPauta]}); setTmpPauta({title:'', resp:'', dur:''});}}} className="col-span-4 bg-blue-600 text-white rounded-2xl py-3 font-black text-[10px] uppercase shadow-lg">Adicionar à Pauta</button></div></div>
         )}
         {tab === 'materiais' && (
-          <div className="bg-white p-8 rounded-[40px] border shadow-sm animate-in fade-in space-y-8"><div className="flex justify-between items-center border-b pb-4"><h3 className="font-black text-[10px] uppercase italic text-slate-500 tracking-widest">Documentação de Apoio</h3><button onClick={()=>fileRef.current?.click()} className="bg-blue-600 text-white px-6 py-2 rounded-2xl text-[9px] font-black uppercase shadow-xl hover:scale-105 transition-all"><Upload size={14} className="inline mr-2"/>Subir Arquivo</button><input type="file" ref={fileRef} className="hidden" onChange={(e)=>handleUpload(e, 'materiais')} /></div><div className="grid grid-cols-1 md:grid-cols-2 gap-4">{currentMeeting.materiais.map((m:any, i:any) => (<div key={i} className="p-5 bg-white rounded-3xl flex items-center gap-4 border shadow-sm group transition-all hover:border-blue-200"><FileText size={24} className="text-blue-600"/><div className="flex-1 text-xs font-bold truncate italic">{m.name}<p className="text-[8px] text-slate-400 font-black uppercase mt-1">Por {m.uploadedBy}</p></div><button onClick={()=>setCurrentMeeting({...currentMeeting, materiais: currentMeeting.materiais.filter((_:any, idx:any)=>idx!==i)})} className="text-red-300 opacity-0 group-hover:opacity-100 transition-all"><Trash2 size={18}/></button></div>))}</div></div>
+          <div className="bg-white p-8 rounded-[40px] border shadow-sm animate-in fade-in space-y-8"><div className="flex justify-between items-center border-b pb-4"><h3 className="font-black text-[10px] uppercase italic text-slate-500 tracking-widest">Documentação de Apoio</h3><button onClick={()=>fileRef.current?.click()} className="bg-blue-600 text-white px-6 py-2 rounded-2xl text-[9px] font-black uppercase shadow-xl hover:scale-105 transition-all"><Upload size={14} className="inline mr-2"/>Subir Material</button><input type="file" ref={fileRef} className="hidden" onChange={(e)=>handleUpload(e, 'materiais')} /></div><div className="grid grid-cols-1 md:grid-cols-2 gap-4">{currentMeeting.materiais.map((m:any, i:any) => (<div key={i} className="p-5 bg-white rounded-3xl flex items-center gap-4 border shadow-sm group transition-all hover:border-blue-100"><FileText size={24} className="text-blue-600"/><div className="flex-1 text-xs font-bold truncate italic">{m.name}<p className="text-[8px] text-slate-400 font-black uppercase mt-1">Enviado por {m.uploadedBy}</p></div><button onClick={()=>setCurrentMeeting({...currentMeeting, materiais: currentMeeting.materiais.filter((_:any, idx:any)=>idx!==i)})} className="text-red-300 opacity-0 group-hover:opacity-100 transition-all"><Trash2 size={18}/></button></div>))}</div></div>
         )}
         {tab === 'delib' && (
           <div className="space-y-6 animate-in fade-in">
@@ -244,7 +296,7 @@ const App = () => {
           <div className="space-y-6 animate-in fade-in"><div className="bg-white p-8 rounded-[40px] border shadow-sm space-y-4"><h3 className="text-[10px] font-black uppercase italic flex items-center gap-2 text-blue-600 tracking-widest"><Target size={18}/> Nova Ação do Conselho</h3><div className="grid grid-cols-1 md:grid-cols-3 gap-4"><input placeholder="Tarefa?" className="p-4 text-xs border rounded-2xl outline-none font-bold italic bg-slate-50/50 shadow-inner" value={tmpAcao.title} onChange={e=>setTmpAcao({...tmpAcao, title: e.target.value})} /><select className="p-4 text-xs border rounded-2xl font-black uppercase italic bg-white" value={tmpAcao.resp} onChange={e=>setTmpAcao({...tmpAcao, resp: e.target.value})}><option value="">Responsável</option>{currentMeeting.participants.map((p:any,i:any)=>(<option key={i} value={p.name}>{p.name}</option>))}</select><input type="date" className="p-4 text-xs border rounded-2xl font-bold italic bg-slate-50/50 outline-none" value={tmpAcao.date} onChange={e=>setTmpAcao({...tmpAcao, date: e.target.value})} /></div><button onClick={()=>{if(tmpAcao.title){setCurrentMeeting({...currentMeeting, acoes: [...currentMeeting.acoes, {...tmpAcao, id: Date.now()}]}); addLog('Ação', `Tarefa registrada: ${tmpAcao.title}`); setTmpAcao({title:'', resp:'', date:'', status:'Pendente'});}}} className="w-full py-4 bg-blue-600 text-white rounded-2xl text-[10px] font-black uppercase shadow-xl tracking-widest">Registrar Ação</button></div><div className="bg-white rounded-[40px] border shadow-sm overflow-hidden text-[10px] font-bold italic"><table className="w-full text-left font-black tracking-tight"><thead className="bg-slate-50 uppercase text-slate-400 border-b tracking-widest"><tr><th className="p-6">Tarefa</th><th className="p-6">Dono</th><th className="p-6 text-center">Prazo</th><th className="p-6 text-center">Status</th></tr></thead><tbody>{currentMeeting.acoes.map((a:any, i:any) => (<tr key={i} className="border-t hover:bg-slate-50/50 transition-all"><td className="p-6 text-slate-700 underline decoration-slate-100 italic">{a.title}</td><td className="p-6 text-slate-500">{a.resp}</td><td className="p-6 text-center text-slate-400 font-black uppercase italic">{a.date}</td><td className="p-6 text-center"><select value={a.status} onChange={e => {setCurrentMeeting({...currentMeeting, acoes: currentMeeting.acoes.map((x:any) => x.id === a.id ? {...x, status: e.target.value} : x)}); addLog('Ação', `Status de ${a.title} alterado.`);}} className="p-2 border rounded-xl font-black uppercase text-[8px] outline-none shadow-sm transition-all">{['Pendente', 'Andamento', 'Concluído'].map(s => <option key={s} value={s}>{s}</option>)}</select></td></tr>))}</tbody></table></div></div>
         )}
         {tab === 'atas' && (
-          <div className="bg-white p-8 rounded-[40px] border shadow-sm animate-in fade-in space-y-8"><div className="flex justify-between items-center border-b pb-4"><div><h3 className="text-[10px] font-black uppercase flex items-center gap-2 italic text-green-700 tracking-widest"><FileCheck size={18}/> Atas Finais Registradas</h3><p className="text-[8px] text-slate-400 font-black uppercase mt-1 tracking-widest italic tracking-widest">Documentação oficial INEPAD</p></div><button onClick={()=>ataRef.current?.click()} className="bg-green-600 text-white px-6 py-3 rounded-2xl text-[9px] font-black uppercase tracking-widest shadow-xl transition-all hover:scale-105"><Upload size={14} className="inline mr-2"/>Subir Ata Final</button><input type="file" ref={ataRef} className="hidden" onChange={(e)=>handleUpload(e, 'atas')} /></div><div className="grid grid-cols-1 md:grid-cols-2 gap-4">{currentMeeting.atas.map((ata:any, i:any) => (<div key={i} className="p-5 bg-green-50/50 border border-green-100 rounded-[32px] flex items-center gap-4 group transition-all hover:border-green-300 shadow-sm"><FileCheck size={28} className="text-green-600 shadow-sm"/><div className="flex-1 min-w-0 font-bold italic"><p className="text-sm text-slate-700 truncate tracking-tight">{ata.name}</p></div><button onClick={()=>setCurrentMeeting({...currentMeeting, atas: currentMeeting.atas.filter((_:any, idx:any) => idx !== i)})} className="text-slate-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-all"><Trash2 size={18}/></button></div>))}</div></div>
+          <div className="bg-white p-8 rounded-[40px] border shadow-sm animate-in fade-in space-y-8"><div className="flex justify-between items-center border-b pb-4"><h3 className="text-[10px] font-black uppercase flex items-center gap-2 italic text-green-700 tracking-widest"><FileCheck size={18}/> Atas Finais Registradas</h3><button onClick={()=>ataRef.current?.click()} className="bg-green-600 text-white px-6 py-3 rounded-2xl text-[9px] font-black uppercase tracking-widest shadow-xl transition-all hover:scale-105">Subir Ata</button><input type="file" ref={ataRef} className="hidden" onChange={(e)=>handleUpload(e, 'atas')} /></div><div className="grid grid-cols-1 md:grid-cols-2 gap-4">{currentMeeting.atas.map((ata:any, i:any) => (<div key={i} className="p-5 bg-green-50/50 border border-green-100 rounded-[32px] flex items-center gap-4 group transition-all hover:border-green-300 shadow-sm"><FileCheck size={28} className="text-green-600 shadow-sm"/><div className="flex-1 min-w-0 font-bold italic"><p className="text-sm text-slate-700 truncate tracking-tight">{ata.name}</p></div><button onClick={()=>setCurrentMeeting({...currentMeeting, atas: currentMeeting.atas.filter((_:any, idx:any) => idx !== i)})} className="text-slate-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-all"><Trash2 size={18}/></button></div>))}</div></div>
         )}
       </div>
     );
