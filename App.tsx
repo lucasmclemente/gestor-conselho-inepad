@@ -35,13 +35,12 @@ const App = () => {
   };
   const [currentMeeting, setCurrentMeeting] = useState<any>(blankMeeting);
   
-  // Estados para Edição e Formulários
   const [editingPart, setEditingPart] = useState<number | null>(null);
   const [tmpPart, setTmpPart] = useState({ name: '', email: '' });
   const [tmpPauta, setTmpPauta] = useState({ title: '', resp: '', dur: '' });
   const [tmpAcao, setTmpAcao] = useState({ title: '', resp: '', date: '', status: 'Pendente' });
   const [tmpDelib, setTmpDelib] = useState({ title: '', voters: [] as string[] });
-  const [newUserForm, setNewUserForm] = useState({ name: '', email: '', role: 'Conselheiro', password: '' });
+  const [newUserForm, setnewUserForm] = useState({ name: '', email: '', role: 'Conselheiro', password: '' });
 
   const isAdm = currentUser?.role === 'Administrador';
 
@@ -83,18 +82,39 @@ const App = () => {
     finally { setLoading(false); if (e.target) e.target.value = ''; }
   };
 
+  // --- FUNÇÃO CORRIGIDA ---
   const saveMeeting = async () => {
     if (!currentMeeting.title) return alert("O título é obrigatório.");
-    const { data, error } = await supabase.from('meetings').upsert([currentMeeting]).select();
-    if (!error && data) {
+    
+    // Remove o ID se ele for nulo ou indefinido para garantir que o Supabase entenda como uma NOVA reunião
+    const meetingData = { ...currentMeeting };
+    if (!meetingData.id) {
+      delete meetingData.id;
+    }
+
+    const { data, error } = await supabase
+      .from('meetings')
+      .upsert([meetingData])
+      .select();
+
+    if (error) {
+      console.error(error);
+      return alert("Erro ao salvar: " + error.message);
+    }
+
+    if (data) {
       setMeetings(prev => {
         const index = prev.findIndex(m => m.id === data[0].id);
-        if (index !== -1) { const newM = [...prev]; newM[index] = data[0]; return newM; }
+        if (index !== -1) {
+          const newM = [...prev];
+          newM[index] = data[0];
+          return newM;
+        }
         return [data[0], ...prev];
       });
       setView('list');
       addLog('Salvamento', `Reunião: ${currentMeeting.title}`);
-      alert("Sucesso!");
+      alert("Sucesso na gravação!");
     }
   };
 
@@ -280,7 +300,6 @@ const App = () => {
                             <input type="date" value={currentMeeting.date} className="p-4 border rounded-2xl text-xs font-bold bg-slate-50" onChange={e=>setCurrentMeeting({...currentMeeting, date:e.target.value})} />
                             <input type="time" value={currentMeeting.time} className="p-4 border rounded-2xl text-xs font-bold bg-slate-50" onChange={e=>setCurrentMeeting({...currentMeeting, time:e.target.value})} />
                           </div>
-                          <input placeholder={currentMeeting.type === 'Online' ? 'Link de Acesso' : 'Local / Sala'} className="w-full p-4 border rounded-2xl text-xs font-bold bg-slate-50 italic outline-none" value={currentMeeting.type === 'Online' ? currentMeeting.link : currentMeeting.address} onChange={e=>setCurrentMeeting({...currentMeeting, [currentMeeting.type==='Online'?'link':'address']:e.target.value})} />
                         </div>
                       </div>
                     )}
@@ -309,7 +328,7 @@ const App = () => {
 
                     {tab === 'materiais' && (
                       <div className="bg-white p-8 rounded-[40px] border shadow-sm animate-in fade-in space-y-8">
-                        <div className="flex justify-between items-center border-b pb-4"><h3 className="font-black text-[10px] uppercase italic text-slate-500 tracking-widest">Documentos de Apoio</h3><button onClick={()=>fileRef.current?.click()} className="bg-blue-600 text-white px-6 py-2 rounded-2xl text-[9px] font-black uppercase shadow-xl hover:scale-105 transition-all"><Upload size={14} className="inline mr-2"/>Subir Material</button></div>
+                        <div className="flex justify-between items-center border-b pb-4"><h3 className="font-black text-[10px] uppercase italic text-slate-500 tracking-widest">Materiais de Apoio</h3><button onClick={()=>fileRef.current?.click()} className="bg-blue-600 text-white px-6 py-2 rounded-2xl text-[9px] font-black uppercase shadow-xl hover:scale-105 transition-all"><Upload size={14} className="inline mr-2"/>Subir Arquivo</button></div>
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                           {(currentMeeting.materiais || []).map((m:any, i:any) => (
                             <div key={i} className="p-6 bg-white rounded-[32px] flex items-center gap-4 border shadow-sm group">
@@ -334,9 +353,9 @@ const App = () => {
                           ))}
                         </div>
                         <div className="p-8 bg-slate-50 rounded-[40px] border-2 border-dashed border-slate-200 space-y-4">
-                          <textarea placeholder="Texto da deliberação aprovada..." className="w-full p-5 border rounded-[24px] text-xs h-24 italic font-bold outline-none focus:border-amber-400 shadow-inner" value={tmpDelib.title} onChange={e=>setTmpDelib({...tmpDelib, title:e.target.value})} />
+                          <textarea placeholder="Texto da deliberação..." className="w-full p-5 border rounded-[24px] text-xs h-24 italic font-bold outline-none focus:border-amber-400 shadow-inner" value={tmpDelib.title} onChange={e=>setTmpDelib({...tmpDelib, title:e.target.value})} />
                           <div className="space-y-2">
-                            <p className="text-[9px] font-black uppercase text-slate-400">Marque os Votantes:</p>
+                            <p className="text-[9px] font-black uppercase text-slate-400">Votantes:</p>
                             <div className="flex flex-wrap gap-3 p-3 bg-white rounded-xl border">
                               {currentMeeting.participants.map((p:any, i:number) => (
                                 <label key={i} className="flex items-center gap-2 text-[10px] cursor-pointer">
@@ -348,7 +367,7 @@ const App = () => {
                               ))}
                             </div>
                           </div>
-                          <button onClick={()=>{if(tmpDelib.title){setCurrentMeeting({...currentMeeting, deliberacoes:[...(currentMeeting.deliberacoes || []), tmpDelib]}); setTmpDelib({title:'', voters:[]});}}} className="w-full py-4 bg-amber-500 text-white rounded-2xl text-[10px] font-black uppercase shadow-xl hover:bg-amber-600 transition-all">Registrar Deliberação</button>
+                          <button onClick={()=>{if(tmpDelib.title){setCurrentMeeting({...currentMeeting, deliberacoes:[...(currentMeeting.deliberacoes || []), tmpDelib]}); setTmpDelib({title:'', voters:[]});}}} className="w-full py-4 bg-amber-500 text-white rounded-2xl text-[10px] font-black uppercase shadow-xl hover:bg-amber-600">Registrar Voto</button>
                         </div>
                       </div>
                     )}
@@ -366,7 +385,7 @@ const App = () => {
                         </div>
                         <div className="grid grid-cols-1 md:grid-cols-4 gap-4 p-8 bg-slate-50 rounded-[40px] border-2 border-dashed border-slate-200">
                           <input placeholder="Ação" className="md:col-span-1 p-3 border rounded-xl text-xs font-bold italic" value={tmpAcao.title} onChange={e=>setTmpAcao({...tmpAcao, title:e.target.value})} />
-                          <select className="p-3 border rounded-xl text-xs font-bold italic bg-white outline-none" value={tmpAcao.resp} onChange={e=>setTmpAcao({...tmpAcao, resp:e.target.value})}>
+                          <select className="p-3 border rounded-xl text-xs font-bold italic bg-white" value={tmpAcao.resp} onChange={e=>setTmpAcao({...tmpAcao, resp:e.target.value})}>
                             <option value="">Escolha o responsável...</option>
                             {currentMeeting.participants.map((p:any, i:number) => <option key={i} value={p.name}>{p.name}</option>)}
                           </select>
@@ -378,7 +397,7 @@ const App = () => {
 
                     {tab === 'atas' && (
                       <div className="bg-white p-8 rounded-[40px] border shadow-sm animate-in fade-in space-y-8">
-                        <div className="flex justify-between items-center border-b pb-4"><h3 className="text-[10px] font-black uppercase flex items-center gap-2 italic text-green-700 tracking-widest"><FileCheck size={18}/> Atas Oficiais</h3><button onClick={()=>ataRef.current?.click()} className="bg-green-600 text-white px-6 py-3 rounded-2xl text-[9px] font-black uppercase shadow-xl hover:scale-105 transition-all"><Upload size={14} className="inline mr-2"/>Subir ATA</button></div>
+                        <div className="flex justify-between items-center border-b pb-4"><h3 className="text-[10px] font-black uppercase flex items-center gap-2 italic text-green-700 tracking-widest"><FileCheck size={18}/> Atas Finais</h3><button onClick={()=>ataRef.current?.click()} className="bg-green-600 text-white px-6 py-3 rounded-2xl text-[9px] font-black uppercase shadow-xl hover:scale-105 transition-all"><Upload size={14} className="inline mr-2"/>Subir ATA</button></div>
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                           {(currentMeeting.atas || []).map((ata:any, i:any) => (
                             <div key={i} className="p-6 bg-green-50 border border-green-100 rounded-[32px] flex items-center gap-4 group shadow-md transition-all">
@@ -394,7 +413,6 @@ const App = () => {
                 )
               )}
 
-              {/* MANTENDO DASHBOARD, PLANO GLOBAL, MEMBROS E AUDITORIA INTACTOS */}
               {activeMenu === 'plano-acao' && (
                 <div className="space-y-8 animate-in fade-in">
                   <div className="flex justify-between items-center"><h1 className="text-2xl font-black italic text-slate-800 tracking-tighter">Plano de Ação Global</h1><button onClick={() => { const h="Ação,Reunião,Responsável,Status\n"; const r=stats.allActions.map(a=>`${a.title},${a.mTitle},${a.resp},${a.status}`).join("\n"); const b=new Blob([h+r],{type:'text/csv;charset=utf-8;'}); const l=document.createElement("a"); l.href=URL.createObjectURL(b); l.setAttribute("download","plano_acao_inepad.csv"); l.click(); }} className="bg-slate-900 text-white px-4 py-2 rounded-xl text-[9px] font-black uppercase flex items-center gap-2 hover:bg-black transition-all"><Download size={14}/> Exportar CSV</button></div>
@@ -414,9 +432,9 @@ const App = () => {
 
               {activeMenu === 'usuarios' && (
                 <div className="space-y-8 animate-in fade-in">
-                  <h1 className="text-2xl font-black italic text-slate-800 tracking-tighter">Membros do Conselho</h1>
+                  <h1 className="text-2xl font-black italic text-slate-800 tracking-tighter">Membros</h1>
                   <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-                    <div className="bg-white p-6 rounded-[32px] border shadow-sm space-y-4 h-fit sticky top-0"><h3 className="text-[10px] font-black uppercase italic text-slate-400 tracking-widest">Novo Perfil</h3><input placeholder="Nome" className="w-full p-3 bg-slate-50 border rounded-xl text-xs font-bold outline-none" value={newUserForm.name} onChange={e=>setNewUserForm({...newUserForm, name: e.target.value})} /><input placeholder="E-mail" className="w-full p-3 bg-slate-50 border rounded-xl text-xs font-bold outline-none" value={newUserForm.email} onChange={e=>setNewUserForm({...newUserForm, email: e.target.value})} /><input type="password" placeholder="Senha" className="w-full p-3 bg-slate-50 border rounded-xl text-xs font-bold outline-none" value={newUserForm.password} onChange={e=>setNewUserForm({...newUserForm, password: e.target.value})} /><select className="w-full p-3 border rounded-xl text-[10px] font-black uppercase italic" value={newUserForm.role} onChange={e=>setNewUserForm({...newUserForm, role: e.target.value})}><option value="Conselheiro">Conselheiro</option><option value="Secretário">Secretário</option><option value="Administrador">Administrador</option></select><button onClick={async ()=>{ const {data} = await supabase.from('members').insert([newUserForm]).select(); if(data) { setUsers([...users, data[0]]); setNewUserForm({name:'', email:'', role:'Conselheiro', password:''}); alert("Membro adicionado!"); } }} className="w-full py-3 bg-blue-600 text-white rounded-xl font-black text-[10px] uppercase shadow-lg">Cadastrar</button></div>
+                    <div className="bg-white p-6 rounded-[32px] border shadow-sm space-y-4 h-fit sticky top-0"><h3 className="text-[10px] font-black uppercase italic text-slate-400 tracking-widest">Novo Perfil</h3><input placeholder="Nome" className="w-full p-3 bg-slate-50 border rounded-xl text-xs font-bold outline-none" value={newUserForm.name} onChange={e=>setnewUserForm({...newUserForm, name: e.target.value})} /><input placeholder="E-mail" className="w-full p-3 bg-slate-50 border rounded-xl text-xs font-bold outline-none" value={newUserForm.email} onChange={e=>setnewUserForm({...newUserForm, email: e.target.value})} /><input type="password" placeholder="Senha" className="w-full p-3 bg-slate-50 border rounded-xl text-xs font-bold outline-none" value={newUserForm.password} onChange={e=>setnewUserForm({...newUserForm, password: e.target.value})} /><select className="w-full p-3 border rounded-xl text-[10px] font-black uppercase italic" value={newUserForm.role} onChange={e=>setnewUserForm({...newUserForm, role: e.target.value})}><option value="Conselheiro">Conselheiro</option><option value="Secretário">Secretário</option><option value="Administrador">Administrador</option></select><button onClick={async ()=>{ const {data} = await supabase.from('members').insert([newUserForm]).select(); if(data) { setUsers([...users, data[0]]); setnewUserForm({name:'', email:'', role:'Conselheiro', password:''}); alert("Membro adicionado!"); } }} className="w-full py-3 bg-blue-600 text-white rounded-xl font-black text-[10px] uppercase shadow-lg">Cadastrar</button></div>
                     <div className="md:col-span-3 bg-white rounded-[32px] border shadow-sm overflow-hidden"><table className="w-full text-left font-bold italic text-xs"><thead className="bg-slate-50 text-[9px] font-black uppercase text-slate-400 border-b"><tr><th className="p-6">Nome / E-mail</th><th className="p-6 text-center">Perfil</th><th className="p-6 text-center">Ações</th></tr></thead><tbody>{users.map((u:any, i:number) => (<tr key={i} className="border-t hover:bg-slate-50"><td className="p-6 text-xs">{u.name}<p className="text-[9px] text-slate-400 font-black tracking-widest">{u.email}</p></td><td className="p-6 text-center"><span className="bg-slate-50 px-4 py-1.5 rounded-xl text-[9px] font-black uppercase">{u.role}</span></td><td className="p-6 text-center"><button onClick={async ()=>{ if(window.confirm(`Excluir ${u.name}?`)) { const {error} = await supabase.from('members').delete().eq('id', u.id); if(!error) setUsers(users.filter((x:any)=>x.id!==u.id)); } }} className="text-red-300 hover:text-red-500 transition-all"><Trash2 size={18}/></button></td></tr>))}</tbody></table></div>
                   </div>
                 </div>
