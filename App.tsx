@@ -105,7 +105,6 @@ const App = () => {
     }
   };
 
-  // --- NOVAS FUNÇÕES DE EXCLUSÃO ---
   const deleteMeeting = async (id: string, title: string) => {
     if (!window.confirm(`ATENÇÃO: Deseja excluir permanentemente a reunião "${title}"? Esta ação não pode ser desfeita.`)) return;
     const { error } = await supabase.from('meetings').delete().eq('id', id);
@@ -274,7 +273,6 @@ const App = () => {
                       <div key={idx} onClick={()=>{setCurrentMeeting(m); setView('details'); setTab('info');}} className="bg-white p-6 rounded-xl border border-slate-200 flex justify-between items-center group cursor-pointer hover:border-amber-500 hover:shadow-md transition-all shadow-sm">
                         <div className="flex items-center gap-4"><div className="p-3 bg-slate-100 text-slate-500 rounded-lg group-hover:bg-amber-100 group-hover:text-amber-700 transition-all"><Calendar size={24}/></div><div><h3 className="font-bold text-lg text-slate-800 group-hover:text-amber-600 transition-all italic">{m.title}</h3><p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">{m.status} • {m.date || 'DATA N/D'}</p></div></div>
                         <div className="flex items-center gap-3">
-                            {/* BOTÃO EXCLUIR REUNIÃO (ADMIN) */}
                             {isAdm && (
                                 <button 
                                     onClick={(e) => { e.stopPropagation(); deleteMeeting(m.id, m.title); }} 
@@ -296,7 +294,7 @@ const App = () => {
                         <button onClick={saveMeeting} className="bg-slate-800 hover:bg-slate-900 text-white px-6 py-2.5 rounded-lg font-bold text-xs uppercase shadow-sm flex items-center gap-2 transition-all"><Save size={16} className="text-amber-500"/> Salvar</button>
                     </div>
                     
-                    <input placeholder="Título da Reunião..." className="text-3xl md:text-4xl font-bold italic text-slate-800 bg-transparent outline-none w-full border-b border-slate-200 focus:border-amber-500 pb-2 mb-8" value={currentMeeting.title} onChange={e=>setCurrentMeeting({...currentMeeting, title: e.target.value})} />
+                    <input placeholder="Título da Reunião..." className="text-3xl md:text-4xl font-bold italic text-slate-900 bg-transparent outline-none w-full border-b border-slate-200 focus:border-amber-500 pb-2 mb-8" value={currentMeeting.title} onChange={e=>setCurrentMeeting({...currentMeeting, title: e.target.value})} />
                     
                     <div className="border-b border-slate-200 flex gap-6 mb-8 overflow-x-auto font-bold text-[10px] uppercase tracking-widest no-scrollbar italic py-2">
                       {['Informações', 'Ordem do Dia', 'Materiais', 'Deliberações', 'Plano de Ação', 'Atas'].map((label, i) => {
@@ -362,9 +360,12 @@ const App = () => {
                         <div className="space-y-2">{(currentMeeting.pautas || []).map((p:any, i:any) => (
                           <div key={i} className="flex justify-between items-center p-4 bg-white border border-slate-200 rounded-lg group border-l-4 border-l-amber-500 shadow-sm font-bold italic"><div className="flex items-center gap-4"><span className="text-slate-300">#{i+1}</span><div><p className="text-sm text-slate-800">{p.title}</p><p className="text-[10px] text-slate-500 font-bold uppercase">{p.resp} • {p.dur} min</p></div></div><button onClick={()=>setCurrentMeeting({...currentMeeting, pautas: currentMeeting.pautas.filter((_, idx)=>idx!==i)})} className="p-2 text-slate-200 hover:text-red-500 transition-all opacity-0 group-hover:opacity-100"><Trash2 size={18}/></button></div>
                         ))}</div>
-                        <div className="p-5 bg-slate-50 rounded-xl border border-dashed border-slate-300 grid grid-cols-1 sm:grid-cols-4 gap-4 items-end">
-                            <div className="sm:col-span-2"><input placeholder="Item da Pauta" className="w-full p-3 border rounded-lg text-sm mt-1 outline-none focus:border-amber-500 bg-white font-bold italic shadow-sm" value={tmpPauta.title} onChange={e=>setTmpPauta({...tmpPauta, title:e.target.value})}/></div>
-                            <div><select className="w-full p-3 border rounded-lg text-sm mt-1 outline-none focus:border-amber-500 bg-white cursor-pointer font-bold shadow-sm" value={tmpPauta.resp} onChange={e=>setTmpPauta({...tmpPauta, resp:e.target.value})}><option value="">Responsável...</option>{currentMeeting.participants.map((p:any, i:number) => <option key={i} value={p.name}>{p.name}</option>)}</select></div>
+                        
+                        {/* FORMULÁRIO DE PAUTA COM CAMPO DE TEMPO RESTAURADO */}
+                        <div className="p-5 bg-slate-50 rounded-xl border border-dashed border-slate-300 grid grid-cols-1 sm:grid-cols-5 gap-4 items-end">
+                            <div className="sm:col-span-2"><label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Assunto</label><input placeholder="Título do Item" className="w-full p-3 border rounded-lg text-sm mt-1 outline-none focus:border-amber-500 bg-white font-bold italic shadow-sm" value={tmpPauta.title} onChange={e=>setTmpPauta({...tmpPauta, title:e.target.value})}/></div>
+                            <div><label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Responsável</label><select className="w-full p-3 border rounded-lg text-sm mt-1 outline-none focus:border-amber-500 bg-white cursor-pointer font-bold shadow-sm" value={tmpPauta.resp} onChange={e=>setTmpPauta({...tmpPauta, resp:e.target.value})}><option value="">Responsável...</option>{currentMeeting.participants.map((p:any, i:number) => <option key={i} value={p.name}>{p.name}</option>)}</select></div>
+                            <div><label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Tempo</label><input type="number" placeholder="Min" className="w-full p-3 border rounded-lg text-sm mt-1 outline-none focus:border-amber-500 bg-white font-bold italic shadow-sm text-center" value={tmpPauta.dur} onChange={e=>setTmpPauta({...tmpPauta, dur:e.target.value})}/></div>
                             <button onClick={()=>{if(tmpPauta.title){setCurrentMeeting({...currentMeeting, pautas:[...(currentMeeting.pautas || []), tmpPauta]}); setTmpPauta({title:'', resp:'', dur:''});}}} className="h-12 bg-amber-600 text-white rounded-lg flex items-center justify-center transition-all shadow-md"><Plus size={24}/></button>
                         </div>
                       </div>
@@ -372,7 +373,7 @@ const App = () => {
 
                     {tab === 'materiais' && (
                       <div className="bg-white p-8 rounded-xl border border-slate-200 shadow-sm animate-in fade-in space-y-6">
-                        <div className="flex justify-between items-center mb-4"><h3 className="text-xs font-bold uppercase text-slate-600 tracking-widest">Apoio Técnico</h3><button onClick={()=>fileRef.current?.click()} className="bg-slate-100 hover:bg-slate-200 text-slate-700 px-4 py-2 rounded-lg text-[10px] font-bold uppercase flex items-center gap-2 transition-all"><Upload size={14}/> Carregar</button></div>
+                        <div className="flex justify-between items-center mb-4"><h3 className="text-xs font-bold uppercase text-slate-600 tracking-widest">Apoio Técnico</h3><button onClick={()=>fileRef.current?.click()} className="bg-slate-100 hover:bg-slate-200 text-slate-700 px-4 py-2 rounded-lg text-[10px] font-bold uppercase flex items-center gap-2 transition-all shadow-sm"><Upload size={14}/> Carregar</button></div>
                         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">{(currentMeeting.materiais || []).map((m:any, i:any) => (
                           <div key={i} className="p-4 bg-white border border-slate-200 rounded-xl shadow-sm group relative overflow-hidden font-bold italic"><div className="flex items-start gap-3"><div className="p-2 bg-amber-50 text-amber-600 rounded-lg"><FileText size={24}/></div><div className="min-w-0 flex-1"><p className="text-xs truncate text-slate-800">{m.name}</p><a href={m.url} target="_blank" rel="noreferrer" className="text-[10px] text-amber-600 hover:underline flex items-center gap-1 mt-1"><ExternalLink size={10}/> Abrir</a></div></div><button onClick={()=>setCurrentMeeting({...currentMeeting, materiais: currentMeeting.materiais.filter((_, idx)=>idx!==i)})} className="absolute top-2 right-2 p-1 text-slate-200 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-all"><Trash2 size={14}/></button></div>
                         ))}</div>
@@ -433,7 +434,6 @@ const App = () => {
                                 <th className="px-6 py-4">Origem</th>
                                 <th className="px-6 py-4 text-center">Executor</th>
                                 <th className="px-6 py-4 text-center">Status</th>
-                                {/* NOVA COLUNA DE GESTÃO PARA ADMIN */}
                                 {isAdm && <th className="px-6 py-4 text-center">Gestão</th>}
                             </tr>
                         </thead>
@@ -451,7 +451,6 @@ const App = () => {
                                             <option value="Atrasada">Atraso Crítico</option>
                                         </select>
                                     </td>
-                                    {/* BOTÃO EXCLUIR ATIVIDADE (ADMIN) */}
                                     {isAdm && (
                                         <td className="px-6 py-4 text-center">
                                             <button 
