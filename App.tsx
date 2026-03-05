@@ -105,6 +105,31 @@ const App = () => {
     }
   };
 
+  // --- NOVAS FUNÇÕES DE EXCLUSÃO ---
+  const deleteMeeting = async (id: string, title: string) => {
+    if (!window.confirm(`ATENÇÃO: Deseja excluir permanentemente a reunião "${title}"? Esta ação não pode ser desfeita.`)) return;
+    const { error } = await supabase.from('meetings').delete().eq('id', id);
+    if (!error) {
+      setMeetings(prev => prev.filter(m => m.id !== id));
+      addLog('Exclusão', `Reunião excluída: ${title}`);
+      alert("Reunião removida do sistema.");
+    } else {
+      alert("Erro ao excluir: " + error.message);
+    }
+  };
+
+  const deleteActionGlobal = async (meetingId: string, actionId: string | number) => {
+    if (!window.confirm("Deseja remover esta atividade do Plano de Ação?")) return;
+    const meeting = meetings.find(m => m.id === meetingId);
+    if (!meeting) return;
+    const newAcoes = meeting.acoes.filter((a: any) => a.id !== actionId);
+    const { error } = await supabase.from('meetings').update({ acoes: newAcoes }).eq('id', meetingId);
+    if (!error) {
+      setMeetings(prev => prev.map(m => m.id === meetingId ? { ...m, acoes: newAcoes } : m));
+      addLog('Exclusão', `Atividade removida do Plano Global (Reunião: ${meeting.title})`);
+    }
+  };
+
   const updateActionStatusGlobal = async (meetingId: string, actionId: string | number, newStatus: string) => {
     const meeting = meetings.find(m => m.id === meetingId);
     if (!meeting) return;
@@ -218,9 +243,9 @@ const App = () => {
                   </div>
 
                   <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-                    {[ {l:'Concluídas', v:stats.concluida, i:<CheckCircle2/>, c:'amber'}, {l:'Deliberações', v:stats.delibs, i:<FileText/>, c:'slate'}, {l:'ATAs Oficiais', v:stats.atas, i:<FileCheck/>, c:'amber'}, {l:'Em Atraso', v:stats.atrasadas, i:<AlertCircle/>, c:'red'} ].map((s, idx) => (
+                    {[ {l:'Concluídas', v:stats.concluida, i:<CheckCircle2/>, c:'amber'}, {l:'Deliberações', v:stats.delibs, i:<FileText/>, c:'slate'}, {l:'Atas na Nuvem', v:stats.atas, i:<FileCheck/>, c:'amber'}, {l:'Em Atraso', v:stats.atrasadas, i:<AlertCircle/>, c:'red'} ].map((s, idx) => (
                       <div key={idx} className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm flex items-start gap-4 transition-all hover:shadow-md">
-                          <div className={`p-3 rounded-lg ${s.c==='amber'?'bg-amber-100 text-amber-600':s.c==='red'?'bg-red-100 text-red-600':'bg-slate-100 text-slate-600'}`}>{s.i}</div>
+                          <div className={`p-3 rounded-lg ${s.c==='amber'?'bg-amber-100 text-amber-600':s.c==='red'?'bg-red-100 text-red-600':'bg-slate-100 text-slate-500'}`}>{s.i}</div>
                           <div><p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">{s.l}</p><p className="text-2xl font-bold text-slate-800 mt-1">{s.v}</p></div>
                       </div>
                     ))}
@@ -248,7 +273,19 @@ const App = () => {
                     <div className="grid gap-4">{meetings.map((m, idx) => (
                       <div key={idx} onClick={()=>{setCurrentMeeting(m); setView('details'); setTab('info');}} className="bg-white p-6 rounded-xl border border-slate-200 flex justify-between items-center group cursor-pointer hover:border-amber-500 hover:shadow-md transition-all shadow-sm">
                         <div className="flex items-center gap-4"><div className="p-3 bg-slate-100 text-slate-500 rounded-lg group-hover:bg-amber-100 group-hover:text-amber-700 transition-all"><Calendar size={24}/></div><div><h3 className="font-bold text-lg text-slate-800 group-hover:text-amber-600 transition-all italic">{m.title}</h3><p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">{m.status} • {m.date || 'DATA N/D'}</p></div></div>
-                        <ChevronRight size={20} className="text-slate-300 group-hover:text-amber-500 transition-all"/>
+                        <div className="flex items-center gap-3">
+                            {/* BOTÃO EXCLUIR REUNIÃO (ADMIN) */}
+                            {isAdm && (
+                                <button 
+                                    onClick={(e) => { e.stopPropagation(); deleteMeeting(m.id, m.title); }} 
+                                    className="p-3 text-slate-200 hover:text-red-600 transition-all hover:bg-red-50 rounded-lg"
+                                    title="Excluir Reunião Permanentemente"
+                                >
+                                    <Trash2 size={20}/>
+                                </button>
+                            )}
+                            <ChevronRight size={20} className="text-slate-300 group-hover:text-amber-500 transition-all"/>
+                        </div>
                       </div>
                     ))}</div>
                   </div>
@@ -259,7 +296,7 @@ const App = () => {
                         <button onClick={saveMeeting} className="bg-slate-800 hover:bg-slate-900 text-white px-6 py-2.5 rounded-lg font-bold text-xs uppercase shadow-sm flex items-center gap-2 transition-all"><Save size={16} className="text-amber-500"/> Salvar</button>
                     </div>
                     
-                    <input placeholder="Título da Reunião..." className="text-3xl md:text-4xl font-bold italic text-slate-900 bg-transparent outline-none w-full border-b border-slate-200 focus:border-amber-500 pb-2 mb-8" value={currentMeeting.title} onChange={e=>setCurrentMeeting({...currentMeeting, title: e.target.value})} />
+                    <input placeholder="Título da Reunião..." className="text-3xl md:text-4xl font-bold italic text-slate-800 bg-transparent outline-none w-full border-b border-slate-200 focus:border-amber-500 pb-2 mb-8" value={currentMeeting.title} onChange={e=>setCurrentMeeting({...currentMeeting, title: e.target.value})} />
                     
                     <div className="border-b border-slate-200 flex gap-6 mb-8 overflow-x-auto font-bold text-[10px] uppercase tracking-widest no-scrollbar italic py-2">
                       {['Informações', 'Ordem do Dia', 'Materiais', 'Deliberações', 'Plano de Ação', 'Atas'].map((label, i) => {
@@ -271,18 +308,16 @@ const App = () => {
                     {tab === 'info' && (
                       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 animate-in fade-in">
                         <div className="lg:col-span-2 bg-white p-6 md:p-8 rounded-xl border border-slate-200 shadow-sm space-y-6">
-                          {/* CABEÇALHO COM BOTÃO CONVOCAR RESTAURADO */}
                           <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center border-b border-slate-50 pb-4 gap-4">
                             <h3 className="text-xs font-bold uppercase text-slate-500 tracking-widest flex items-center gap-2"><UserCheck size={16} className="text-amber-600"/> Participantes</h3>
                             <button 
-                                onClick={() => { addLog('Convocação', `Disparo para ${currentMeeting.participants.length} membros`); alert('Convites enviados com sucesso para todos os participantes!'); }} 
+                                onClick={() => { addLog('Convocação', `Disparo para ${currentMeeting.participants.length} membros`); alert('Convites enviados com sucesso!'); }} 
                                 className="w-full sm:w-auto bg-slate-100 text-slate-700 hover:bg-slate-200 px-4 py-2 rounded-lg text-[10px] font-bold uppercase flex items-center justify-center gap-2 transition-all tracking-widest shadow-sm"
                             >
                                 <Send size={14} className="text-slate-500"/> Convocar Todos
                             </button>
                           </div>
 
-                          {/* LISTA DE PARTICIPANTES COM EDIÇÃO RESTAURADA */}
                           <div className="space-y-2">{(currentMeeting.participants || []).map((p:any, i:any) => (
                             <div key={i} className="flex justify-between items-center p-4 bg-slate-50 rounded-lg border border-slate-100 group transition-all hover:bg-white hover:shadow-md font-bold italic">
                               {editingPart === i ? (
@@ -307,16 +342,16 @@ const App = () => {
                           ))}</div>
 
                           <div className="p-5 bg-slate-50 rounded-xl border border-dashed border-slate-300 grid grid-cols-1 sm:grid-cols-2 gap-4">
-                            <input placeholder="Nome" className="p-3 border rounded-lg text-sm bg-white outline-none focus:border-amber-500 font-bold" value={tmpPart.name} onChange={e=>setTmpPart({...tmpPart, name:e.target.value})}/><input placeholder="E-mail" className="p-3 border rounded-lg text-sm bg-white outline-none focus:border-amber-500 font-bold" value={tmpPart.email} onChange={e=>setTmpPart({...tmpPart, email:e.target.value})}/><button onClick={()=>{if(tmpPart.name){setCurrentMeeting({...currentMeeting, participants:[...(currentMeeting.participants || []), tmpPart]}); setTmpPart({name:'', email:''});}}} className="w-full sm:col-span-2 py-3 bg-amber-600 text-white rounded-lg text-xs font-bold uppercase hover:bg-amber-700 transition-all tracking-widest">Adicionar à Lista</button>
+                            <input placeholder="Nome" className="p-3 border rounded-lg text-sm bg-white outline-none focus:border-amber-500 font-bold" value={tmpPart.name} onChange={e=>setTmpPart({...tmpPart, name:e.target.value})}/><input placeholder="E-mail" className="p-3 border rounded-lg text-sm bg-white outline-none focus:border-amber-500 font-bold" value={tmpPart.email} onChange={e=>setTmpPart({...tmpPart, email:e.target.value})}/><button onClick={()=>{if(tmpPart.name){setCurrentMeeting({...currentMeeting, participants:[...(currentMeeting.participants || []), tmpPart]}); setTmpPart({name:'', email:''});}}} className="w-full sm:col-span-2 py-3 bg-amber-600 text-white rounded-lg text-xs font-bold uppercase hover:bg-amber-700 transition-all tracking-widest">Adicionar Participante</button>
                           </div>
                         </div>
                         <div className="bg-white p-6 md:p-8 rounded-xl border border-slate-200 shadow-sm space-y-6 h-fit">
                           <h3 className="text-xs font-bold uppercase text-slate-500 tracking-widest border-b border-slate-50 pb-4">Logística</h3>
-                          <div className="flex rounded-lg border border-slate-200 p-1 bg-slate-50 mb-4">{['Online', 'Presencial', 'Híbrida'].map(t => (<button key={t} onClick={()=>setCurrentMeeting({...currentMeeting, type: t})} className={`flex-1 py-2 rounded-md text-[10px] font-bold uppercase transition-all ${currentMeeting.type === t ? 'bg-white text-amber-600 shadow-sm' : 'text-slate-400'}`}>{t}</button>))}</div>
+                          <div className="flex rounded-lg border border-slate-200 p-1 bg-slate-50 mb-4">{['Online', 'Presencial', 'Híbrida'].map(t => (<button key={t} onClick={()=>setCurrentMeeting({...currentMeeting, type: t})} className={`flex-1 py-2 rounded-md text-[10px] font-bold uppercase transition-all ${currentMeeting.type === t ? 'bg-white text-amber-600 shadow-sm' : 'text-slate-500'}`}>{t}</button>))}</div>
                           <div className="space-y-4">
-                            <div><label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Data</label><input type="date" value={currentMeeting.date} className="w-full p-3 border rounded-lg text-sm outline-none focus:border-amber-500 font-bold" onChange={e=>setCurrentMeeting({...currentMeeting, date:e.target.value})}/></div>
-                            <div><label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Horário</label><input type="time" value={currentMeeting.time} className="w-full p-3 border rounded-lg text-sm outline-none focus:border-amber-500 font-bold" onChange={e=>setCurrentMeeting({...currentMeeting, time:e.target.value})}/></div>
-                            <div><label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">{currentMeeting.type === 'Online' ? 'Link' : 'Local'}</label><input className="w-full p-3 border rounded-lg text-sm outline-none focus:border-amber-500 font-bold italic" value={currentMeeting.type === 'Online' ? currentMeeting.link : currentMeeting.address} onChange={e=>setCurrentMeeting({...currentMeeting, [currentMeeting.type==='Online'?'link':'address']:e.target.value})} /></div>
+                            <div><label className="block text-[10px] font-bold text-slate-400 mb-1 uppercase tracking-widest">Data</label><input type="date" value={currentMeeting.date} className="w-full p-3 border rounded-lg text-sm outline-none focus:border-amber-500 font-bold" onChange={e=>setCurrentMeeting({...currentMeeting, date:e.target.value})}/></div>
+                            <div><label className="block text-[10px] font-bold text-slate-400 mb-1 uppercase tracking-widest">Horário</label><input type="time" value={currentMeeting.time} className="w-full p-3 border rounded-lg text-sm outline-none focus:border-amber-500 font-bold" onChange={e=>setCurrentMeeting({...currentMeeting, time:e.target.value})}/></div>
+                            <div><label className="block text-[10px] font-bold text-slate-400 mb-1 uppercase tracking-widest">{currentMeeting.type === 'Online' ? 'Link' : 'Local'}</label><input className="w-full p-3 border rounded-lg text-sm outline-none focus:border-amber-500 font-bold italic" value={currentMeeting.type === 'Online' ? currentMeeting.link : currentMeeting.address} onChange={e=>setCurrentMeeting({...currentMeeting, [currentMeeting.type==='Online'?'link':'address']:e.target.value})} /></div>
                           </div>
                         </div>
                       </div>
@@ -328,9 +363,9 @@ const App = () => {
                           <div key={i} className="flex justify-between items-center p-4 bg-white border border-slate-200 rounded-lg group border-l-4 border-l-amber-500 shadow-sm font-bold italic"><div className="flex items-center gap-4"><span className="text-slate-300">#{i+1}</span><div><p className="text-sm text-slate-800">{p.title}</p><p className="text-[10px] text-slate-500 font-bold uppercase">{p.resp} • {p.dur} min</p></div></div><button onClick={()=>setCurrentMeeting({...currentMeeting, pautas: currentMeeting.pautas.filter((_, idx)=>idx!==i)})} className="p-2 text-slate-200 hover:text-red-500 transition-all opacity-0 group-hover:opacity-100"><Trash2 size={18}/></button></div>
                         ))}</div>
                         <div className="p-5 bg-slate-50 rounded-xl border border-dashed border-slate-300 grid grid-cols-1 sm:grid-cols-4 gap-4 items-end">
-                            <div className="sm:col-span-2"><input placeholder="Item da Pauta" className="w-full p-3 border rounded-lg text-sm mt-1 outline-none focus:border-amber-500 bg-white font-bold italic" value={tmpPauta.title} onChange={e=>setTmpPauta({...tmpPauta, title:e.target.value})}/></div>
-                            <div><select className="w-full p-3 border rounded-lg text-sm mt-1 outline-none focus:border-amber-500 bg-white cursor-pointer font-bold" value={tmpPauta.resp} onChange={e=>setTmpPauta({...tmpPauta, resp:e.target.value})}><option value="">Responsável...</option>{currentMeeting.participants.map((p:any, i:number) => <option key={i} value={p.name}>{p.name}</option>)}</select></div>
-                            <button onClick={()=>{if(tmpPauta.title){setCurrentMeeting({...currentMeeting, pautas:[...(currentMeeting.pautas || []), tmpPauta]}); setTmpPauta({title:'', resp:'', dur:''});}}} className="h-12 bg-amber-600 text-white rounded-lg flex items-center justify-center transition-all shadow-md"><Plus size={20}/></button>
+                            <div className="sm:col-span-2"><input placeholder="Item da Pauta" className="w-full p-3 border rounded-lg text-sm mt-1 outline-none focus:border-amber-500 bg-white font-bold italic shadow-sm" value={tmpPauta.title} onChange={e=>setTmpPauta({...tmpPauta, title:e.target.value})}/></div>
+                            <div><select className="w-full p-3 border rounded-lg text-sm mt-1 outline-none focus:border-amber-500 bg-white cursor-pointer font-bold shadow-sm" value={tmpPauta.resp} onChange={e=>setTmpPauta({...tmpPauta, resp:e.target.value})}><option value="">Responsável...</option>{currentMeeting.participants.map((p:any, i:number) => <option key={i} value={p.name}>{p.name}</option>)}</select></div>
+                            <button onClick={()=>{if(tmpPauta.title){setCurrentMeeting({...currentMeeting, pautas:[...(currentMeeting.pautas || []), tmpPauta]}); setTmpPauta({title:'', resp:'', dur:''});}}} className="h-12 bg-amber-600 text-white rounded-lg flex items-center justify-center transition-all shadow-md"><Plus size={24}/></button>
                         </div>
                       </div>
                     )}
@@ -390,7 +425,49 @@ const App = () => {
               {activeMenu === 'plano-acao' && (
                 <div className="space-y-6 animate-in fade-in">
                   <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex justify-between items-center"><div><h1 className="text-2xl font-bold text-slate-800 tracking-tight italic">Plano Global de Ações</h1></div><button onClick={() => { const h="Ação,Reunião,Responsável,Status\n"; const r=stats.allActions.map(a=>`${a.title},${a.mTitle},${a.resp},${a.status}`).join("\n"); const b=new Blob([h+r],{type:'text/csv;charset=utf-8;'}); const l=document.createElement("a"); l.href=URL.createObjectURL(b); l.setAttribute("download","plano_acao_inepad_25anos.csv"); l.click(); }} className="bg-slate-100 hover:bg-slate-200 px-4 py-2 rounded-lg text-[10px] font-bold uppercase flex items-center gap-2 transition-all tracking-widest"><Download size={14}/> Exportar</button></div>
-                  <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden overflow-x-auto"><table className="w-full text-left text-sm min-w-[700px] font-bold italic"><thead className="bg-slate-900 text-[10px] font-bold uppercase text-amber-500 border-b border-white/5 tracking-widest"><tr><th className="px-6 py-4">Objetivo Estratégico</th><th className="px-6 py-4">Origem</th><th className="px-6 py-4">Executor</th><th className="px-6 py-4 text-center">Status</th></tr></thead><tbody className="divide-y divide-slate-100">{stats.allActions.map((acao:any, idx:any) => (<tr key={idx} className="hover:bg-slate-50 transition-all"><td className="px-6 py-4 text-slate-800">{acao.title}</td><td className="px-6 py-4 text-slate-400 text-[10px] uppercase tracking-widest">{acao.mTitle}</td><td className="px-6 py-4 text-slate-600 text-xs uppercase tracking-wider">{acao.resp}</td><td className="px-6 py-4 text-center"><select value={acao.status} onChange={(e) => updateActionStatusGlobal(acao.mId, acao.id, e.target.value)} className={`px-3 py-1.5 rounded-lg text-[10px] font-bold uppercase cursor-pointer border-none transition-all ${acao.status === 'Concluída' ? 'bg-emerald-50 text-emerald-600' : 'bg-amber-50 text-amber-700'}`}><option value="Pendente">Aguardando</option><option value="Em andamento">Em Execução</option><option value="Concluída">Finalizado</option><option value="Atrasada">Atraso Crítico</option></select></td></tr>))}</tbody></table></div>
+                  <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden overflow-x-auto">
+                    <table className="w-full text-left text-sm min-w-[800px] font-bold italic">
+                        <thead className="bg-slate-900 text-[10px] font-bold uppercase text-amber-500 border-b border-white/5 tracking-widest">
+                            <tr>
+                                <th className="px-6 py-4">Iniciativa</th>
+                                <th className="px-6 py-4">Origem</th>
+                                <th className="px-6 py-4 text-center">Executor</th>
+                                <th className="px-6 py-4 text-center">Status</th>
+                                {/* NOVA COLUNA DE GESTÃO PARA ADMIN */}
+                                {isAdm && <th className="px-6 py-4 text-center">Gestão</th>}
+                            </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-100">
+                            {stats.allActions.map((acao:any, idx:any) => (
+                                <tr key={idx} className="hover:bg-slate-50 transition-all">
+                                    <td className="px-6 py-4 text-slate-800">{acao.title}</td>
+                                    <td className="px-6 py-4 text-slate-400 text-[10px] uppercase tracking-widest">{acao.mTitle}</td>
+                                    <td className="px-6 py-4 text-center text-slate-600 text-xs uppercase tracking-wider">{acao.resp}</td>
+                                    <td className="px-6 py-4 text-center">
+                                        <select value={acao.status} onChange={(e) => updateActionStatusGlobal(acao.mId, acao.id, e.target.value)} className={`px-3 py-1.5 rounded-lg text-[10px] font-bold uppercase cursor-pointer border-none transition-all ${acao.status === 'Concluída' ? 'bg-emerald-50 text-emerald-600' : 'bg-amber-50 text-amber-700'}`}>
+                                            <option value="Pendente">Aguardando</option>
+                                            <option value="Em andamento">Em Execução</option>
+                                            <option value="Concluída">Finalizado</option>
+                                            <option value="Atrasada">Atraso Crítico</option>
+                                        </select>
+                                    </td>
+                                    {/* BOTÃO EXCLUIR ATIVIDADE (ADMIN) */}
+                                    {isAdm && (
+                                        <td className="px-6 py-4 text-center">
+                                            <button 
+                                                onClick={() => deleteActionGlobal(acao.mId, acao.id)} 
+                                                className="text-slate-200 hover:text-red-600 transition-all p-2 rounded-lg hover:bg-red-50"
+                                                title="Remover Atividade"
+                                            >
+                                                <Trash2 size={16}/>
+                                            </button>
+                                        </td>
+                                    )}
+                                </tr>
+                            ))}
+                        </tbody>
+                    </table>
+                  </div>
                 </div>
               )}
 
