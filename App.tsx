@@ -5,7 +5,7 @@ import {
   Clock, CheckCircle2, AlertCircle, FileText, Send, X, Trash2, 
   Upload, Save, Lock, Target, FileCheck, BarChart3, 
   PieChart as PieIcon, LogIn, User, Key, LogOut, UserCheck,
-  Mail, UserCog, Settings, Camera, UserCircle, History, Filter, MessageSquare, Download, ExternalLink, ListChecks, Plus, Edit2, Check, Menu
+  Mail, UserCog, Settings, Camera, UserCircle, History, Filter, MessageSquare, Download, ExternalLink, ListChecks, Plus, Edit2, Check, Menu, ChevronUp, ChevronDown
 } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend } from 'recharts';
 
@@ -37,6 +37,7 @@ const App = () => {
   const [currentMeeting, setCurrentMeeting] = useState<any>(blankMeeting);
   
   const [editingPart, setEditingPart] = useState<number | null>(null);
+  const [editingPauta, setEditingPauta] = useState<number | null>(null); // Estado para edição de pauta
   const [tmpPart, setTmpPart] = useState({ name: '', email: '' });
   const [tmpPauta, setTmpPauta] = useState({ title: '', resp: '', dur: '' });
   const [tmpAcao, setTmpAcao] = useState({ title: '', resp: '', date: '', status: 'Pendente' });
@@ -138,6 +139,16 @@ const App = () => {
       setMeetings(prev => prev.map(m => m.id === meetingId ? { ...m, acoes: newAcoes } : m));
       addLog('Status', `Ação atualizada para ${newStatus}`);
     }
+  };
+
+  // --- NOVA FUNÇÃO PARA REORDENAR PAUTAS ---
+  const movePauta = (index: number, direction: 'up' | 'down') => {
+    const newPautas = [...(currentMeeting.pautas || [])];
+    const targetIndex = direction === 'up' ? index - 1 : index + 1;
+    if (targetIndex < 0 || targetIndex >= newPautas.length) return;
+    [newPautas[index], newPautas[targetIndex]] = [newPautas[targetIndex], newPautas[index]];
+    setCurrentMeeting({ ...currentMeeting, pautas: newPautas });
+    addLog('Reordenação', `Pauta movida na reunião: ${currentMeeting.title}`);
   };
 
   const stats = useMemo(() => {
@@ -294,7 +305,7 @@ const App = () => {
                         <button onClick={saveMeeting} className="bg-slate-800 hover:bg-slate-900 text-white px-6 py-2.5 rounded-lg font-bold text-xs uppercase shadow-sm flex items-center gap-2 transition-all"><Save size={16} className="text-amber-500"/> Salvar</button>
                     </div>
                     
-                    <input placeholder="Título da Reunião..." className="text-3xl md:text-4xl font-bold italic text-slate-900 bg-transparent outline-none w-full border-b border-slate-200 focus:border-amber-500 pb-2 mb-8" value={currentMeeting.title} onChange={e=>setCurrentMeeting({...currentMeeting, title: e.target.value})} />
+                    <input placeholder="Título da Reunião..." className="text-3xl md:text-4xl font-bold italic text-slate-800 bg-transparent outline-none w-full border-b border-slate-200 focus:border-amber-500 pb-2 mb-8" value={currentMeeting.title} onChange={e=>setCurrentMeeting({...currentMeeting, title: e.target.value})} />
                     
                     <div className="border-b border-slate-200 flex gap-6 mb-8 overflow-x-auto font-bold text-[10px] uppercase tracking-widest no-scrollbar italic py-2">
                       {['Informações', 'Ordem do Dia', 'Materiais', 'Deliberações', 'Plano de Ação', 'Atas'].map((label, i) => {
@@ -358,10 +369,37 @@ const App = () => {
                     {tab === 'pauta' && (
                       <div className="bg-white p-8 rounded-xl border border-slate-200 shadow-sm animate-in fade-in space-y-6">
                         <div className="space-y-2">{(currentMeeting.pautas || []).map((p:any, i:any) => (
-                          <div key={i} className="flex justify-between items-center p-4 bg-white border border-slate-200 rounded-lg group border-l-4 border-l-amber-500 shadow-sm font-bold italic"><div className="flex items-center gap-4"><span className="text-slate-300">#{i+1}</span><div><p className="text-sm text-slate-800">{p.title}</p><p className="text-[10px] text-slate-500 font-bold uppercase">{p.resp} • {p.dur} min</p></div></div><button onClick={()=>setCurrentMeeting({...currentMeeting, pautas: currentMeeting.pautas.filter((_, idx)=>idx!==i)})} className="p-2 text-slate-200 hover:text-red-500 transition-all opacity-0 group-hover:opacity-100"><Trash2 size={18}/></button></div>
+                          <div key={i} className="flex flex-col sm:flex-row justify-between items-start sm:items-center p-4 bg-white border border-slate-200 rounded-lg group border-l-4 border-l-amber-500 shadow-sm font-bold italic gap-4">
+                            {editingPauta === i ? (
+                              <div className="flex flex-col sm:flex-row gap-2 w-full animate-in fade-in">
+                                <input className="flex-[2] p-2 border border-slate-200 rounded-md text-sm outline-none focus:border-amber-500" value={p.title} onChange={e=>{const newP=[...currentMeeting.pautas]; newP[i].title=e.target.value; setCurrentMeeting({...currentMeeting, pautas:newP});}}/>
+                                <select className="flex-1 p-2 border border-slate-200 rounded-md text-sm" value={p.resp} onChange={e=>{const newP=[...currentMeeting.pautas]; newP[i].resp=e.target.value; setCurrentMeeting({...currentMeeting, pautas:newP});}}>{currentMeeting.participants.map((part:any, idx:number)=><option key={idx} value={part.name}>{part.name}</option>)}</select>
+                                <input className="w-20 p-2 border border-slate-200 rounded-md text-sm text-center" value={p.dur} onChange={e=>{const newP=[...currentMeeting.pautas]; newP[i].dur=e.target.value; setCurrentMeeting({...currentMeeting, pautas:newP});}}/>
+                                <button onClick={() => setEditingPauta(null)} className="p-2 text-emerald-600 hover:bg-emerald-50 rounded-md"><Check size={18}/></button>
+                              </div>
+                            ) : (
+                              <>
+                                <div className="flex items-center gap-4 flex-1">
+                                  <span className="text-slate-300">#{i+1}</span>
+                                  <div>
+                                    <p className="text-sm text-slate-800">{p.title}</p>
+                                    <p className="text-[10px] text-slate-500 font-bold uppercase">{p.resp} • {p.dur} min</p>
+                                  </div>
+                                </div>
+                                <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                                  {/* BOTÕES DE REORDENAÇÃO */}
+                                  <button onClick={() => movePauta(i, 'up')} className={`p-2 rounded-md hover:bg-slate-100 ${i === 0 ? 'text-slate-200 cursor-not-allowed' : 'text-slate-400 hover:text-amber-600'}`} disabled={i === 0}><ChevronUp size={16}/></button>
+                                  <button onClick={() => movePauta(i, 'down')} className={`p-2 rounded-md hover:bg-slate-100 ${i === currentMeeting.pautas.length - 1 ? 'text-slate-200 cursor-not-allowed' : 'text-slate-400 hover:text-amber-600'}`} disabled={i === currentMeeting.pautas.length - 1}><ChevronDown size={16}/></button>
+                                  
+                                  {/* BOTÃO DE EDIÇÃO */}
+                                  <button onClick={() => setEditingPauta(i)} className="p-2 text-slate-400 hover:text-amber-600 hover:bg-amber-50 rounded-md"><Edit2 size={16}/></button>
+                                  <button onClick={()=>setCurrentMeeting({...currentMeeting, pautas: currentMeeting.pautas.filter((_, idx)=>idx!==i)})} className="p-2 text-slate-200 hover:text-red-500"><Trash2 size={18}/></button>
+                                </div>
+                              </>
+                            )}
+                          </div>
                         ))}</div>
                         
-                        {/* FORMULÁRIO DE PAUTA COM CAMPO DE TEMPO RESTAURADO */}
                         <div className="p-5 bg-slate-50 rounded-xl border border-dashed border-slate-300 grid grid-cols-1 sm:grid-cols-5 gap-4 items-end">
                             <div className="sm:col-span-2"><label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Assunto</label><input placeholder="Título do Item" className="w-full p-3 border rounded-lg text-sm mt-1 outline-none focus:border-amber-500 bg-white font-bold italic shadow-sm" value={tmpPauta.title} onChange={e=>setTmpPauta({...tmpPauta, title:e.target.value})}/></div>
                             <div><label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Responsável</label><select className="w-full p-3 border rounded-lg text-sm mt-1 outline-none focus:border-amber-500 bg-white cursor-pointer font-bold shadow-sm" value={tmpPauta.resp} onChange={e=>setTmpPauta({...tmpPauta, resp:e.target.value})}><option value="">Responsável...</option>{currentMeeting.participants.map((p:any, i:number) => <option key={i} value={p.name}>{p.name}</option>)}</select></div>
