@@ -44,9 +44,8 @@ const App = () => {
   const [tmpDelib, setTmpDelib] = useState({ title: '', voters: [] as string[] });
   const [newUserForm, setnewUserForm] = useState({ name: '', email: '', role: 'Conselheiro', password: '' });
 
-  // --- NOVOS ESTADOS PARA O CRONÔMETRO ---
   const [activePautaIndex, setActivePautaIndex] = useState<number | null>(null);
-  const [timeLeft, setTimeLeft] = useState(0); // Em segundos
+  const [timeLeft, setTimeLeft] = useState(0); 
   const [isSessionActive, setIsSessionActive] = useState(false);
 
   const isAdm = currentUser?.role === 'Administrador';
@@ -55,7 +54,6 @@ const App = () => {
 
   useEffect(() => { fetchInitialData(); }, []);
 
-  // Lógica do Timer
   useEffect(() => {
     let timer: any;
     if (isSessionActive && activePautaIndex !== null && timeLeft > 0) {
@@ -299,6 +297,39 @@ const App = () => {
                     <div className="bg-slate-900 p-6 rounded-xl shadow-xl flex flex-col h-full"><h3 className="text-xs font-bold uppercase text-amber-500 mb-4 tracking-widest italic">Status das Ações</h3><div className="flex-1 min-h-0"><ResponsiveContainer width="100%" height="100%"><PieChart><Pie chart-id="status-pie" data={stats.pieData} innerRadius={60} outerRadius={80} dataKey="value" paddingAngle={5}>{stats.pieData.map((e,i)=>(<Cell key={i} fill={e.color} stroke="none"/>))}</Pie><Tooltip/><Legend wrapperStyle={{fontSize:'10px', textTransform:'uppercase'}}/></PieChart></ResponsiveContainer></div></div>
                     <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm flex flex-col h-full"><h3 className="text-xs font-bold uppercase text-slate-500 mb-4 tracking-widest italic">Produtividade Recente</h3><div className="flex-1 min-h-0"><ResponsiveContainer width="100%" height="100%"><BarChart data={stats.barData}><CartesianGrid vertical={false} stroke="#f1f5f9"/><XAxis dataKey="name" tick={{fontSize:10, fontWeight:600}}/><YAxis hide/><Tooltip/><Bar dataKey="Pautas" fill="#cbd5e1" radius={[4,4,0,0]} barSize={20}/><Bar dataKey="Ações" fill="#d97706" radius={[4,4,0,0]} barSize={20}/></BarChart></ResponsiveContainer></div></div>
                   </div>
+
+                  {/* SEÇÃO RECUPERADA: AÇÕES PRIORITÁRIAS */}
+                  <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+                    <div className="p-6 flex justify-between items-center border-b border-slate-100 bg-slate-50/50">
+                      <h3 className="text-xs font-bold uppercase text-slate-700 flex items-center gap-2 tracking-widest">
+                        <ListChecks size={18} className="text-amber-600"/> Ações Prioritárias
+                      </h3>
+                    </div>
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-left text-sm min-w-[600px]">
+                        <thead className="bg-slate-50 text-[10px] font-bold uppercase text-slate-500 tracking-widest">
+                          <tr>
+                            <th className="px-6 py-3">Iniciativa</th>
+                            <th className="px-6 py-3">Responsável</th>
+                            <th className="px-6 py-3 text-center">Status</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-100 font-bold italic">
+                          {stats.allActions.slice(0, 5).map((acao, idx) => (
+                            <tr key={idx} className="hover:bg-slate-50 border-b border-slate-100 last:border-0">
+                              <td className="px-6 py-4 text-slate-800">{acao.title}</td>
+                              <td className="px-6 py-4 text-slate-400 text-xs uppercase">{acao.resp}</td>
+                              <td className="px-6 py-4 text-center">
+                                <span className={`px-3 py-1 rounded-full text-[10px] font-bold uppercase ${acao.status === 'Concluída' ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>
+                                  {acao.status}
+                                </span>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
                 </div>
               )}
 
@@ -380,7 +411,6 @@ const App = () => {
 
                     {tab === 'pauta' && (
                       <div className="bg-white p-8 rounded-xl border border-slate-200 shadow-sm animate-in fade-in space-y-6">
-                        {/* NOVO: CABEÇALHO DE GESTÃO DE TEMPO */}
                         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center bg-slate-900 p-6 rounded-xl border border-white/10 shadow-lg gap-4">
                           <div className="flex items-center gap-4">
                             <div className="p-3 bg-amber-600/20 text-amber-500 rounded-lg"><Timer size={24}/></div>
@@ -416,7 +446,6 @@ const App = () => {
                                   </div>
                                 </div>
                                 <div className="flex items-center gap-2">
-                                  {/* CRONÔMETRO INDIVIDUAL */}
                                   {isSessionActive && (
                                     <div className="flex items-center gap-2 bg-slate-100 px-3 py-1.5 rounded-lg border border-slate-200">
                                       {activePautaIndex === i ? (
@@ -451,7 +480,7 @@ const App = () => {
                         )}
                       </div>
                     )}
-                    {/* AS OUTRAS TABS PERMANECEM IGUAIS */}
+
                     {tab === 'materiais' && (
                       <div className="bg-white p-8 rounded-xl border border-slate-200 shadow-sm animate-in fade-in space-y-6">
                         <div className="flex justify-between items-center mb-4"><h3 className="text-xs font-bold uppercase text-slate-600 tracking-widest">Apoio Técnico</h3>{canEdit && <button onClick={()=>fileRef.current?.click()} className="bg-slate-100 hover:bg-slate-200 text-slate-700 px-4 py-2 rounded-lg text-[10px] font-bold uppercase flex items-center gap-2 transition-all shadow-sm"><Upload size={14}/> Carregar</button>}</div>
@@ -460,6 +489,7 @@ const App = () => {
                         ))}</div>
                       </div>
                     )}
+
                     {tab === 'delib' && (
                       <div className="bg-white p-8 rounded-xl border border-slate-200 shadow-sm animate-in fade-in space-y-8">
                         <div className="space-y-4">{(currentMeeting.deliberacoes || []).map((d:any, i:any) => (
@@ -474,6 +504,7 @@ const App = () => {
                         )}
                       </div>
                     )}
+
                     {tab === 'acoes' && (
                       <div className="bg-white p-8 rounded-xl border border-slate-200 shadow-sm animate-in fade-in space-y-6">
                         <div className="space-y-3">{(currentMeeting.acoes || []).map((a:any, i:any) => (
@@ -489,6 +520,7 @@ const App = () => {
                         )}
                       </div>
                     )}
+
                     {tab === 'atas' && (
                       <div className="bg-white p-8 rounded-xl border border-slate-200 shadow-sm animate-in fade-in space-y-8">
                         <div className="flex justify-between items-center border-b border-slate-50 pb-4"><h3 className="text-xs font-bold uppercase text-slate-500 tracking-widest">ATAs Assinadas</h3>{canEdit && <button onClick={()=>ataRef.current?.click()} className="bg-slate-100 hover:bg-slate-200 text-slate-700 px-4 py-2 rounded-lg text-[10px] font-bold uppercase flex items-center gap-2 transition-all shadow-sm"><Upload size={14}/> Carregar</button>}</div>
@@ -504,7 +536,7 @@ const App = () => {
                   </div>
                 )
               )}
-              {/* AS OUTRAS TABS PERMANECEM IGUAIS */}
+
               {activeMenu === 'plano-acao' && (
                 <div className="space-y-6 animate-in fade-in">
                   <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex justify-between items-center"><div><h1 className="text-2xl font-bold text-slate-800 tracking-tight italic">Plano Global de Ações</h1></div><button onClick={() => { const h="Ação,Reunião,Responsável,Status\n"; const r=stats.allActions.map(a=>`${a.title},${a.mTitle},${a.resp},${a.status}`).join("\n"); const b=new Blob([h+r],{type:'text/csv;charset=utf-8;'}); const l=document.createElement("a"); l.href=URL.createObjectURL(b); l.setAttribute("download","plano_acao_inepad_25anos.csv"); l.click(); }} className="bg-slate-100 hover:bg-slate-200 px-4 py-2 rounded-lg text-[10px] font-bold uppercase flex items-center gap-2 transition-all tracking-widest"><Download size={14}/> Exportar</button></div>
