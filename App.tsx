@@ -5,7 +5,7 @@ import {
   Clock, CheckCircle2, AlertCircle, FileText, Send, X, Trash2, 
   Upload, Save, Lock, Target, FileCheck, BarChart3, 
   PieChart as PieIcon, LogIn, User, Key, LogOut, UserCheck,
-  Mail, UserCog, Settings, Camera, UserCircle, History, Filter, MessageSquare, Download, ExternalLink, ListChecks, Plus, Edit2, Check, Menu, ChevronUp, ChevronDown, Play, Square, Timer
+  Mail, UserCog, Settings, Camera, UserCircle, History, Filter, MessageSquare, Download, ExternalLink, ListChecks, Plus, Edit2, Check, Menu, ChevronUp, ChevronDown, Play, Square, Timer, SkipForward
 } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend } from 'recharts';
 
@@ -44,8 +44,9 @@ const App = () => {
   const [tmpDelib, setTmpDelib] = useState({ title: '', voters: [] as string[] });
   const [newUserForm, setnewUserForm] = useState({ name: '', email: '', role: 'Conselheiro', password: '' });
 
+  // --- ESTADOS PARA O CRONÔMETRO PROGRESSIVO ---
   const [activePautaIndex, setActivePautaIndex] = useState<number | null>(null);
-  const [timeLeft, setTimeLeft] = useState(0); 
+  const [timeElapsed, setTimeElapsed] = useState(0); 
   const [isSessionActive, setIsSessionActive] = useState(false);
 
   const isAdm = currentUser?.role === 'Administrador';
@@ -54,17 +55,45 @@ const App = () => {
 
   useEffect(() => { fetchInitialData(); }, []);
 
+  // Lógica do Timer Progressivo
   useEffect(() => {
     let timer: any;
-    if (isSessionActive && activePautaIndex !== null && timeLeft > 0) {
-      timer = setInterval(() => setTimeLeft(prev => prev - 1), 1000);
-    } else if (timeLeft === 0 && activePautaIndex !== null) {
-      const pautaNome = currentMeeting.pautas[activePautaIndex]?.title;
-      alert(`⚠️ TEMPO ESGOTADO: A pauta "${pautaNome}" atingiu o limite estipulado.`);
-      setActivePautaIndex(null);
+    if (isSessionActive && activePautaIndex !== null) {
+      timer = setInterval(() => {
+        setTimeElapsed(prev => {
+          const newVal = prev + 1;
+          const pautaAtual = currentMeeting.pautas[activePautaIndex];
+          const limiteSegundos = (parseInt(pautaAtual?.dur) || 0) * 60;
+          
+          if (newVal === limiteSegundos) {
+            alert(`⚠️ TEMPO LIMITE ATINGIDO: A pauta "${pautaAtual?.title}" ultrapassou o tempo estipulado, mas a contagem continuará até a finalização.`);
+          }
+          return newVal;
+        });
+      }, 1000);
     }
     return () => clearInterval(timer);
-  }, [isSessionActive, activePautaIndex, timeLeft, currentMeeting.pautas]);
+  }, [isSessionActive, activePautaIndex, currentMeeting.pautas]);
+
+  const handleFinalizePauta = (index: number) => {
+    const minutesSpent = Math.ceil(timeElapsed / 60);
+    const newPautas = [...currentMeeting.pautas];
+    
+    // Registra o tempo real gasto na pauta
+    newPautas[index] = { ...newPautas[index], realDur: minutesSpent, completed: true };
+    setCurrentMeeting({ ...currentMeeting, pautas: newPautas });
+    addLog('Pauta Concluída', `${newPautas[index].title} - Gasto: ${minutesSpent}min`);
+
+    // Verifica se existe uma próxima pauta
+    if (index + 1 < newPautas.length) {
+      setActivePautaIndex(index + 1);
+      setTimeElapsed(0);
+    } else {
+      setActivePautaIndex(null);
+      setTimeElapsed(0);
+      alert("Fim da Ordem do Dia. Todas as pautas foram discutidas.");
+    }
+  };
 
   const fetchInitialData = async () => {
     setLoading(true);
@@ -298,7 +327,6 @@ const App = () => {
                     <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm flex flex-col h-full"><h3 className="text-xs font-bold uppercase text-slate-500 mb-4 tracking-widest italic">Produtividade Recente</h3><div className="flex-1 min-h-0"><ResponsiveContainer width="100%" height="100%"><BarChart data={stats.barData}><CartesianGrid vertical={false} stroke="#f1f5f9"/><XAxis dataKey="name" tick={{fontSize:10, fontWeight:600}}/><YAxis hide/><Tooltip/><Bar dataKey="Pautas" fill="#cbd5e1" radius={[4,4,0,0]} barSize={20}/><Bar dataKey="Ações" fill="#d97706" radius={[4,4,0,0]} barSize={20}/></BarChart></ResponsiveContainer></div></div>
                   </div>
 
-                  {/* SEÇÃO RECUPERADA: AÇÕES PRIORITÁRIAS */}
                   <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
                     <div className="p-6 flex justify-between items-center border-b border-slate-100 bg-slate-50/50">
                       <h3 className="text-xs font-bold uppercase text-slate-700 flex items-center gap-2 tracking-widest">
@@ -428,7 +456,7 @@ const App = () => {
                         </div>
 
                         <div className="space-y-2">{(currentMeeting.pautas || []).map((p:any, i:any) => (
-                          <div key={i} className={`flex flex-col sm:flex-row justify-between items-start sm:items-center p-4 border rounded-lg transition-all group border-l-4 shadow-sm font-bold italic gap-4 ${activePautaIndex === i ? 'bg-amber-50 border-amber-500 border-l-amber-600' : 'bg-white border-slate-200 border-l-amber-500'}`}>
+                          <div key={i} className={`flex flex-col sm:flex-row justify-between items-start sm:items-center p-4 border rounded-lg transition-all group border-l-4 shadow-sm font-bold italic gap-4 ${activePautaIndex === i ? 'bg-amber-50 border-amber-500 border-l-amber-600' : p.completed ? 'bg-slate-50 border-slate-200 border-l-emerald-500 opacity-75' : 'bg-white border-slate-200 border-l-amber-500'}`}>
                             {editingPauta === i ? (
                               <div className="flex flex-col sm:flex-row gap-2 w-full animate-in fade-in">
                                 <input className="flex-[2] p-2 border border-slate-200 rounded-md text-sm outline-none" value={p.title} onChange={e=>{const newP=[...currentMeeting.pautas]; newP[i].title=e.target.value; setCurrentMeeting({...currentMeeting, pautas:newP});}}/>
@@ -442,18 +470,36 @@ const App = () => {
                                   <span className="text-slate-300">#{i+1}</span>
                                   <div>
                                     <p className="text-sm text-slate-800">{p.title}</p>
-                                    <p className="text-[10px] text-slate-500 font-bold uppercase">{p.resp} • {p.dur} min</p>
+                                    <p className="text-[10px] text-slate-500 font-bold uppercase">
+                                      {p.resp} • Previsto: {p.dur} min 
+                                      {p.realDur && <span className="text-emerald-600 ml-2">• Realizado: {p.realDur} min</span>}
+                                    </p>
                                   </div>
                                 </div>
                                 <div className="flex items-center gap-2">
                                   {isSessionActive && (
                                     <div className="flex items-center gap-2 bg-slate-100 px-3 py-1.5 rounded-lg border border-slate-200">
                                       {activePautaIndex === i ? (
-                                        <div className="flex items-center gap-2 text-red-600 font-mono text-lg animate-pulse">
-                                          <Clock size={16}/> {formatTime(timeLeft)}
+                                        <div className="flex items-center gap-4">
+                                          <div className={`flex items-center gap-2 font-mono text-lg ${timeElapsed > (parseInt(p.dur) * 60) ? 'text-red-600 animate-pulse' : 'text-amber-600'}`}>
+                                            <Clock size={16}/> {formatTime(timeElapsed)}
+                                          </div>
+                                          <button 
+                                            onClick={() => handleFinalizePauta(i)} 
+                                            className="bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-1 rounded text-[10px] uppercase font-bold flex items-center gap-1"
+                                          >
+                                            <CheckCircle2 size={12}/> Finalizar Pauta
+                                          </button>
                                         </div>
                                       ) : (
-                                        <button onClick={() => { setActivePautaIndex(i); setTimeLeft(parseInt(p.dur) * 60); }} className="text-emerald-600 hover:text-emerald-700 flex items-center gap-1 text-[10px] uppercase font-bold"><Play size={14}/> Disparar</button>
+                                        !p.completed && (
+                                          <button 
+                                            onClick={() => { setActivePautaIndex(i); setTimeElapsed(0); }} 
+                                            className="text-emerald-600 hover:text-emerald-700 flex items-center gap-1 text-[10px] uppercase font-bold"
+                                          >
+                                            <Play size={14}/> Iniciar
+                                          </button>
+                                        )
                                       )}
                                     </div>
                                   )}
@@ -480,7 +526,6 @@ const App = () => {
                         )}
                       </div>
                     )}
-
                     {tab === 'materiais' && (
                       <div className="bg-white p-8 rounded-xl border border-slate-200 shadow-sm animate-in fade-in space-y-6">
                         <div className="flex justify-between items-center mb-4"><h3 className="text-xs font-bold uppercase text-slate-600 tracking-widest">Apoio Técnico</h3>{canEdit && <button onClick={()=>fileRef.current?.click()} className="bg-slate-100 hover:bg-slate-200 text-slate-700 px-4 py-2 rounded-lg text-[10px] font-bold uppercase flex items-center gap-2 transition-all shadow-sm"><Upload size={14}/> Carregar</button>}</div>
@@ -489,7 +534,6 @@ const App = () => {
                         ))}</div>
                       </div>
                     )}
-
                     {tab === 'delib' && (
                       <div className="bg-white p-8 rounded-xl border border-slate-200 shadow-sm animate-in fade-in space-y-8">
                         <div className="space-y-4">{(currentMeeting.deliberacoes || []).map((d:any, i:any) => (
@@ -504,7 +548,6 @@ const App = () => {
                         )}
                       </div>
                     )}
-
                     {tab === 'acoes' && (
                       <div className="bg-white p-8 rounded-xl border border-slate-200 shadow-sm animate-in fade-in space-y-6">
                         <div className="space-y-3">{(currentMeeting.acoes || []).map((a:any, i:any) => (
@@ -520,7 +563,6 @@ const App = () => {
                         )}
                       </div>
                     )}
-
                     {tab === 'atas' && (
                       <div className="bg-white p-8 rounded-xl border border-slate-200 shadow-sm animate-in fade-in space-y-8">
                         <div className="flex justify-between items-center border-b border-slate-50 pb-4"><h3 className="text-xs font-bold uppercase text-slate-500 tracking-widest">ATAs Assinadas</h3>{canEdit && <button onClick={()=>ataRef.current?.click()} className="bg-slate-100 hover:bg-slate-200 text-slate-700 px-4 py-2 rounded-lg text-[10px] font-bold uppercase flex items-center gap-2 transition-all shadow-sm"><Upload size={14}/> Carregar</button>}</div>
@@ -536,7 +578,6 @@ const App = () => {
                   </div>
                 )
               )}
-
               {activeMenu === 'plano-acao' && (
                 <div className="space-y-6 animate-in fade-in">
                   <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex justify-between items-center"><div><h1 className="text-2xl font-bold text-slate-800 tracking-tight italic">Plano Global de Ações</h1></div><button onClick={() => { const h="Ação,Reunião,Responsável,Status\n"; const r=stats.allActions.map(a=>`${a.title},${a.mTitle},${a.resp},${a.status}`).join("\n"); const b=new Blob([h+r],{type:'text/csv;charset=utf-8;'}); const l=document.createElement("a"); l.href=URL.createObjectURL(b); l.setAttribute("download","plano_acao_inepad_25anos.csv"); l.click(); }} className="bg-slate-100 hover:bg-slate-200 px-4 py-2 rounded-lg text-[10px] font-bold uppercase flex items-center gap-2 transition-all tracking-widest"><Download size={14}/> Exportar</button></div>
@@ -573,7 +614,6 @@ const App = () => {
                   </div>
                 </div>
               )}
-
               {activeMenu === 'usuarios' && (
                 <div className="space-y-6 animate-in fade-in">
                   <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm"><h1 className="text-2xl font-bold text-slate-800 tracking-tight italic">Composição do Conselho</h1></div>
@@ -583,7 +623,6 @@ const App = () => {
                   </div>
                 </div>
               )}
-
               {activeMenu === 'auditoria' && (
                 <div className="space-y-6 animate-in fade-in">
                   <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex justify-between items-center"><div><h1 className="text-2xl font-bold text-slate-800 tracking-tight flex items-center gap-3 italic"><History className="text-amber-600" /> Compliance & Auditoria</h1></div><button onClick={() => { const h="Data,Usuário,Ação,Detalhes\n"; const r=auditLogs.map(l=>`${new Date(l.log_date).toLocaleString()},${l.username},${l.action},${l.details}`).join("\n"); const b=new Blob([h+r],{type:'text/csv;charset=utf-8;'}); const l=document.createElement("a"); l.href=URL.createObjectURL(b); l.setAttribute("download",`auditoria_inepad_25anos.csv`); l.click(); }} className="bg-slate-100 hover:bg-slate-200 px-4 py-2 rounded-lg text-[10px] font-bold uppercase flex items-center justify-center gap-2 transition-all tracking-widest"><FileText size={14}/> CSV</button></div>
