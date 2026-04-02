@@ -42,7 +42,6 @@ const App = () => {
   const [tmpPauta, setTmpPauta] = useState({ title: '', resp: '', dur: '' });
   const [tmpAcao, setTmpAcao] = useState({ title: '', resp: '', date: '', status: 'Pendente' });
   
-  // NOVO ESTADO: Para o formulário de lançamento direto no Plano Global
   const [tmpGlobalAcao, setTmpGlobalAcao] = useState({ title: '', resp: '', date: '', meetingId: '' });
 
   const [tmpDelib, setTmpDelib] = useState({ title: '', voters: [] as string[] });
@@ -173,7 +172,6 @@ const App = () => {
     }
   };
 
-  // NOVA FUNÇÃO: Salvar ação lançada diretamente no Plano Global
   const saveGlobalAction = async () => {
     if (!canEdit) return;
     if (!tmpGlobalAcao.title || !tmpGlobalAcao.meetingId) return alert("Título e Reunião de Origem são obrigatórios.");
@@ -373,6 +371,45 @@ const App = () => {
                     <div className="bg-slate-900 p-6 rounded-xl shadow-xl flex flex-col h-full"><h3 className="text-xs font-bold uppercase text-amber-500 mb-4 tracking-widest italic">Status das Ações</h3><div className="flex-1 min-h-0"><ResponsiveContainer width="100%" height="100%"><PieChart><Pie chart-id="status-pie" data={stats.pieData} innerRadius={60} outerRadius={80} dataKey="value" paddingAngle={5}>{stats.pieData.map((e,i)=>(<Cell key={i} fill={e.color} stroke="none"/>))}</Pie><Tooltip/><Legend wrapperStyle={{fontSize:'10px', textTransform:'uppercase'}}/></PieChart></ResponsiveContainer></div></div>
                     <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm flex flex-col h-full"><h3 className="text-xs font-bold uppercase text-slate-500 mb-4 tracking-widest italic">Produtividade Recente</h3><div className="flex-1 min-h-0"><ResponsiveContainer width="100%" height="100%"><BarChart data={stats.barData}><CartesianGrid vertical={false} stroke="#f1f5f9"/><XAxis dataKey="name" tick={{fontSize:10, fontWeight:600}}/><YAxis hide/><Tooltip/><Bar dataKey="Pautas" fill="#cbd5e1" radius={[4,4,0,0]} barSize={20}/><Bar dataKey="Ações" fill="#d97706" radius={[4,4,0,0]} barSize={20}/></BarChart></ResponsiveContainer></div></div>
                   </div>
+
+                  {/* RESTAURAÇÃO: Resumo do Plano de Ação no Dashboard */}
+                  <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden animate-in fade-in slide-in-from-bottom-2">
+                    <div className="p-4 border-b border-slate-50 bg-slate-50/50 flex justify-between items-center">
+                      <h3 className="text-xs font-bold uppercase text-slate-500 tracking-widest italic flex items-center gap-2">
+                        <ListChecks size={16} className="text-amber-600"/> Resumo do Plano de Ação
+                      </h3>
+                    </div>
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-left text-sm font-bold italic">
+                        <thead className="bg-slate-900 text-[10px] font-bold uppercase text-amber-500 tracking-widest">
+                          <tr>
+                            <th className="px-6 py-4">Iniciativa</th>
+                            <th className="px-6 py-4">Responsável</th>
+                            <th className="px-6 py-4">Origem</th>
+                            <th className="px-6 py-4 text-center">Status</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-100">
+                          {stats.allActions.length === 0 ? (
+                            <tr><td colSpan={4} className="px-6 py-8 text-center text-slate-400 uppercase text-[10px]">Nenhuma ação pendente no período</td></tr>
+                          ) : (
+                            stats.allActions.slice(0, 5).map((acao: any, idx: any) => (
+                              <tr key={idx} className="hover:bg-slate-50 transition-all border-l-4 border-l-transparent hover:border-l-amber-500">
+                                <td className="px-6 py-4 text-slate-800">{acao.title}</td>
+                                <td className="px-6 py-4 text-slate-600">{acao.resp || 'N/D'}</td>
+                                <td className="px-6 py-4 text-slate-400 text-[10px] uppercase tracking-widest">{acao.mTitle}</td>
+                                <td className="px-6 py-4 text-center">
+                                  <span className={`px-3 py-1 rounded-full text-[9px] uppercase font-bold ${acao.status === 'Concluída' ? 'bg-emerald-100 text-emerald-700' : acao.status === 'Em andamento' ? 'bg-amber-100 text-amber-700' : 'bg-slate-100 text-slate-500'}`}>
+                                    {acao.status}
+                                  </span>
+                                </td>
+                              </tr>
+                            ))
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
                 </div>
               )}
 
@@ -512,7 +549,6 @@ const App = () => {
                 <div className="space-y-6 animate-in fade-in">
                   <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex justify-between items-center"><div><h1 className="text-2xl font-bold text-slate-800 tracking-tight italic">Plano Global</h1></div></div>
                   
-                  {/* NOVO FORMULÁRIO: Lançamento Direto no Plano Global */}
                   {canEdit && (
                     <div className="bg-white p-5 border border-amber-200 rounded-xl shadow-sm grid grid-cols-1 md:grid-cols-12 gap-4 items-end animate-in slide-in-from-top-2">
                         <div className="md:col-span-3">
@@ -659,5 +695,3 @@ const App = () => {
 };
 
 export default App;
-
-// TRIGGER DE PRODUÇÃO: Versão 2.7 - Lançamento Direto e Funções Preservadas
