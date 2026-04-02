@@ -18,7 +18,7 @@ const App = () => {
   const [users, setUsers] = useState<any[]>([]);
   const [meetings, setMeetings] = useState<any[]>([]);
   const [auditLogs, setAuditLogs] = useState<any[]>([]);
-  const [loading, setLoading] = useState(false); // Começa em false até o login
+  const [loading, setLoading] = useState(false); 
   const [currentUser, setCurrentUser] = useState<any>(null);
   const [authForm, setAuthForm] = useState({ email: '', password: '' });
   const [activeMenu, setActiveMenu] = useState('dashboard');
@@ -43,15 +43,12 @@ const App = () => {
   const [tmpAcao, setTmpAcao] = useState({ title: '', resp: '', date: '', status: 'Pendente' });
   const [tmpDelib, setTmpDelib] = useState({ title: '', voters: [] as string[] });
   
-  // Novo formulário com client_id opcional (para SuperAdmin)
   const [newUserForm, setnewUserForm] = useState({ name: '', email: '', role: 'Conselheiro', password: '', client_id: '' });
 
-  // --- ESTADOS PARA O CRONÔMETRO PROGRESSIVO ---
   const [activePautaIndex, setActivePautaIndex] = useState<number | null>(null);
   const [timeElapsed, setTimeElapsed] = useState(0); 
   const [isSessionActive, setIsSessionActive] = useState(false);
 
-  // Lógica de Permissões
   const isSuper = currentUser?.role === 'SuperAdmin';
   const isAdm = currentUser?.role === 'Administrador' || isSuper;
   const isSec = currentUser?.role === 'Secretário';
@@ -61,7 +58,6 @@ const App = () => {
     if (currentUser) fetchInitialData(); 
   }, [currentUser]);
 
-  // Lógica do Timer Progressivo (PRESERVADA 100%)
   useEffect(() => {
     let timer: any;
     if (isSessionActive && activePautaIndex !== null) {
@@ -100,7 +96,6 @@ const App = () => {
   const fetchInitialData = async () => {
     setLoading(true);
     try {
-        // Filtro Multi-Tenant: busca apenas dados do cliente logado
         let mQuery = supabase.from('meetings').select('*');
         let uQuery = supabase.from('members').select('*');
         let lQuery = supabase.from('audit_logs').select('*');
@@ -156,20 +151,12 @@ const App = () => {
   const saveMeeting = async () => {
     if (!canEdit) return;
     if (!currentMeeting.title) return alert("O título é obrigatório.");
-    
-    // Injeta o client_id no salvamento
-    const meetingData = { 
-        ...currentMeeting, 
-        client_id: currentUser.client_id 
-    };
-    
+    const meetingData = { ...currentMeeting, client_id: currentUser.client_id };
     if (meetingData.date === "") meetingData.date = null;
     if (meetingData.time === "") meetingData.time = null;
     if (!meetingData.id) delete meetingData.id;
-
     const { data, error } = await supabase.from('meetings').upsert([meetingData]).select();
     if (error) return alert("Erro ao salvar: " + error.message);
-
     if (data) {
       setMeetings(prev => {
         const index = prev.findIndex(m => m.id === data[0].id);
@@ -267,19 +254,9 @@ const App = () => {
           <form className="space-y-4" onSubmit={async (e)=>{
             e.preventDefault();
             setLoading(true);
-            const { data, error } = await supabase
-                .from('members')
-                .select('*')
-                .eq('email', authForm.email)
-                .eq('password', authForm.password)
-                .single();
-
-            if (data) {
-                setCurrentUser(data);
-                addLog('Login', `Empresa: ${data.client_id}`);
-            } else {
-                alert('Credenciais Inválidas');
-            }
+            const { data } = await supabase.from('members').select('*').eq('email', authForm.email).eq('password', authForm.password).single();
+            if (data) { setCurrentUser(data); addLog('Login', `Empresa: ${data.client_id}`); } 
+            else alert('Credenciais Inválidas');
             setLoading(false);
           }}>
             <input type="email" placeholder="E-mail Corporativo" className="w-full p-4 bg-slate-50 border border-slate-200 rounded-lg outline-none font-bold" value={authForm.email} onChange={e=>setAuthForm({...authForm, email:e.target.value})} required />
@@ -294,7 +271,6 @@ const App = () => {
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col md:flex-row font-sans overflow-hidden text-slate-800">
       {isMobileMenuOpen && <div className="fixed inset-0 bg-slate-900/60 z-40 md:hidden backdrop-blur-sm" onClick={() => setIsMobileMenuOpen(false)} />}
-      
       <aside className={`fixed inset-y-0 left-0 z-50 w-64 bg-slate-900 text-slate-300 flex flex-col shadow-xl transform transition-transform duration-300 md:relative md:translate-x-0 ${isMobileMenuOpen ? 'translate-x-0' : '-translate-x-full'}`}>
         <div className="p-10 flex flex-col items-center justify-center border-b border-white/5 bg-slate-900/30">
             <img src="/logo-sidebar.jpg" alt="INEPAD Logo" className="h-12 w-auto object-contain brightness-110 contrast-125" style={{ mixBlendMode: 'lighten' }} />
@@ -352,7 +328,6 @@ const App = () => {
                       </select>
                     </div>
                   </div>
-
                   <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
                     {[ {l:'Concluídas', v:stats.concluida, i:<CheckCircle2/>, c:'amber'}, {l:'Deliberações', v:stats.delibs, i:<FileText/>, c:'slate'}, {l:'Atas na Nuvem', v:stats.atas, i:<FileCheck/>, c:'amber'}, {l:'Em Atraso', v:stats.atrasadas, i:<AlertCircle/>, c:'red'} ].map((s, idx) => (
                       <div key={idx} className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm flex items-start gap-4 transition-all hover:shadow-md">
@@ -361,7 +336,6 @@ const App = () => {
                       </div>
                     ))}
                   </div>
-
                   <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 h-[350px]">
                     <div className="bg-slate-900 p-6 rounded-xl shadow-xl flex flex-col h-full"><h3 className="text-xs font-bold uppercase text-amber-500 mb-4 tracking-widest italic">Status das Ações</h3><div className="flex-1 min-h-0"><ResponsiveContainer width="100%" height="100%"><PieChart><Pie chart-id="status-pie" data={stats.pieData} innerRadius={60} outerRadius={80} dataKey="value" paddingAngle={5}>{stats.pieData.map((e,i)=>(<Cell key={i} fill={e.color} stroke="none"/>))}</Pie><Tooltip/><Legend wrapperStyle={{fontSize:'10px', textTransform:'uppercase'}}/></PieChart></ResponsiveContainer></div></div>
                     <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm flex flex-col h-full"><h3 className="text-xs font-bold uppercase text-slate-500 mb-4 tracking-widest italic">Produtividade Recente</h3><div className="flex-1 min-h-0"><ResponsiveContainer width="100%" height="100%"><BarChart data={stats.barData}><CartesianGrid vertical={false} stroke="#f1f5f9"/><XAxis dataKey="name" tick={{fontSize:10, fontWeight:600}}/><YAxis hide/><Tooltip/><Bar dataKey="Pautas" fill="#cbd5e1" radius={[4,4,0,0]} barSize={20}/><Bar dataKey="Ações" fill="#d97706" radius={[4,4,0,0]} barSize={20}/></BarChart></ResponsiveContainer></div></div>
@@ -381,12 +355,7 @@ const App = () => {
                     <div className="grid gap-4">{meetings.map((m, idx) => (
                       <div key={idx} onClick={()=>{setCurrentMeeting(m); setView('details'); setTab('info');}} className="bg-white p-6 rounded-xl border border-slate-200 flex justify-between items-center group cursor-pointer hover:border-amber-500 hover:shadow-md transition-all shadow-sm">
                         <div className="flex items-center gap-4"><div className="p-3 bg-slate-100 text-slate-500 rounded-lg group-hover:bg-amber-100 group-hover:text-amber-700 transition-all"><Calendar size={24}/></div><div><h3 className="font-bold text-lg text-slate-800 group-hover:text-amber-600 transition-all italic">{m.title}</h3><p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">{m.status} • {m.date || 'DATA N/D'} {isSuper && `[Empresa: ${m.client_id}]`}</p></div></div>
-                        <div className="flex items-center gap-3">
-                            {canEdit && (
-                                <button onClick={(e) => { e.stopPropagation(); deleteMeeting(m.id, m.title); }} className="p-3 text-slate-200 hover:text-red-600 transition-all hover:bg-red-50 rounded-lg"><Trash2 size={20}/></button>
-                            )}
-                            <ChevronRight size={20} className="text-slate-300 group-hover:text-amber-500 transition-all"/>
-                        </div>
+                        <div className="flex items-center gap-3">{canEdit && (<button onClick={(e) => { e.stopPropagation(); deleteMeeting(m.id, m.title); }} className="p-3 text-slate-200 hover:text-red-600 transition-all hover:bg-red-50 rounded-lg"><Trash2 size={20}/></button>)}<ChevronRight size={20} className="text-slate-300 group-hover:text-amber-500 transition-all"/></div>
                       </div>
                     ))}</div>
                   </div>
@@ -394,21 +363,15 @@ const App = () => {
                   <div className="animate-in fade-in duration-300 pb-20">
                     <div className="flex items-center justify-between mb-6 bg-white p-4 rounded-xl border border-slate-200 shadow-sm sticky top-0 z-10">
                         <button onClick={()=>setView('list')} className="p-2 text-slate-500 hover:bg-slate-100 rounded-lg transition-all flex items-center gap-2 text-xs font-bold uppercase tracking-widest"><ChevronRight className="rotate-180" size={20}/> Voltar</button>
-                        {canEdit && (
-                          <button onClick={saveMeeting} className="bg-slate-800 hover:bg-slate-900 text-white px-6 py-2.5 rounded-lg font-bold text-xs uppercase shadow-sm flex items-center gap-2 transition-all"><Save size={16} className="text-amber-500"/> Salvar</button>
-                        )}
+                        {canEdit && (<button onClick={saveMeeting} className="bg-slate-800 hover:bg-slate-900 text-white px-6 py-2.5 rounded-lg font-bold text-xs uppercase shadow-sm flex items-center gap-2 transition-all"><Save size={16} className="text-amber-500"/> Salvar</button>)}
                     </div>
-                    
                     <input placeholder="Título da Reunião..." className="text-3xl md:text-4xl font-bold italic text-slate-900 bg-transparent outline-none w-full border-b border-slate-200 focus:border-amber-500 pb-2 mb-8" value={currentMeeting.title} onChange={e=>setCurrentMeeting({...currentMeeting, title: e.target.value})} readOnly={!canEdit} />
-                    
                     <div className="border-b border-slate-200 flex gap-6 mb-8 overflow-x-auto font-bold text-[10px] uppercase tracking-widest no-scrollbar italic py-2">
                       {['Informações', 'Ordem do Dia', 'Materiais', 'Deliberações', 'Plano de Ação', 'Atas'].map((label, i) => {
                         const ids = ['info', 'pauta', 'materiais', 'delib', 'acoes', 'atas'];
                         return <button key={i} onClick={()=>setTab(ids[i])} className={`pb-3 transition-all relative whitespace-nowrap ${tab === ids[i] ? 'text-amber-600 border-b-2 border-amber-600 scale-105' : 'text-slate-400 hover:text-slate-800'}`}>{label}</button>
                       })}
                     </div>
-                    
-                    {/* RESTANTE DO CÓDIGO DE INFO, PAUTA, MATERIAIS ETC. PRESERVADO 100% CONFORME VERSÃO 1.1 */}
                     {tab === 'info' && (
                       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 animate-in fade-in">
                         <div className="lg:col-span-2 bg-white p-6 md:p-8 rounded-xl border border-slate-200 shadow-sm space-y-6">
@@ -441,43 +404,16 @@ const App = () => {
                         </div>
                       </div>
                     )}
-
                     {tab === 'pauta' && (
                       <div className="bg-white p-8 rounded-xl border border-slate-200 shadow-sm animate-in fade-in space-y-6">
                         <div className="flex justify-between items-center bg-slate-900 p-6 rounded-xl border border-white/10 shadow-lg gap-4">
-                          <div className="flex items-center gap-4">
-                            <div className="p-3 bg-amber-600/20 text-amber-500 rounded-lg"><Timer size={24}/></div>
-                            <div>
-                              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Estimativa da Sessão</p>
-                              <p className="text-2xl font-bold text-white italic">{totalEstimatedTime} <span className="text-sm font-normal not-italic text-slate-400">min</span></p>
-                            </div>
-                          </div>
-                          <button 
-                            onClick={() => { setIsSessionActive(!isSessionActive); if(!isSessionActive) addLog('Início Sessão', `Reunião iniciada por ${currentUser.name}`); }} 
-                            className={`px-6 py-3 rounded-lg font-bold text-xs uppercase flex items-center gap-2 transition-all shadow-md ${isSessionActive ? 'bg-red-500 text-white' : 'bg-emerald-600 text-white'}`}
-                          >
-                            {isSessionActive ? <><Square size={16}/> Parar</> : <><Play size={16}/> Iniciar</>}
-                          </button>
+                          <div className="flex items-center gap-4"><div className="p-3 bg-amber-600/20 text-amber-500 rounded-lg"><Timer size={24}/></div><div><p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Estimativa da Sessão</p><p className="text-2xl font-bold text-white italic">{totalEstimatedTime} <span className="text-sm font-normal not-italic text-slate-400">min</span></p></div></div>
+                          <button onClick={() => { setIsSessionActive(!isSessionActive); if(!isSessionActive) addLog('Início Sessão', `Reunião iniciada por ${currentUser.name}`); }} className={`px-6 py-3 rounded-lg font-bold text-xs uppercase flex items-center gap-2 transition-all shadow-md ${isSessionActive ? 'bg-red-500 text-white' : 'bg-emerald-600 text-white'}`}>{isSessionActive ? <><Square size={16}/> Parar</> : <><Play size={16}/> Iniciar</>}</button>
                         </div>
-
                         <div className="space-y-2">{(currentMeeting.pautas || []).map((p:any, i:any) => (
                           <div key={i} className={`flex justify-between items-center p-4 border rounded-lg transition-all group border-l-4 font-bold italic ${activePautaIndex === i ? 'bg-amber-50 border-amber-500' : 'bg-white border-slate-200'}`}>
-                            <div className="flex items-center gap-4 flex-1">
-                              <span className="text-slate-300">#{i+1}</span>
-                              <div>
-                                <p className="text-sm text-slate-800">{p.title}</p>
-                                <p className="text-[10px] text-slate-500 font-bold uppercase">{p.resp} • {p.dur} min</p>
-                              </div>
-                            </div>
-                            <div className="flex items-center gap-2">
-                                {isSessionActive && activePautaIndex === i && (
-                                    <div className={`font-mono text-lg ${timeElapsed > (parseInt(p.dur) * 60) ? 'text-red-600' : 'text-amber-600'}`}>
-                                        {formatTime(timeElapsed)}
-                                    </div>
-                                )}
-                                {isSessionActive && activePautaIndex === i && <button onClick={() => handleFinalizePauta(i)} className="bg-emerald-600 text-white p-2 rounded-md"><Check size={16}/></button>}
-                                {canEdit && <button onClick={()=>setCurrentMeeting({...currentMeeting, pautas: (currentMeeting.pautas || []).filter((_:any, idx:any)=>idx!==i)})} className="p-2 text-slate-200 hover:text-red-500"><Trash2 size={18}/></button>}
-                            </div>
+                            <div className="flex items-center gap-4 flex-1"><span className="text-slate-300">#{i+1}</span><div><p className="text-sm text-slate-800">{p.title}</p><p className="text-[10px] text-slate-500 font-bold uppercase">{p.resp} • {p.dur} min</p></div></div>
+                            <div className="flex items-center gap-2">{isSessionActive && activePautaIndex === i && (<div className={`font-mono text-lg ${timeElapsed > (parseInt(p.dur) * 60) ? 'text-red-600' : 'text-amber-600'}`}>{formatTime(timeElapsed)}</div>)}{isSessionActive && activePautaIndex === i && <button onClick={() => handleFinalizePauta(i)} className="bg-emerald-600 text-white p-2 rounded-md"><Check size={16}/></button>}{canEdit && <button onClick={()=>setCurrentMeeting({...currentMeeting, pautas: (currentMeeting.pautas || []).filter((_:any, idx:any)=>idx!==i)})} className="p-2 text-slate-200 hover:text-red-500"><Trash2 size={18}/></button>}</div>
                           </div>
                         ))}</div>
                         {canEdit && (
@@ -501,10 +437,7 @@ const App = () => {
                     {tab === 'delib' && (
                       <div className="bg-white p-8 rounded-xl border border-slate-200 shadow-sm animate-in fade-in space-y-8">
                         <div className="space-y-4">{(currentMeeting.deliberacoes || []).map((d:any, i:any) => (
-                          <div key={i} className="p-6 bg-slate-50 rounded-xl border border-slate-200 shadow-sm group font-bold italic">
-                            <p className="text-sm text-slate-800">"{d.title}"</p>
-                            <div className="flex flex-wrap gap-2 pt-4 border-t border-slate-200 mt-4"><span className="text-[10px] font-bold uppercase text-slate-400">Votantes:</span> {d.voters.map((v:any, vi:any) => <span key={vi} className="bg-white px-3 py-1 rounded-full text-[9px] uppercase border">{v}</span>)}</div>
-                          </div>
+                          <div key={i} className="p-6 bg-slate-50 rounded-xl border border-slate-200 shadow-sm group font-bold italic"><p className="text-sm text-slate-800">"{d.title}"</p><div className="flex flex-wrap gap-2 pt-4 border-t border-slate-200 mt-4"><span className="text-[10px] font-bold uppercase text-slate-400">Votantes:</span> {d.voters.map((v:any, vi:any) => <span key={vi} className="bg-white px-3 py-1 rounded-full text-[9px] uppercase border">{v}</span>)}</div></div>
                         ))}</div>
                         {canEdit && (
                           <div className="p-6 bg-amber-50 rounded-xl border border-amber-200 space-y-4">
@@ -534,11 +467,7 @@ const App = () => {
                       <div className="bg-white p-8 rounded-xl border border-slate-200 shadow-sm animate-in fade-in space-y-8">
                         <div className="flex justify-between items-center border-b border-slate-50 pb-4"><h3 className="text-xs font-bold uppercase text-slate-500 tracking-widest">Atas Finais</h3>{canEdit && <button onClick={()=>ataRef.current?.click()} className="bg-slate-100 hover:bg-slate-200 text-slate-700 px-4 py-2 rounded-lg text-[10px] font-bold uppercase flex items-center gap-2 transition-all"><Upload size={14}/> Carregar</button>}</div>
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">{(currentMeeting.atas || []).map((ata:any, i:any) => (
-                          <div key={i} className="p-4 bg-white border border-slate-200 rounded-xl flex items-center gap-4 group italic font-bold">
-                            <div className="p-3 bg-amber-50 text-amber-600 rounded-lg"><FileCheck size={24}/></div>
-                            <div className="flex-1 truncate text-sm">{ata.name}</div>
-                            <a href={ata.url} target="_blank" rel="noreferrer" className="text-slate-300 hover:text-amber-600"><ExternalLink size={18}/></a>
-                          </div>
+                          <div key={i} className="p-4 bg-white border border-slate-200 rounded-xl flex items-center gap-4 group italic font-bold"><div className="p-3 bg-amber-50 text-amber-600 rounded-lg"><FileCheck size={24}/></div><div className="flex-1 truncate text-sm">{ata.name}</div><a href={ata.url} target="_blank" rel="noreferrer" className="text-slate-300 hover:text-amber-600"><ExternalLink size={18}/></a></div>
                         ))}</div>
                       </div>
                     )}
@@ -550,10 +479,11 @@ const App = () => {
                 <div className="space-y-6 animate-in fade-in">
                   <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex justify-between items-center"><div><h1 className="text-2xl font-bold text-slate-800 tracking-tight italic">Plano Global</h1></div></div>
                   <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden overflow-x-auto">
-                    <table className="w-full text-left text-sm min-w-[800px] font-bold italic">
+                    <table className="w-full text-left text-sm min-w-[900px] font-bold italic">
                         <thead className="bg-slate-900 text-[10px] font-bold uppercase text-amber-500 border-b border-white/5 tracking-widest">
                             <tr>
                                 <th className="px-6 py-4">Iniciativa</th>
+                                <th className="px-6 py-4">Responsável</th>
                                 <th className="px-6 py-4">Origem</th>
                                 <th className="px-6 py-4 text-center">Status</th>
                                 {canEdit && <th className="px-6 py-4 text-center">Gestão</th>}
@@ -563,6 +493,7 @@ const App = () => {
                             {stats.allActions.map((acao:any, idx:any) => (
                                 <tr key={idx} className="hover:bg-slate-50 transition-all">
                                     <td className="px-6 py-4 text-slate-800">{acao.title}</td>
+                                    <td className="px-6 py-4 text-slate-600">{acao.resp || 'N/D'}</td>
                                     <td className="px-6 py-4 text-slate-400 text-[10px] uppercase tracking-widest">{acao.mTitle}</td>
                                     <td className="px-6 py-4 text-center">
                                         <select value={acao.status} onChange={(e) => updateActionStatusGlobal(acao.mId, acao.id, e.target.value)} className={`px-3 py-1.5 rounded-lg text-[10px] font-bold uppercase border-none bg-amber-50 text-amber-700`} disabled={!canEdit}>
@@ -598,43 +529,21 @@ const App = () => {
                         </select>
                       </div>
                       <div><label className="text-[10px] font-bold text-slate-500 uppercase">Senha</label><input type="password" className="w-full p-3 bg-slate-800 text-white rounded-lg outline-none font-bold" value={newUserForm.password} onChange={e=>setnewUserForm({...newUserForm, password: e.target.value})} /></div>
-                      
-                      {/* Campo de Identificador de Empresa visível para SuperAdmin */}
                       <div>
                         <label className="text-[10px] font-bold text-amber-500 uppercase flex items-center gap-2"><Building2 size={12}/> Identificador do Cliente</label>
-                        <input 
-                            placeholder={isSuper ? "Ex: Empresa-A, Coca-Cola" : "Auto-vinculado"} 
-                            className="w-full p-3 bg-slate-800 text-white rounded-lg outline-none font-bold border border-amber-500/30" 
-                            value={isSuper ? newUserForm.client_id : (newUserForm.client_id || currentUser.client_id)} 
-                            onChange={e=>setnewUserForm({...newUserForm, client_id: e.target.value})} 
-                            readOnly={!isSuper}
-                        />
+                        <input placeholder={isSuper ? "Ex: Empresa-A, Coca-Cola" : "Auto-vinculado"} className="w-full p-3 bg-slate-800 text-white rounded-lg outline-none font-bold border border-amber-500/30" value={isSuper ? newUserForm.client_id : (newUserForm.client_id || currentUser.client_id)} onChange={e=>setnewUserForm({...newUserForm, client_id: e.target.value})} readOnly={!isSuper} />
                       </div>
-
                       <button onClick={async ()=>{ 
-                        const payload = { 
-                            ...newUserForm, 
-                            client_id: isSuper ? newUserForm.client_id : currentUser.client_id 
-                        };
+                        const payload = { ...newUserForm, client_id: isSuper ? newUserForm.client_id : currentUser.client_id };
                         const {data, error} = await supabase.from('members').insert([payload]).select(); 
-                        if(!error && data) { 
-                            setUsers([...users, data[0]]); 
-                            setnewUserForm({name:'', email:'', role:'Conselheiro', password:'', client_id:''}); 
-                            alert("Acesso habilitado com sucesso!"); 
-                        } else {
-                            alert("Erro ao habilitar acesso.");
-                        }
+                        if(!error && data) { setUsers([...users, data[0]]); setnewUserForm({name:'', email:'', role:'Conselheiro', password:'', client_id:''}); alert("Acesso habilitado com sucesso!"); } 
+                        else { alert("Erro ao habilitar acesso."); }
                       }} className="w-full py-3 bg-amber-600 text-white rounded-lg font-bold uppercase shadow-md hover:bg-amber-700 transition-all tracking-widest">Habilitar</button>
                     </div>
                     <div className="lg:col-span-2 bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden overflow-x-auto">
                         <table className="w-full text-left text-sm min-w-[500px] font-bold italic">
                             <thead className="bg-slate-50 text-[10px] font-bold uppercase text-slate-400 border-b border-slate-50 tracking-widest">
-                                <tr>
-                                    <th className="px-6 py-4">Membro</th>
-                                    <th className="px-6 py-4 text-center">Empresa</th>
-                                    <th className="px-6 py-4 text-center">Nível</th>
-                                    <th className="px-6 py-4 text-center">Gestão</th>
-                                </tr>
+                                <tr><th className="px-6 py-4">Membro</th><th className="px-6 py-4 text-center">Empresa</th><th className="px-6 py-4 text-center">Nível</th><th className="px-6 py-4 text-center">Gestão</th></tr>
                             </thead>
                             <tbody className="divide-y divide-slate-100">
                                 {users.map((u:any, i:any) => (
@@ -642,9 +551,7 @@ const App = () => {
                                         <td className="px-6 py-4">{u.name} <br/><span className="text-[9px] text-slate-300">{u.email}</span></td>
                                         <td className="px-6 py-4 text-center text-[10px] text-amber-600 uppercase">{u.client_id}</td>
                                         <td className="px-6 py-4 text-center text-[10px]">{u.role}</td>
-                                        <td className="px-6 py-4 text-center">
-                                            <button onClick={async ()=>{ if(window.confirm(`Remover acesso?`)) { const {error} = await supabase.from('members').delete().eq('id', u.id); if(!error) setUsers(users.filter((x:any)=>x.id!==u.id)); } }} className="text-slate-200 hover:text-red-500"><Trash2 size={18}/></button>
-                                        </td>
+                                        <td className="px-6 py-4 text-center"><button onClick={async ()=>{ if(window.confirm(`Remover acesso?`)) { const {error} = await supabase.from('members').delete().eq('id', u.id); if(!error) setUsers(users.filter((x:any)=>x.id!==u.id)); } }} className="text-slate-200 hover:text-red-500"><Trash2 size={18}/></button></td>
                                     </tr>
                                 ))}
                             </tbody>
@@ -688,4 +595,4 @@ const App = () => {
 
 export default App;
 
-// TRIGGER DE PRODUÇÃO: Versão 2.5 - Sistema Multi-Tenant INEPAD (100% Funcionalidades Preservadas)
+// TRIGGER DE PRODUÇÃO: Versão 2.6 - Multi-Tenant com Responsável no Plano Global
