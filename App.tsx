@@ -18,7 +18,7 @@ const App = () => {
   const [users, setUsers] = useState<any[]>([]);
   const [meetings, setMeetings] = useState<any[]>([]);
   const [auditLogs, setAuditLogs] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false); // Começa false para carregar login primeiro
   const [currentUser, setCurrentUser] = useState<any>(null);
   const [authForm, setAuthForm] = useState({ email: '', password: '' });
   const [activeMenu, setActiveMenu] = useState('dashboard');
@@ -44,7 +44,6 @@ const App = () => {
   const [tmpDelib, setTmpDelib] = useState({ title: '', voters: [] as string[] });
   const [newUserForm, setnewUserForm] = useState({ name: '', email: '', role: 'Conselheiro', password: '' });
 
-  // --- ESTADOS PARA O CRONÔMETRO PROGRESSIVO ---
   const [activePautaIndex, setActivePautaIndex] = useState<number | null>(null);
   const [timeElapsed, setTimeElapsed] = useState(0); 
   const [isSessionActive, setIsSessionActive] = useState(false);
@@ -53,9 +52,14 @@ const App = () => {
   const isSec = currentUser?.role === 'Secretário';
   const canEdit = isAdm || isSec;
 
-  useEffect(() => { fetchInitialData(); }, []);
+  // --- BUSCA DADOS FILTRADOS POR CLIENTE ---
+  useEffect(() => { 
+    if (currentUser?.client_id) {
+        fetchInitialData(currentUser.client_id); 
+    }
+  }, [currentUser]);
 
-  // Lógica do Timer Progressivo
+  // Lógica do Timer
   useEffect(() => {
     let timer: any;
     if (isSessionActive && activePautaIndex !== null) {
@@ -65,9 +69,8 @@ const App = () => {
           const pautas = currentMeeting.pautas || [];
           const pautaAtual = pautas[activePautaIndex];
           const limiteSegundos = (parseInt(pautaAtual?.dur) || 0) * 60;
-          
           if (newVal === limiteSegundos) {
-            alert(`⚠️ TEMPO LIMITE ATINGIDO: A pauta "${pautaAtual?.title}" ultrapassou o tempo estipulado.`);
+            alert(`⚠️ TEMPO LIMITE: A pauta "${pautaAtual?.title}" ultrapassou o tempo.`);
           }
           return newVal;
         });
@@ -79,28 +82,25 @@ const App = () => {
   const handleFinalizePauta = (index: number) => {
     const minutesSpent = Math.ceil(timeElapsed / 60);
     const newPautas = [...(currentMeeting.pautas || [])];
-    
     newPautas[index] = { ...newPautas[index], realDur: minutesSpent, completed: true };
     setCurrentMeeting({ ...currentMeeting, pautas: newPautas });
     addLog('Pauta Concluída', `${newPautas[index].title} - Gasto: ${minutesSpent}min`);
-
     if (index + 1 < newPautas.length) {
       setActivePautaIndex(index + 1);
       setTimeElapsed(0);
     } else {
       setActivePautaIndex(null);
       setTimeElapsed(0);
-      alert("Fim da Ordem do Dia. Todas as pautas foram discutidas.");
     }
   };
 
-  const fetchInitialData = async () => {
+  const fetchInitialData = async (clientId: string) => {
     setLoading(true);
     try {
         const [mRes, uRes, lRes] = await Promise.all([
-          supabase.from('meetings').select('*').order('created_at', { ascending: false }),
-          supabase.from('members').select('*').order('name'),
-          supabase.from('audit_logs').select('*').order('log_date', { ascending: false }).limit(50)
+          supabase.from('meetings').select('*').eq('client_id', clientId).order('created_at', { ascending: false }),
+          supabase.from('members').select('*').eq('client_id', clientId).order('name'),
+          supabase.from('audit_logs').select('*').eq('client_id', clientId).order('log_date', { ascending: false }).limit(50)
         ]);
         if (mRes.data) setMeetings(mRes.data);
         if (uRes.data) setUsers(uRes.data);
@@ -110,7 +110,12 @@ const App = () => {
   };
 
   const addLog = async (action: string, details: string) => {
-    const log = { username: currentUser?.name || 'Sistema', action, details };
+    const log = { 
+        username: currentUser?.name || 'Sistema', 
+        action, 
+        details,
+        client_id: currentUser?.client_id // Registro do log segregado
+    };
     const { data } = await supabase.from('audit_logs').insert([log]).select();
     if (data) setAuditLogs(prev => [data[0], ...prev]);
   };
@@ -122,27 +127,33 @@ const App = () => {
     setLoading(true);
     try {
       const fileExt = file.name.split('.').pop();
-      const fileName = `${Date.now()}_${Math.floor(Math.random() * 1000)}.${fileExt}`;
+      const fileName = `${currentUser.client_id}/${Date.now()}_${file.name}`; // Pasta por cliente no Storage
       const filePath = `${type}/${fileName}`;
       await supabase.storage.from('meeting-files').upload(filePath, file);
       const { data: { publicUrl } } = supabase.storage.from('meeting-files').getPublicUrl(filePath);
       const newFile = { name: file.name, url: publicUrl, uploadedAt: new Date().toISOString() };
       setCurrentMeeting((prev: any) => ({ ...prev, [type]: [...(prev[type] || []), newFile] }));
-      addLog('Upload', `Arquivo ${file.name} em ${type}`);
+      addLog('Upload', `Arquivo ${file.name}`);
     } catch (err: any) { alert("Erro: " + err.message); }
     finally { setLoading(false); if (e.target) e.target.value = ''; }
   };
 
   const saveMeeting = async () => {
     if (!canEdit) return;
-    if (!currentMeeting.title) return alert("O título é obrigatório.");
-    const meetingData = { ...currentMeeting };
+    if (!currentMeeting.title) return alert("Título obrigatório.");
+    
+    // Injetar o Client_ID da conta logada no salvamento
+    const meetingData = { 
+        ...currentMeeting, 
+        client_id: currentUser.client_id 
+    };
+    
     if (meetingData.date === "") meetingData.date = null;
     if (meetingData.time === "") meetingData.time = null;
     if (!meetingData.id) delete meetingData.id;
 
     const { data, error } = await supabase.from('meetings').upsert([meetingData]).select();
-    if (error) return alert("Erro ao salvar: " + error.message);
+    if (error) return alert("Erro: " + error.message);
 
     if (data) {
       setMeetings(prev => {
@@ -152,17 +163,17 @@ const App = () => {
       });
       setView('list');
       addLog('Salvamento', `Reunião: ${currentMeeting.title}`);
-      alert("Sucesso na gravação!");
+      alert("Sucesso!");
     }
   };
 
   const deleteMeeting = async (id: string, title: string) => {
     if (!canEdit) return;
-    if (!window.confirm(`Deseja excluir "${title}"?`)) return;
-    const { error } = await supabase.from('meetings').delete().eq('id', id);
+    if (!window.confirm(`Excluir "${title}"?`)) return;
+    const { error } = await supabase.from('meetings').delete().eq('id', id).eq('client_id', currentUser.client_id);
     if (!error) {
       setMeetings(prev => prev.filter(m => m.id !== id));
-      addLog('Exclusão', `Reunião excluída: ${title}`);
+      addLog('Exclusão', `Reunião: ${title}`);
     }
   };
 
@@ -229,6 +240,27 @@ const App = () => {
     };
   }, [meetings, dashboardFilter]);
 
+  // --- LÓGICA DE LOGIN COM RECONHECIMENTO DE EMPRESA ---
+  const handleLogin = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setLoading(true);
+    // Busca o membro e sua empresa (client_id)
+    const { data, error } = await supabase
+        .from('members')
+        .select('*')
+        .eq('email', authForm.email)
+        .eq('password', authForm.password)
+        .single();
+
+    if (data) {
+        setCurrentUser(data);
+        addLog('Login', `Empresa: ${data.client_id}`);
+    } else {
+        alert('Credenciais inválidas para esta empresa.');
+    }
+    setLoading(false);
+  };
+
   if (!currentUser) {
     return (
       <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4 font-sans text-slate-900">
@@ -238,9 +270,9 @@ const App = () => {
             <h1 className="text-xl font-bold text-slate-800 uppercase tracking-wide">Acesso GovCorp</h1>
             <p className="text-xs text-slate-500 mt-2 font-bold">25 ANOS DE GOVERNANÇA</p>
           </div>
-          <form className="space-y-4" onSubmit={(e)=>{e.preventDefault(); const u = users.find(u=>u.email===authForm.email && u.password===authForm.password); if(u){setCurrentUser(u); addLog('Login','Acesso');}else alert('Credenciais Inválidas');}}>
-            <input type="email" placeholder="E-mail Corporativo" className="w-full p-4 bg-slate-50 border border-slate-200 rounded-lg outline-none font-bold" value={authForm.email} onChange={e=>setAuthForm({...authForm, email:e.target.value})} />
-            <input type="password" placeholder="Senha" className="w-full p-4 bg-slate-50 border border-slate-200 rounded-lg outline-none font-bold" value={authForm.password} onChange={e=>setAuthForm({...authForm, password:e.target.value})} />
+          <form className="space-y-4" onSubmit={handleLogin}>
+            <input type="email" placeholder="E-mail Corporativo" className="w-full p-4 bg-slate-50 border border-slate-200 rounded-lg outline-none font-bold" value={authForm.email} onChange={e=>setAuthForm({...authForm, email:e.target.value})} required />
+            <input type="password" placeholder="Senha" className="w-full p-4 bg-slate-50 border border-slate-200 rounded-lg outline-none font-bold" value={authForm.password} onChange={e=>setAuthForm({...authForm, password:e.target.value})} required />
             <button className="w-full bg-amber-600 hover:bg-amber-700 text-white py-4 rounded-lg font-bold uppercase shadow-md transition-all">Entrar na Plataforma</button>
           </form>
         </div>
@@ -280,7 +312,7 @@ const App = () => {
         <header className="h-16 bg-white border-b border-slate-200 flex items-center justify-between px-4 md:px-8 shrink-0 shadow-sm z-10">
           <div className="flex items-center gap-4">
             <button className="md:hidden p-2 text-slate-600" onClick={() => setIsMobileMenuOpen(true)}><Menu size={24}/></button>
-            <h2 className="text-[10px] font-bold text-slate-400 uppercase tracking-widest hidden sm:inline">INEPAD Consultoria • Gestão de Conselhos</h2>
+            <h2 className="text-[10px] font-bold text-slate-400 uppercase tracking-widest hidden sm:inline">INEPAD Consultoria • Gestão de {currentUser.client_id}</h2>
           </div>
           <div className="flex gap-4 items-center">
             <div className="text-right hidden xs:block">
@@ -299,7 +331,7 @@ const App = () => {
               {activeMenu === 'dashboard' && (
                 <div className="space-y-6 animate-in fade-in">
                   <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-                    <h1 className="text-2xl font-bold text-slate-800 tracking-tight italic">Estratégia INEPAD</h1>
+                    <h1 className="text-2xl font-bold text-slate-800 tracking-tight italic">Estratégia {currentUser.client_id}</h1>
                     <div className="flex items-center gap-3 bg-white px-4 py-2 rounded-lg border border-slate-200 w-full sm:w-auto shadow-sm">
                       <Filter size={16} className="text-amber-500"/><select className="text-xs font-bold uppercase outline-none bg-transparent w-full cursor-pointer text-slate-600" value={dashboardFilter} onChange={e=>setDashboardFilter(e.target.value)}>
                         <option value="all">Consolidado Geral</option>
@@ -407,7 +439,7 @@ const App = () => {
                             </div>
                           </div>
                           <button 
-                            onClick={() => { setIsSessionActive(!isSessionActive); if(!isSessionActive) addLog('Início Sessão', `Reunião iniciada por ${currentUser.name}`); }} 
+                            onClick={() => { setIsSessionActive(!isSessionActive); if(!isSessionActive) addLog('Início Sessão', `Empresa: ${currentUser.client_id}`); }} 
                             className={`px-6 py-3 rounded-lg font-bold text-xs uppercase flex items-center gap-2 transition-all shadow-md ${isSessionActive ? 'bg-red-500 text-white' : 'bg-emerald-600 text-white'}`}
                           >
                             {isSessionActive ? <><Square size={16}/> Parar</> : <><Play size={16}/> Iniciar</>}
@@ -501,7 +533,7 @@ const App = () => {
               )}
               {activeMenu === 'plano-acao' && (
                 <div className="space-y-6 animate-in fade-in">
-                  <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex justify-between items-center"><div><h1 className="text-2xl font-bold text-slate-800 tracking-tight italic">Plano Global</h1></div></div>
+                  <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex justify-between items-center"><div><h1 className="text-2xl font-bold text-slate-800 tracking-tight italic">Plano Global de {currentUser.client_id}</h1></div></div>
                   <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden overflow-x-auto">
                     <table className="w-full text-left text-sm min-w-[800px] font-bold italic">
                         <thead className="bg-slate-900 text-[10px] font-bold uppercase text-amber-500 border-b border-white/5 tracking-widest">
@@ -534,7 +566,7 @@ const App = () => {
               )}
               {activeMenu === 'usuarios' && (
                 <div className="space-y-6 animate-in fade-in">
-                  <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm"><h1 className="text-2xl font-bold text-slate-800 tracking-tight italic">Conselheiros</h1></div>
+                  <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm"><h1 className="text-2xl font-bold text-slate-800 tracking-tight italic">Conselheiros de {currentUser.client_id}</h1></div>
                   <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 items-start">
                     <div className="bg-slate-900 p-8 rounded-2xl shadow-xl space-y-4 h-fit sticky top-24 border border-white/5">
                       <h3 className="text-[10px] font-bold uppercase text-amber-500 border-b border-white/5 pb-3 tracking-widest">Novo Acesso</h3>
@@ -542,7 +574,15 @@ const App = () => {
                       <div><label className="text-[10px] font-bold text-slate-500 uppercase">E-mail</label><input className="w-full p-3 bg-slate-800 text-white rounded-lg outline-none font-bold" value={newUserForm.email} onChange={e=>setnewUserForm({...newUserForm, email: e.target.value})} /></div>
                       <div><label className="text-[10px] font-bold text-slate-500 uppercase">Perfil</label><select className="w-full p-3 bg-slate-800 text-white rounded-lg font-bold" value={newUserForm.role} onChange={e=>setnewUserForm({...newUserForm, role: e.target.value})}><option value="Conselheiro">Conselheiro</option><option value="Secretário">Secretário</option><option value="Administrador">Administrador</option></select></div>
                       <div><label className="text-[10px] font-bold text-slate-500 uppercase">Senha</label><input type="password" className="w-full p-3 bg-slate-800 text-white rounded-lg outline-none font-bold" value={newUserForm.password} onChange={e=>setnewUserForm({...newUserForm, password: e.target.value})} /></div>
-                      <button onClick={async ()=>{ const {data} = await supabase.from('members').insert([newUserForm]).select(); if(data) { setUsers([...users, data[0]]); setnewUserForm({name:'', email:'', role:'Conselheiro', password:''}); alert("Membro habilitado!"); } }} className="w-full py-3 bg-amber-600 text-white rounded-lg font-bold uppercase shadow-md hover:bg-amber-700 transition-all tracking-widest">Habilitar</button>
+                      <button onClick={async ()=>{ 
+                          // Injetar Client_ID no novo usuário
+                          const {data} = await supabase.from('members').insert([{...newUserForm, client_id: currentUser.client_id}]).select(); 
+                          if(data) { 
+                              setUsers([...users, data[0]]); 
+                              setnewUserForm({name:'', email:'', role:'Conselheiro', password:''}); 
+                              alert("Membro habilitado!"); 
+                          } 
+                      }} className="w-full py-3 bg-amber-600 text-white rounded-lg font-bold uppercase shadow-md hover:bg-amber-700 transition-all tracking-widest">Habilitar</button>
                     </div>
                     <div className="lg:col-span-2 bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden overflow-x-auto">
                         <table className="w-full text-left text-sm min-w-[500px] font-bold italic">
@@ -565,4 +605,4 @@ const App = () => {
 
 export default App;
 
-// TRIGGER DE PRODUÇÃO: Versão 1.1 - Sistema GovCorp Estabilizado
+// TRIGGER DE PRODUÇÃO: Versão 2.0 - Multi-Tenant Segregado (Padrão INEPAD)
