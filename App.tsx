@@ -263,7 +263,7 @@ const App = () => {
     };
   }, [meetings, dashboardFilter]);
 
-  // Modal de Convocação Corrigido
+  // Modal de Convocação Real (Integrado com Supabase Edge Function)
   const ConvocationModal = () => (
     <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-md z-[100] flex items-center justify-center p-4">
       <div className="bg-white w-full max-w-2xl rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh] animate-in zoom-in-95">
@@ -331,18 +331,32 @@ const App = () => {
         <div className="p-6 border-t bg-white flex flex-col sm:flex-row gap-3">
           <button 
             disabled={isSendingEmail}
-            onClick={() => {
+            onClick={async () => {
               setIsSendingEmail(true);
-              setTimeout(() => {
-                setIsSendingEmail(false);
+              try {
+                // CHAMADA REAL PARA O SUPABASE EDGE FUNCTION
+                const { data, error } = await supabase.functions.invoke('send-invitation', {
+                  body: {
+                    meetingData: currentMeeting,
+                    recipients: currentMeeting.participants.map((p: any) => p.email)
+                  }
+                });
+
+                if (error) throw error;
+
+                addLog('Convocação', `E-mails oficiais enviados para ${currentMeeting.participants.length} membros.`);
+                alert("Convocações enviadas com sucesso via Resend!");
                 setIsConvocationOpen(false);
-                addLog('Convocação', `Disparo simulado para ${currentMeeting.participants?.length || 0} membros.`);
-                alert("Simulação de envio concluída!");
-              }, 1500);
+              } catch (err: any) {
+                console.error(err);
+                alert("Erro ao disparar e-mails: " + err.message);
+              } finally {
+                setIsSendingEmail(false);
+              }
             }}
             className="flex-1 bg-slate-900 text-white py-4 rounded-xl font-bold uppercase text-[10px] tracking-[2px] flex items-center justify-center gap-3 hover:bg-slate-800 transition-all shadow-xl disabled:opacity-50"
           >
-            {isSendingEmail ? "Processando..." : <><Send size={16} className="text-amber-500"/> Disparar Convocações</>}
+            {isSendingEmail ? "Processando..." : <><Send size={16} className="text-amber-500"/> Disparar Convocações Oficiais</>}
           </button>
         </div>
       </div>
