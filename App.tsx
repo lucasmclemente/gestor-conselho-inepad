@@ -27,6 +27,11 @@ const App = () => {
   const [dashboardFilter, setDashboardFilter] = useState('all');
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
 
+  // Estados para Filtros do Plano Global
+  const [filterResp, setFilterResp] = useState('all');
+  const [filterStatus, setFilterStatus] = useState('all');
+  const [filterOrigin, setFilterOrigin] = useState('all');
+
   // Estados para Convocação
   const [isConvocationOpen, setIsConvocationOpen] = useState(false);
   const [isSendingEmail, setIsSendingEmail] = useState(false);
@@ -221,6 +226,17 @@ const App = () => {
     }
   };
 
+  const updateActionDateGlobal = async (meetingId: string, actionId: string | number, newDate: string) => {
+    if (!canEdit) return;
+    const meeting = meetings.find(m => m.id === meetingId);
+    if (!meeting) return;
+    const newAcoes = (meeting.acoes || []).map((a: any) => a.id === actionId ? { ...a, date: newDate } : a);
+    const { error } = await supabase.from('meetings').update({ acoes: newAcoes }).eq('id', meetingId);
+    if (!error) {
+      setMeetings(prev => prev.map(m => m.id === meetingId ? { ...m, acoes: newAcoes } : m));
+    }
+  };
+
   const updateActionObsGlobal = async (meetingId: string, actionId: string | number, newObs: string) => {
     if (!canEdit) return;
     const meeting = meetings.find(m => m.id === meetingId);
@@ -245,7 +261,11 @@ const App = () => {
   const stats = useMemo(() => {
     const today = new Date(); today.setHours(0,0,0,0);
     const filteredM = dashboardFilter === 'all' ? meetings : meetings.filter(m => m.id === dashboardFilter);
-    const allA = filteredM.flatMap(m => (m.acoes || []).map((a:any) => ({ ...a, mTitle: m.title, mId: m.id })));
+    const allA = filteredM.flatMap(m => (m.acoes || []).map((a:any) => ({ ...a, mTitle: m.title, mId: m.id })))
+      .filter(a => (filterResp === 'all' || a.resp === filterResp))
+      .filter(a => (filterStatus === 'all' || a.status === filterStatus))
+      .filter(a => (filterOrigin === 'all' || a.mId === filterOrigin));
+
     const count = (st: string) => allA.filter(a => a.status === st).length;
     const atrasadas = allA.filter(a => a.status !== 'Concluída' && a.date && new Date(a.date) < today).length;
     return {
@@ -261,9 +281,9 @@ const App = () => {
       ],
       barData: filteredM.slice(0,6).map(m => ({ name: m.date || 'S/D', 'Pautas': m.pautas?.length || 0, 'Ações': m.acoes?.length || 0 }))
     };
-  }, [meetings, dashboardFilter]);
+  }, [meetings, dashboardFilter, filterResp, filterStatus, filterOrigin]);
 
-  // Modal de Convocação Real (Integrado com Supabase Edge Function)
+  // Modal de Convocação Real
   const ConvocationModal = () => (
     <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-md z-[100] flex items-center justify-center p-4">
       <div className="bg-white w-full max-w-2xl rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh] animate-in zoom-in-95">
@@ -332,19 +352,24 @@ const App = () => {
           <button 
             disabled={isSendingEmail}
             onClick={async () => {
+              const emails = (currentMeeting.participants || []).map((p: any) => p.email).filter((e: string) => e);
+              
+              if (emails.length === 0) {
+                return alert("Erro: Não há participantes com e-mail cadastrado nesta reunião.");
+              }
+
               setIsSendingEmail(true);
               try {
-                // CHAMADA REAL PARA O SUPABASE EDGE FUNCTION
                 const { data, error } = await supabase.functions.invoke('send-invitation', {
                   body: {
                     meetingData: currentMeeting,
-                    recipients: currentMeeting.participants.map((p: any) => p.email)
+                    recipients: emails
                   }
                 });
 
                 if (error) throw error;
 
-                addLog('Convocação', `E-mails oficiais enviados para ${currentMeeting.participants.length} membros.`);
+                addLog('Convocação', `E-mails oficiais enviados para ${emails.length} membros.`);
                 alert("Convocações enviadas com sucesso via Resend!");
                 setIsConvocationOpen(false);
               } catch (err: any) {
@@ -530,9 +555,39 @@ const App = () => {
              
               {activeMenu === 'plano-acao' && (
                 <div className="space-y-6 animate-in fade-in">
-                  <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex justify-between items-center"><h1 className="text-2xl font-bold text-slate-800 tracking-tight italic">Plano Global</h1></div>
+                  <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+                    <h1 className="text-2xl font-bold text-slate-800 tracking-tight italic">Plano Global</h1>
+                    {/* FILTROS DO RELATÓRIO */}
+                    <div className="flex flex-wrap items-center gap-3 bg-slate-50 p-2 rounded-lg border border-slate-200 w-full md:w-auto">
+                      <div className="flex items-center gap-2 bg-white px-3 py-1.5 rounded border border-slate-200">
+                        <User size={14} className="text-amber-500"/><select className="text-[10px] font-bold uppercase outline-none bg-transparent cursor-pointer text-slate-600" value={filterResp} onChange={e=>setFilterResp(e.target.value)}>
+                          <option value="all">Responsável</option>
+                          {[...new Set(meetings.flatMap(m => (m.acoes || []).map((a:any) => a.resp)))].filter(r => r).map(r => <option key={r} value={r}>{r}</option>)}
+                        </select>
+                      </div>
+                      <div className="flex items-center gap-2 bg-white px-3 py-1.5 rounded border border-slate-200">
+                        <Target size={14} className="text-amber-500"/><select className="text-[10px] font-bold uppercase outline-none bg-transparent cursor-pointer text-slate-600" value={filterStatus} onChange={e=>setFilterStatus(e.target.value)}>
+                          <option value="all">Status</option>
+                          <option value="Pendente">Pendente</option>
+                          <option value="Em andamento">Em andamento</option>
+                          <option value="Concluída">Concluída</option>
+                        </select>
+                      </div>
+                      <div className="flex items-center gap-2 bg-white px-3 py-1.5 rounded border border-slate-200">
+                        <Building2 size={14} className="text-amber-500"/><select className="text-[10px] font-bold uppercase outline-none bg-transparent cursor-pointer text-slate-600" value={filterOrigin} onChange={e=>setFilterOrigin(e.target.value)}>
+                          <option value="all">Origem (Reunião)</option>
+                          {meetings.map(m => <option key={m.id} value={m.id}>{m.title}</option>)}
+                        </select>
+                      </div>
+                      {(filterResp !== 'all' || filterStatus !== 'all' || filterOrigin !== 'all') && (
+                        <button onClick={() => { setFilterResp('all'); setFilterStatus('all'); setFilterOrigin('all'); }} className="p-1.5 hover:bg-slate-200 rounded-full text-slate-400" title="Limpar Filtros"><X size={16}/></button>
+                      )}
+                    </div>
+                  </div>
+
                   {canEdit && (<div className="bg-white p-5 border border-amber-200 rounded-xl shadow-sm grid grid-cols-1 md:grid-cols-12 gap-4 items-end animate-in slide-in-from-top-2"><div className="md:col-span-3"><label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Iniciativa</label><input placeholder="Título" className="w-full p-3 border rounded-lg text-sm font-bold bg-slate-50 outline-none italic" value={tmpGlobalAcao.title} onChange={e=>setTmpGlobalAcao({...tmpGlobalAcao, title: e.target.value})} /></div><div className="md:col-span-2"><label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Resp.</label><select className="w-full p-3 border rounded-lg text-sm font-bold bg-slate-50" value={tmpGlobalAcao.resp} onChange={e=>setTmpGlobalAcao({...tmpGlobalAcao, resp: e.target.value})}><option value="">Executor...</option>{users.map((u, i) => <option key={i} value={u.name}>{u.name}</option>)}</select></div><div className="md:col-span-2"><label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Origem</label><select className="w-full p-3 border rounded-lg text-sm font-bold bg-slate-50" value={tmpGlobalAcao.meetingId} onChange={e=>setTmpGlobalAcao({...tmpGlobalAcao, meetingId: e.target.value})}><option value="">Vincular...</option>{meetings.map(m => <option key={m.id} value={m.id}>{m.title}</option>)}</select></div><div className="md:col-span-2"><label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Prazo</label><input type="date" className="w-full p-3 border rounded-lg text-sm font-bold bg-slate-50" value={tmpGlobalAcao.date} onChange={e=>setTmpGlobalAcao({...tmpGlobalAcao, date: e.target.value})} /></div><div className="md:col-span-3"><label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Observações Detalhadas</label><textarea rows={2} placeholder="Notas explicativas sobre o status..." className="w-full p-3 border rounded-lg text-sm font-bold bg-slate-50 outline-none italic focus:ring-2 focus:ring-amber-500/20" value={tmpGlobalAcao.obs} onChange={e=>setTmpGlobalAcao({...tmpGlobalAcao, obs: e.target.value})} /></div><div className="md:col-span-12"><button onClick={saveGlobalAction} className="w-full py-3 bg-amber-600 text-white rounded-lg flex items-center justify-center shadow-md hover:bg-amber-700 transition-all font-bold uppercase text-[10px] tracking-widest"><Plus size={18} className="mr-2"/> Lançar Ação Global</button></div></div>)}
-                  <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden overflow-x-auto"><table className="w-full text-left text-sm min-w-[1000px] font-bold italic"><thead className="bg-slate-900 text-[10px] font-bold uppercase text-amber-500 border-b border-white/5 tracking-widest"><tr><th className="px-6 py-4">Iniciativa</th><th className="px-6 py-4">Responsável</th><th className="px-6 py-4">Origem</th><th className="px-6 py-4" style={{width: '300px'}}>Observações</th><th className="px-6 py-4 text-center">Status</th>{canEdit && <th className="px-6 py-4 text-center">Gestão</th>}</tr></thead><tbody className="divide-y divide-slate-100">{stats.allActions.map((acao:any, idx:any) => (<tr key={idx} className="hover:bg-slate-50 transition-all"><td className="px-6 py-4 text-slate-800">{acao.title}</td><td className="px-6 py-4 text-slate-600">{acao.resp || 'N/D'}</td><td className="px-6 py-4 text-slate-400 text-[10px] uppercase tracking-widest">{acao.mTitle}</td><td className="px-6 py-4"><textarea className="bg-transparent border-none outline-none text-[10px] text-slate-500 italic w-full focus:bg-white focus:ring-1 focus:ring-amber-200 p-2 rounded transition-all resize-none overflow-hidden" rows={2} value={acao.obs || ''} onChange={(e) => updateActionObsGlobal(acao.mId, acao.id, e.target.value)} placeholder="..." disabled={!canEdit}/></td><td className="px-6 py-4 text-center"><select value={acao.status} onChange={(e) => updateActionStatusGlobal(acao.mId, acao.id, e.target.value)} className="px-3 py-1.5 rounded-lg text-[10px] font-bold uppercase border-none bg-amber-50 text-amber-700 cursor-pointer" disabled={!canEdit}><option value="Pendente">Aguardando</option><option value="Em andamento">Execução</option><option value="Concluída">Finalizado</option></select></td>{canEdit && <td className="px-6 py-4 text-center"><button onClick={() => deleteActionGlobal(acao.mId, acao.id)} className="text-slate-200 hover:text-red-600"><Trash2 size={16}/></button></td>}</tr>))}</tbody></table></div>
+                  
+                  <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden overflow-x-auto"><table className="w-full text-left text-sm min-w-[1000px] font-bold italic"><thead className="bg-slate-900 text-[10px] font-bold uppercase text-amber-500 border-b border-white/5 tracking-widest"><tr><th className="px-6 py-4">Iniciativa</th><th className="px-6 py-4">Responsável</th><th className="px-6 py-4">Origem</th><th className="px-6 py-4" style={{width: '140px'}}>Prazo</th><th className="px-6 py-4" style={{width: '260px'}}>Observações</th><th className="px-6 py-4 text-center">Status</th>{canEdit && <th className="px-6 py-4 text-center">Gestão</th>}</tr></thead><tbody className="divide-y divide-slate-100">{stats.allActions.map((acao:any, idx:any) => (<tr key={idx} className="hover:bg-slate-50 transition-all"><td className="px-6 py-4 text-slate-800">{acao.title}</td><td className="px-6 py-4 text-slate-600">{acao.resp || 'N/D'}</td><td className="px-6 py-4 text-slate-400 text-[10px] uppercase tracking-widest">{acao.mTitle}</td><td className="px-6 py-4"><input type="date" className="bg-transparent border-none outline-none text-[10px] font-bold text-slate-600 cursor-pointer p-1 rounded hover:bg-white transition-all" value={acao.date || ''} onChange={(e) => updateActionDateGlobal(acao.mId, acao.id, e.target.value)} disabled={!canEdit}/></td><td className="px-6 py-4"><textarea className="bg-transparent border-none outline-none text-[10px] text-slate-500 italic w-full focus:bg-white focus:ring-1 focus:ring-amber-200 p-2 rounded transition-all resize-none overflow-hidden" rows={2} value={acao.obs || ''} onChange={(e) => updateActionObsGlobal(acao.mId, acao.id, e.target.value)} placeholder="..." disabled={!canEdit}/></td><td className="px-6 py-4 text-center"><select value={acao.status} onChange={(e) => updateActionStatusGlobal(acao.mId, acao.id, e.target.value)} className="px-3 py-1.5 rounded-lg text-[10px] font-bold uppercase border-none bg-amber-50 text-amber-700 cursor-pointer" disabled={!canEdit}><option value="Pendente">Aguardando</option><option value="Em andamento">Execução</option><option value="Concluída">Finalizado</option></select></td>{canEdit && <td className="px-6 py-4 text-center"><button onClick={() => deleteActionGlobal(acao.mId, acao.id)} className="text-slate-200 hover:text-red-600"><Trash2 size={16}/></button></td>}</tr>))}</tbody></table></div>
                 </div>
               )}
 
