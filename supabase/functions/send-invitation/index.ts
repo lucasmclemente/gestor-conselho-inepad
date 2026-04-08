@@ -28,20 +28,32 @@ serve(async (req) => {
                <img src="https://jrtrrubtjbinnddqdbta.supabase.co/storage/v1/object/public/meeting-files/logo-sidebar.jpg" style="height: 40px;" />
             </div>
             <div style="padding: 40px; color: #1e293b;">
-              <h2 style="color: #b45309; font-style: italic;">${meetingData.title}</h2>
+              <h2 style="color: #b45309; font-style: italic; margin-bottom: 20px;">${meetingData.title}</h2>
               <p>Prezado(a) Conselheiro(a), comunicamos a convocação oficial para a próxima sessão:</p>
-              <div style="background: #f8fafc; padding: 20px; border-radius: 8px; margin: 20px 0;">
-                <p><strong>📅 Data:</strong> ${meetingData.date}</p>
-                <p><strong>⏰ Horário:</strong> ${meetingData.time}</p>
-                <p><strong>📍 Formato:</strong> ${meetingData.type}</p>
+              
+              <div style="background: #f8fafc; padding: 20px; border-radius: 8px; margin: 20px 0; border: 1px solid #e2e8f0;">
+                <p style="margin: 5px 0;"><strong>📅 Data:</strong> ${meetingData.date}</p>
+                <p style="margin: 5px 0;"><strong>⏰ Horário:</strong> ${meetingData.time}</p>
+                <p style="margin: 5px 0;"><strong>📍 Formato:</strong> ${meetingData.type}</p>
               </div>
-              <p>A ordem do dia e os materiais de apoio já estão disponíveis na plataforma <strong>GovCorp</strong>.</p>
-              <div style="text-align: center; margin-top: 30px;">
-                <a href="https://conselho.inepadconsulting.com" style="background: #b45309; color: white; padding: 12px 25px; text-decoration: none; border-radius: 6px; font-weight: bold;">Acessar Sistema</a>
+
+              <h3 style="text-transform: uppercase; font-size: 13px; color: #64748b; letter-spacing: 1px; margin-top: 25px; border-bottom: 1px solid #f1f5f9; padding-bottom: 5px;">Ordem do Dia</h3>
+              <ul style="padding-left: 20px; color: #334155; line-height: 1.6;">
+                ${(meetingData.pautas || []).map((p: any) => `
+                  <li style="margin-bottom: 10px;">
+                    <strong>${p.title}</strong> ${p.dur ? `<span style="color: #94a3b8;">(${p.dur} min)</span>` : ''}
+                  </li>
+                `).join('')}
+              </ul>
+
+              <p style="margin-top: 30px; font-size: 14px; color: #64748b;">Acesse a plataforma para consultar a documentação de apoio completa.</p>
+              
+              <div style="text-align: center; margin-top: 35px;">
+                <a href="https://conselho.inepadconsulting.com" style="background: #b45309; color: white; padding: 14px 28px; text-decoration: none; border-radius: 8px; font-weight: bold; font-size: 14px; display: inline-block;">Acessar Sistema GovCorp</a>
               </div>
             </div>
             <div style="background: #f1f5f9; padding: 20px; text-align: center; font-size: 11px; color: #94a3b8;">
-              INEPAD Consultoria • 25 Anos de Governança
+              INEPAD Consultoria • Sistema de Governança Corporativa
             </div>
           </div>
         `,
