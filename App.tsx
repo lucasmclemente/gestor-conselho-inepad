@@ -621,17 +621,19 @@ const App = () => {
 
                   {canEdit && (<div className="bg-white p-5 border border-amber-200 rounded-xl shadow-sm grid grid-cols-1 md:grid-cols-12 gap-4 items-end animate-in slide-in-from-top-2"><div className="md:col-span-3"><label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Iniciativa</label><input placeholder="Título" className="w-full p-3 border rounded-lg text-sm font-bold bg-slate-50 outline-none italic" value={tmpGlobalAcao.title} onChange={e=>setTmpGlobalAcao({...tmpGlobalAcao, title: e.target.value})} /></div><div className="md:col-span-2"><label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Resp.</label><select className="w-full p-3 border rounded-lg text-sm font-bold bg-slate-50" value={tmpGlobalAcao.resp} onChange={e=>setTmpGlobalAcao({...tmpGlobalAcao, resp: e.target.value})}><option value="">Executor...</option>{users.map((u, i) => <option key={i} value={u.name}>{u.name}</option>)}</select></div><div className="md:col-span-2"><label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Origem</label><select className="w-full p-3 border rounded-lg text-sm font-bold bg-slate-50" value={tmpGlobalAcao.meetingId} onChange={e=>setTmpGlobalAcao({...tmpGlobalAcao, meetingId: e.target.value})}><option value="">Vincular...</option>{meetings.map(m => <option key={m.id} value={m.id}>{m.title}</option>)}</select></div><div className="md:col-span-2"><label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Prazo</label><input type="date" className="w-full p-3 border rounded-lg text-sm font-bold bg-slate-50" value={tmpGlobalAcao.date} onChange={e=>setTmpGlobalAcao({...tmpGlobalAcao, date: e.target.value})} /></div><div className="md:col-span-3"><label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Observações Detalhadas</label><textarea rows={2} placeholder="Notas explicativas sobre o status..." className="w-full p-3 border rounded-lg text-sm font-bold bg-slate-50 outline-none italic focus:ring-2 focus:ring-amber-500/20" value={tmpGlobalAcao.obs} onChange={e=>setTmpGlobalAcao({...tmpGlobalAcao, obs: e.target.value})} /></div><div className="md:col-span-12"><button onClick={saveGlobalAction} className="w-full py-3 bg-amber-600 text-white rounded-lg flex items-center justify-center shadow-md hover:bg-amber-700 transition-all font-bold uppercase text-[10px] tracking-widest"><Plus size={18} className="mr-2"/> Lançar Ação Global</button></div></div>)}
                   
-                  <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden overflow-x-auto"><table className="w-full text-left text-sm min-w-[1000px] font-bold italic"><thead className="bg-slate-900 text-[10px] font-bold uppercase text-amber-500 border-b border-white/5 tracking-widest"><tr><th className="px-6 py-4">Iniciativa</th><th className="px-6 py-4">Responsável</th><th className="px-6 py-4">Origem</th><th className="px-6 py-4" style={{width: '140px'}}>Prazo</th><th className="px-6 py-4" style={{width: '260px'}}>Observações</th><th className="px-6 py-4 text-center">Status</th>{canEdit && <th className="px-6 py-4 text-center">Gestão</th>}</tr></thead><tbody className="divide-y divide-slate-100">{stats.allActions.map((acao:any) => (
+                  <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden overflow-x-auto"><table className="w-full text-left text-sm min-w-[1200px] font-bold italic"><thead className="bg-slate-900 text-[10px] font-bold uppercase text-amber-500 border-b border-white/5 tracking-widest"><tr><th className="px-6 py-4">Iniciativa</th><th className="px-6 py-4">Responsável</th><th className="px-6 py-4">Origem</th><th className="px-6 py-4" style={{width: '140px'}}>Prazo</th><th className="px-6 py-4" style={{width: '400px'}}>Observações Explicativas</th><th className="px-6 py-4 text-center">Status</th>{canEdit && <th className="px-6 py-4 text-center">Gestão</th>}</tr></thead><tbody className="divide-y divide-slate-100">{stats.allActions.map((acao:any) => (
                     <tr key={`${acao.mId}-${acao.id}`} className="hover:bg-slate-50 transition-all">
                       <td className="px-6 py-4 text-slate-800">{acao.title}</td>
                       <td className="px-6 py-4 text-slate-600">
                         {canEdit ? (
                           <select 
-                            className="bg-transparent border-none outline-none text-xs font-bold text-slate-600 cursor-pointer"
+                            className="bg-transparent border-none outline-none text-xs font-bold text-slate-600 cursor-pointer w-full"
                             value={acao.resp || ''} 
                             onChange={(e) => updateActionRespGlobal(acao.mId, acao.id, e.target.value)}
                           >
                             <option value="">N/D</option>
+                            {/* FIX: Garante que o responsável atual apareça na lista se não estiver em users */}
+                            {acao.resp && !users.find(u => u.name === acao.resp) && <option value={acao.resp}>{acao.resp}</option>}
                             {users.map((u: any) => <option key={u.id} value={u.name}>{u.name}</option>)}
                           </select>
                         ) : (acao.resp || 'N/D')}
@@ -639,7 +641,7 @@ const App = () => {
                       <td className="px-6 py-4 text-slate-400 text-[10px] uppercase tracking-widest">
                         {canEdit ? (
                           <select 
-                            className="bg-transparent border-none outline-none text-[10px] font-bold text-slate-400 uppercase cursor-pointer"
+                            className="bg-transparent border-none outline-none text-[10px] font-bold text-slate-400 uppercase cursor-pointer w-full"
                             value={acao.mId} 
                             onChange={(e) => updateActionOriginGlobal(acao.mId, acao.id, e.target.value)}
                           >
@@ -649,13 +651,13 @@ const App = () => {
                       </td>
                       <td className="px-6 py-4"><input type="date" className="bg-transparent border-none outline-none text-[10px] font-bold text-slate-600 cursor-pointer p-1 rounded hover:bg-white transition-all" value={acao.date || ''} onChange={(e) => updateActionDateGlobal(acao.mId, acao.id, e.target.value)} disabled={!canEdit}/></td>
                       <td className="px-6 py-4">
-                        {/* BUG FIX: Adicionado onBlur para salvar e key estável para evitar perda de foco */}
+                        {/* UX: Aumentado para 6 rows e largura de 400px na coluna */}
                         <textarea 
-                          className="bg-transparent border-none outline-none text-[10px] text-slate-500 italic w-full focus:bg-white focus:ring-1 focus:ring-amber-200 p-2 rounded transition-all resize-none overflow-hidden" 
-                          rows={2} 
+                          className="bg-white border border-slate-100 outline-none text-[11px] text-slate-600 italic w-full focus:ring-1 focus:ring-amber-200 p-3 rounded-lg shadow-sm transition-all resize-none overflow-y-auto" 
+                          rows={6} 
                           defaultValue={acao.obs || ''} 
                           onBlur={(e) => updateActionObsGlobal(acao.mId, acao.id, e.target.value)} 
-                          placeholder="..." 
+                          placeholder="Anote aqui os detalhes da evolução desta ação..." 
                           disabled={!canEdit}
                         />
                       </td>
