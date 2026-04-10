@@ -152,8 +152,31 @@ const App = () => {
       await supabase.storage.from('meeting-files').upload(filePath, file);
       const { data: { publicUrl } } = supabase.storage.from('meeting-files').getPublicUrl(filePath);
       const newFile = { name: file.name, url: publicUrl, uploadedAt: new Date().toISOString() };
+      
       setCurrentMeeting((prev: any) => ({ ...prev, [type]: [...(prev[type] || []), newFile] }));
       addLog('Upload', `Arquivo ${file.name} em ${type}`);
+
+      // MELHORIA: Disparar e-mail de publicação de ata
+      if (type === 'atas') {
+        const emails = (currentMeeting.participants || []).map((p: any) => p.email).filter((e: string) => e);
+        if (emails.length > 0) {
+          try {
+            await supabase.functions.invoke('send-minute-notification', {
+              body: {
+                meetingTitle: currentMeeting.title,
+                minuteName: file.name,
+                minuteUrl: publicUrl,
+                actions: currentMeeting.acoes || [],
+                recipients: emails
+              }
+            });
+            alert("Ata publicada e enviada aos participantes com sucesso!");
+          } catch (notificationError) {
+            console.error("Erro ao notificar participantes:", notificationError);
+          }
+        }
+      }
+      
     } catch (err: any) { alert("Erro: " + err.message); }
     finally { setLoading(false); if (e.target) e.target.value = ''; }
   };
