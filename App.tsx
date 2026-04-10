@@ -161,7 +161,7 @@ const App = () => {
         const emails = (currentMeeting.participants || []).map((p: any) => p.email).filter((e: string) => e);
         if (emails.length > 0) {
           try {
-            await supabase.functions.invoke('send-minute-notification', {
+            const { error: fnError } = await supabase.functions.invoke('send-minute-notification', {
               body: {
                 meetingTitle: currentMeeting.title,
                 minuteName: file.name,
@@ -170,10 +170,19 @@ const App = () => {
                 recipients: emails
               }
             });
-            alert("Ata publicada e enviada aos participantes com sucesso!");
+
+            if (fnError) {
+              console.error("Erro na Function:", fnError);
+              alert("Ata publicada, mas houve um erro no disparo dos e-mails.");
+            } else {
+              alert("Ata publicada e enviada aos participantes com sucesso!");
+            }
           } catch (notificationError) {
             console.error("Erro ao notificar participantes:", notificationError);
+            alert("Ata publicada, mas não foi possível conectar ao serviço de e-mail.");
           }
+        } else {
+          alert("Ata publicada! (Nenhum e-mail enviado pois não há participantes com e-mail cadastrado).");
         }
       }
       
