@@ -5,7 +5,7 @@ import {
   Clock, CheckCircle2, AlertCircle, FileText, Send, X, Trash2,
   Upload, Save, Lock, Target, FileCheck, BarChart3,
   PieChart as PieIcon, LogIn, User, Key, LogOut, UserCheck,
-  Mail, UserCog, Settings, Camera, UserCircle, History, Filter, MessageSquare, Download, ExternalLink, ListChecks, Plus, Edit2, Check, Menu, ChevronUp, ChevronDown, Play, Square, Timer, SkipForward, Building2
+  Mail, UserCog, Settings, Camera, UserCircle, History, Filter, MessageSquare, Download, ExternalLink, ListChecks, Plus, Edit2, Check, Menu, ChevronUp, ChevronDown, Play, Square, Timer, SkipForward, Building2, ChevronLeft
 } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend } from 'recharts';
 
@@ -26,6 +26,7 @@ const App = () => {
   const [tab, setTab] = useState('info');
   const [dashboardFilter, setDashboardFilter] = useState('all');
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
 
   // Estados para Filtros do Plano Global
   const [filterResp, setFilterResp] = useState('all');
@@ -451,10 +452,25 @@ const App = () => {
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col md:flex-row font-sans overflow-hidden text-slate-800">
       {isMobileMenuOpen && <div className="fixed inset-0 bg-slate-900/60 z-40 md:hidden backdrop-blur-sm" onClick={() => setIsMobileMenuOpen(false)} />}
-      <aside className={`fixed inset-y-0 left-0 z-50 w-64 bg-slate-900 text-slate-300 flex flex-col shadow-xl transform transition-transform duration-300 md:relative md:translate-x-0 ${isMobileMenuOpen ? 'translate-x-0' : '-translate-x-full'}`}>
-        <div className="p-10 flex flex-col items-center justify-center border-b border-white/5 bg-slate-900/30">
-            <img src="/logo-sidebar.jpg" alt="INEPAD Logo" className="h-12 w-auto object-contain" style={{ mixBlendMode: 'lighten' }} />
+      
+      <aside className={`fixed inset-y-0 left-0 z-50 bg-slate-900 text-slate-300 flex flex-col shadow-xl transition-all duration-300 md:relative transform ${isMobileMenuOpen ? 'translate-x-0 w-64' : '-translate-x-full md:translate-x-0'} ${isSidebarCollapsed ? 'md:w-20' : 'md:w-64'}`}>
+        {/* Botão de Recolher/Expandir (Desktop Only) */}
+        <button 
+          onClick={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
+          className="absolute -right-3 top-20 bg-amber-600 text-white rounded-full p-1 shadow-md hidden md:block z-[60] hover:bg-amber-700 transition-colors"
+        >
+          {isSidebarCollapsed ? <ChevronRight size={16}/> : <ChevronLeft size={16}/>}
+        </button>
+
+        <div className={`flex flex-col items-center justify-center border-b border-white/5 bg-slate-900/30 transition-all duration-300 ${isSidebarCollapsed ? 'p-4' : 'p-10'}`}>
+            <img 
+              src={isSidebarCollapsed ? "/favicon.png" : "/logo-sidebar.jpg"} 
+              alt="INEPAD Logo" 
+              className={`w-auto object-contain transition-all ${isSidebarCollapsed ? 'h-8' : 'h-12'}`} 
+              style={{ mixBlendMode: 'lighten' }} 
+            />
         </div>
+
         <nav className="flex-1 px-3 py-4 space-y-1 text-[10px] font-bold uppercase tracking-widest">
           {[
             { id: 'dashboard', icon: <LayoutDashboard size={18}/>, label: 'Dashboard' },
@@ -464,14 +480,28 @@ const App = () => {
             { id: 'auditoria', icon: <History size={18}/>, label: 'Auditoria', adm: true }
           ].map((item) => (
             (!item.adm || isAdm) && (
-              <button key={item.id} onClick={() => { setActiveMenu(item.id); if(item.action) item.action(); setIsMobileMenuOpen(false); }} className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-all ${activeMenu === item.id ? 'bg-amber-600 text-white shadow-sm' : 'hover:bg-slate-700 hover:text-white'}`}>
-                {item.icon} {item.label}
+              <button 
+                key={item.id} 
+                onClick={() => { setActiveMenu(item.id); if(item.action) item.action(); setIsMobileMenuOpen(false); }} 
+                className={`w-full flex items-center gap-3 rounded-lg transition-all ${activeMenu === item.id ? 'bg-amber-600 text-white shadow-sm' : 'hover:bg-slate-700 hover:text-white'} ${isSidebarCollapsed ? 'justify-center p-3' : 'px-4 py-3'}`}
+                title={isSidebarCollapsed ? item.label : ''}
+              >
+                <span className="shrink-0">{item.icon}</span>
+                {!isSidebarCollapsed && <span className="truncate">{item.label}</span>}
               </button>
             )
           ))}
         </nav>
+
         <div className="p-4 border-t border-slate-700/50">
-            <button onClick={() => setCurrentUser(null)} className="w-full flex items-center gap-3 px-4 py-3 rounded-lg text-red-400 hover:bg-red-500/10 hover:text-red-300 transition-all text-[10px] font-bold uppercase tracking-widest"><LogOut size={18}/> Sair</button>
+            <button 
+              onClick={() => setCurrentUser(null)} 
+              className={`w-full flex items-center gap-3 rounded-lg text-red-400 hover:bg-red-500/10 hover:text-red-300 transition-all text-[10px] font-bold uppercase tracking-widest ${isSidebarCollapsed ? 'justify-center p-3' : 'px-4 py-3'}`}
+              title={isSidebarCollapsed ? 'Sair' : ''}
+            >
+              <LogOut size={18}/>
+              {!isSidebarCollapsed && <span>Sair</span>}
+            </button>
         </div>
       </aside>
 
@@ -632,7 +662,6 @@ const App = () => {
                             onChange={(e) => updateActionRespGlobal(acao.mId, acao.id, e.target.value)}
                           >
                             <option value="">N/D</option>
-                            {/* FIX: Garante que o responsável atual apareça na lista se não estiver em users */}
                             {acao.resp && !users.find(u => u.name === acao.resp) && <option value={acao.resp}>{acao.resp}</option>}
                             {users.map((u: any) => <option key={u.id} value={u.name}>{u.name}</option>)}
                           </select>
@@ -651,7 +680,6 @@ const App = () => {
                       </td>
                       <td className="px-6 py-4"><input type="date" className="bg-transparent border-none outline-none text-[10px] font-bold text-slate-600 cursor-pointer p-1 rounded hover:bg-white transition-all" value={acao.date || ''} onChange={(e) => updateActionDateGlobal(acao.mId, acao.id, e.target.value)} disabled={!canEdit}/></td>
                       <td className="px-6 py-4">
-                        {/* UX: Aumentado para 6 rows e largura de 400px na coluna */}
                         <textarea 
                           className="bg-white border border-slate-100 outline-none text-[11px] text-slate-600 italic w-full focus:ring-1 focus:ring-amber-200 p-3 rounded-lg shadow-sm transition-all resize-none overflow-y-auto" 
                           rows={6} 
