@@ -10,6 +10,7 @@ import {
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend } from 'recharts';
 
 // --- CONFIGURAÇÃO SUPABASE ---
+// Dica: Para segurança máxima em produção, estas chaves devem ir para um arquivo .env
 const supabaseUrl = 'https://jrtrrubtjbinnddqdbta.supabase.co';
 const supabaseKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImpydHJydWJ0amJpbm5kZHFkYnRhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzE1MjU2NjksImV4cCI6MjA4NzEwMTY2OX0.J2DNMhNwGlyG3u7L-kd6gW3NC5-EqVSogXyYchQiVyk';
 const supabase = createClient(supabaseUrl, supabaseKey);
@@ -107,7 +108,8 @@ const App = () => {
     setLoading(true);
     try {
         let mQuery = supabase.from('meetings').select('*');
-        let uQuery = supabase.from('members').select('*');
+        // AJUSTE DE SEGURANÇA: Não selecionamos a coluna 'password'
+        let uQuery = supabase.from('members').select('id, name, email, role, client_id, created_at');
         let lQuery = supabase.from('audit_logs').select('*');
 
         if (!isSuper) {
@@ -156,7 +158,6 @@ const App = () => {
       setCurrentMeeting((prev: any) => ({ ...prev, [type]: [...(prev[type] || []), newFile] }));
       addLog('Upload', `Arquivo ${file.name} em ${type}`);
 
-      // MELHORIA: Disparar e-mail de publicação de ata
       if (type === 'atas') {
         const emails = (currentMeeting.participants || []).map((p: any) => p.email).filter((e: string) => e);
         if (emails.length > 0) {
@@ -350,7 +351,6 @@ const App = () => {
     };
   }, [meetings, dashboardFilter, filterResp, filterStatus, filterOrigin]);
 
-  // Modal de Convocação Real
   const ConvocationModal = () => (
     <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-md z-[100] flex items-center justify-center p-4">
       <div className="bg-white w-full max-w-2xl rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh] animate-in zoom-in-95">
@@ -467,9 +467,19 @@ const App = () => {
           <form className="space-y-4" onSubmit={async (e)=>{
             e.preventDefault();
             setLoading(true);
-            const { data } = await supabase.from('members').select('*').eq('email', authForm.email).eq('password', authForm.password).single();
-            if (data) { setCurrentUser(data); addLog('Login', `Empresa: ${data.client_id}`); }
-            else alert('Credenciais Inválidas');
+            // AJUSTE DE SEGURANÇA: Validamos a senha mas pedimos que o banco retorne apenas colunas não sensíveis
+            const { data } = await supabase.from('members')
+              .select('id, name, email, role, client_id')
+              .eq('email', authForm.email)
+              .eq('password', authForm.password)
+              .single();
+            
+            if (data) { 
+              setCurrentUser(data); 
+              addLog('Login', `Empresa: ${data.client_id}`); 
+            } else {
+              alert('Credenciais Inválidas');
+            }
             setLoading(false);
           }}>
             <input type="email" placeholder="E-mail Corporativo" className="w-full p-4 bg-slate-50 border border-slate-200 rounded-lg outline-none font-bold" value={authForm.email} onChange={e=>setAuthForm({...authForm, email:e.target.value})} required />
@@ -486,7 +496,6 @@ const App = () => {
       {isMobileMenuOpen && <div className="fixed inset-0 bg-slate-900/60 z-40 md:hidden backdrop-blur-sm" onClick={() => setIsMobileMenuOpen(false)} />}
       
       <aside className={`fixed inset-y-0 left-0 z-50 bg-slate-900 text-slate-300 flex flex-col shadow-xl transition-all duration-300 md:relative transform ${isMobileMenuOpen ? 'translate-x-0 w-64' : '-translate-x-full md:translate-x-0'} ${isSidebarCollapsed ? 'md:w-20' : 'md:w-64'}`}>
-        {/* Botão de Recolher/Expandir (Desktop Only) */}
         <button 
           onClick={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
           className="absolute -right-3 top-20 bg-amber-600 text-white rounded-full p-1 shadow-md hidden md:block z-[60] hover:bg-amber-700 transition-colors"
@@ -601,7 +610,6 @@ const App = () => {
                     {tab === 'info' && (
                       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 animate-in fade-in">
                         <div className="lg:col-span-2 space-y-6">
-                          {/* Botão de Convocação */}
                           {canEdit && currentMeeting.id && (
                             <button 
                               onClick={() => setIsConvocationOpen(true)}
@@ -653,7 +661,6 @@ const App = () => {
                 <div className="space-y-6 animate-in fade-in">
                   <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
                     <h1 className="text-2xl font-bold text-slate-800 tracking-tight italic">Plano Global</h1>
-                    {/* FILTROS DO RELATÓRIO */}
                     <div className="flex flex-wrap items-center gap-3 bg-slate-50 p-2 rounded-lg border border-slate-200 w-full md:w-auto">
                       <div className="flex items-center gap-2 bg-white px-3 py-1.5 rounded border border-slate-200">
                         <User size={14} className="text-amber-500"/><select className="text-[10px] font-bold uppercase outline-none bg-transparent cursor-pointer text-slate-600" value={filterResp} onChange={e=>setFilterResp(e.target.value)}>
