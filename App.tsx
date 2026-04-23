@@ -10,7 +10,6 @@ import {
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend } from 'recharts';
 
 // --- CONFIGURAÇÃO SUPABASE ---
-// Dica: Para segurança máxima em produção, estas chaves devem ir para um arquivo .env
 const supabaseUrl = 'https://jrtrrubtjbinnddqdbta.supabase.co';
 const supabaseKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImpydHJydWJ0amJpbm5kZHFkYnRhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzE1MjU2NjksImV4cCI6MjA4NzEwMTY2OX0.J2DNMhNwGlyG3u7L-kd6gW3NC5-EqVSogXyYchQiVyk';
 const supabase = createClient(supabaseUrl, supabaseKey);
@@ -46,7 +45,7 @@ const App = () => {
     participants: [], pautas: [], materiais: [], deliberacoes: [], acoes: [], atas: []
   };
   const [currentMeeting, setCurrentMeeting] = useState<any>(blankMeeting);
- 
+  
   const [editingPart, setEditingPart] = useState<number | null>(null);
   const [editingPauta, setEditingPauta] = useState<number | null>(null);
   const [tmpPart, setTmpPart] = useState({ name: '', email: '' });
@@ -64,6 +63,32 @@ const App = () => {
   const isAdm = currentUser?.role === 'Administrador' || isSuper;
   const isSec = currentUser?.role === 'Secretário';
   const canEdit = isAdm || isSec;
+
+  // --- NOVA LÓGICA DE SESSÃO (SUPABASE AUTH) ---
+  useEffect(() => {
+    // 1. Verifica se já existe uma sessão ativa ao carregar o app
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (session) fetchMemberProfile(session.user.id);
+    });
+
+    // 2. Escuta mudanças na autenticação (Login/Logout)
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (session) fetchMemberProfile(session.user.id);
+      else setCurrentUser(null);
+    });
+
+    return () => subscription.unsubscribe();
+  }, []);
+
+  // Função auxiliar para buscar o perfil na tabela members após o login
+  const fetchMemberProfile = async (userId: string) => {
+    const { data } = await supabase
+      .from('members')
+      .select('id, name, email, role, client_id')
+      .eq('id', userId)
+      .single();
+    if (data) setCurrentUser(data);
+  };
 
   useEffect(() => {
     if (currentUser) fetchInitialData();
@@ -108,7 +133,6 @@ const App = () => {
     setLoading(true);
     try {
         let mQuery = supabase.from('meetings').select('*');
-        // AJUSTE DE SEGURANÇA: Não selecionamos a coluna 'password'
         let uQuery = supabase.from('members').select('id, name, email, role, client_id, created_at');
         let lQuery = supabase.from('audit_logs').select('*');
 
@@ -464,27 +488,31 @@ const App = () => {
             <h1 className="text-xl font-bold text-slate-800 uppercase tracking-wide">Acesso GovCorp</h1>
             <p className="text-xs text-slate-500 mt-2 font-bold">25 ANOS DE GOVERNANÇA</p>
           </div>
+          {/* FORMULÁRIO DE LOGIN ATUALIZADO PARA SUPABASE AUTH */}
           <form className="space-y-4" onSubmit={async (e)=>{
             e.preventDefault();
             setLoading(true);
-            // AJUSTE DE SEGURANÇA: Validamos a senha mas pedimos que o banco retorne apenas colunas não sensíveis
-            const { data } = await supabase.from('members')
-              .select('id, name, email, role, client_id')
-              .eq('email', authForm.email)
-              .eq('password', authForm.password)
-              .single();
             
-            if (data) { 
-              setCurrentUser(data); 
-              addLog('Login', `Empresa: ${data.client_id}`); 
-            } else {
-              alert('Credenciais Inválidas');
+            // 1. Tenta o login via Supabase Auth
+            const { data: authData, error: authError } = await supabase.auth.signInWithPassword({
+              email: authForm.email,
+              password: authForm.password,
+            });
+            
+            if (authError) {
+              alert('Erro de Acesso: ' + authError.message);
+            } else if (authData?.user) { 
+              // 2. Se logou com sucesso, a função 'onAuthStateChange' (no useEffect lá em cima) 
+              // vai disparar e setar o currentUser automaticamente buscando da tabela members.
+              addLog('Login', `Usuário autenticado via Auth: ${authData.user.email}`); 
             }
             setLoading(false);
           }}>
             <input type="email" placeholder="E-mail Corporativo" className="w-full p-4 bg-slate-50 border border-slate-200 rounded-lg outline-none font-bold" value={authForm.email} onChange={e=>setAuthForm({...authForm, email:e.target.value})} required />
             <input type="password" placeholder="Senha" className="w-full p-4 bg-slate-50 border border-slate-200 rounded-lg outline-none font-bold" value={authForm.password} onChange={e=>setAuthForm({...authForm, password:e.target.value})} required />
-            <button className="w-full bg-amber-600 hover:bg-amber-700 text-white py-4 rounded-lg font-bold uppercase shadow-md transition-all">Entrar na Plataforma</button>
+            <button disabled={loading} className="w-full bg-amber-600 hover:bg-amber-700 text-white py-4 rounded-lg font-bold uppercase shadow-md transition-all disabled:opacity-50">
+               {loading ? 'Validando...' : 'Entrar na Plataforma'}
+            </button>
           </form>
         </div>
       </div>
@@ -535,8 +563,12 @@ const App = () => {
         </nav>
 
         <div className="p-4 border-t border-slate-700/50">
+            {/* BOTÃO DE SAÍDA ATUALIZADO */}
             <button 
-              onClick={() => setCurrentUser(null)} 
+              onClick={async () => {
+                 await supabase.auth.signOut();
+                 setCurrentUser(null);
+              }} 
               className={`w-full flex items-center gap-3 rounded-lg text-red-400 hover:bg-red-500/10 hover:text-red-300 transition-all text-[10px] font-bold uppercase tracking-widest ${isSidebarCollapsed ? 'justify-center p-3' : 'px-4 py-3'}`}
               title={isSidebarCollapsed ? 'Sair' : ''}
             >
@@ -656,7 +688,7 @@ const App = () => {
                   </div>
                 )
               )}
-             
+              
               {activeMenu === 'plano-acao' && (
                 <div className="space-y-6 animate-in fade-in">
                   <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
@@ -744,7 +776,7 @@ const App = () => {
                   </div>
                 </div>
               )}
-             
+              
               {activeMenu === 'auditoria' && (
                 <div className="space-y-6 animate-in fade-in">
                   <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm"><h1 className="text-2xl font-bold text-slate-800 tracking-tight italic">Auditoria de {isSuper ? 'Sistema' : currentUser.client_id}</h1></div>
