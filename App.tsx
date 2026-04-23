@@ -771,7 +771,16 @@ const App = () => {
                         setLoading(true);
                         const payload = { ...newUserForm, client_id: isSuper ? newUserForm.client_id : currentUser.client_id }; 
                         
-                        const { data, error } = await supabase.auth.signUp({
+                        // FIX: Criando um cliente temporário apenas para o signUp para evitar o "auto-login" do administrador
+                        const authClient = createClient(supabaseUrl, supabaseKey, {
+                          auth: {
+                            persistSession: false,
+                            autoRefreshToken: false,
+                            detectSessionInUrl: false
+                          }
+                        });
+
+                        const { data, error } = await authClient.auth.signUp({
                           email: payload.email,
                           password: payload.password,
                           options: {
@@ -805,7 +814,14 @@ const App = () => {
               {activeMenu === 'auditoria' && (
                 <div className="space-y-6 animate-in fade-in">
                   <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm"><h1 className="text-2xl font-bold text-slate-800 tracking-tight italic">Auditoria de {isSuper ? 'Sistema' : currentUser.client_id}</h1></div>
-                  <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden"><table className="w-full text-left text-sm font-bold italic"><thead className="bg-slate-900 text-[10px] font-bold uppercase text-amber-500 tracking-widest"><tr><th className="px-6 py-4">Data</th><th className="px-6 py-4">Usuário</th><th className="px-6 py-4">Ação</th><th className="px-6 py-4">Detalhes</th></tr></thead><tbody className="divide-y divide-slate-100">{auditLogs.map((log, i) => (<tr key={log.id || i} className="hover:bg-slate-50 transition-all text-slate-600"><td className="px-6 py-4 text-[10px]">{new Date(log.log_date).toLocaleString()}</td><td className="px-6 py-4">{log.username}</td><td className="px-6 py-4 text-amber-600 uppercase text-[10px]">{log.action}</td><td className="px-6 py-4 text-xs">{log.details}</td></tr>))}</tbody></table></div>
+                  <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden"><table className="w-full text-left text-sm font-bold italic"><thead className="bg-slate-900 text-[10px] font-bold uppercase text-amber-500 tracking-widest"><tr><th className="px-6 py-4">Data</th><th className="px-6 py-4">Usuário</th><th className="px-6 py-4">Ação</th><th className="px-6 py-4">Detalhes</th></tr></thead><tbody className="divide-y divide-slate-100">{auditLogs.map((log, i) => (
+                    <tr key={log.id || i} className="hover:bg-slate-50 transition-all text-slate-600">
+                      <td className="px-6 py-4 text-[10px]">{new Date(log.log_date).toLocaleString()}</td>
+                      <td className="px-6 py-4">{log.username}</td>
+                      <td className="px-6 py-4 text-amber-600 uppercase text-[10px]">{log.action}</td>
+                      <td className="px-6 py-4 text-xs">{log.details}</td>
+                    </tr>
+                  ))}</tbody></table></div>
                 </div>
               )}
             </>
