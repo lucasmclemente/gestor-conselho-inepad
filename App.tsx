@@ -64,14 +64,12 @@ const App = () => {
   const isSec = currentUser?.role === 'Secretário';
   const canEdit = isAdm || isSec;
 
-  // --- NOVA LÓGICA DE SESSÃO (SUPABASE AUTH) ---
+  // --- LOGICA DE SESSÃO (SUPABASE AUTH) ---
   useEffect(() => {
-    // 1. Verifica se já existe uma sessão ativa ao carregar o app
     supabase.auth.getSession().then(({ data: { session } }) => {
       if (session) fetchMemberProfile(session.user.id);
     });
 
-    // 2. Escuta mudanças na autenticação (Login/Logout)
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       if (session) fetchMemberProfile(session.user.id);
       else setCurrentUser(null);
@@ -80,7 +78,6 @@ const App = () => {
     return () => subscription.unsubscribe();
   }, []);
 
-  // Função auxiliar para buscar o perfil na tabela members após o login
   const fetchMemberProfile = async (userId: string) => {
     const { data } = await supabase
       .from('members')
@@ -488,12 +485,10 @@ const App = () => {
             <h1 className="text-xl font-bold text-slate-800 uppercase tracking-wide">Acesso GovCorp</h1>
             <p className="text-xs text-slate-500 mt-2 font-bold">25 ANOS DE GOVERNANÇA</p>
           </div>
-          {/* FORMULÁRIO DE LOGIN ATUALIZADO PARA SUPABASE AUTH */}
           <form className="space-y-4" onSubmit={async (e)=>{
             e.preventDefault();
             setLoading(true);
             
-            // 1. Tenta o login via Supabase Auth
             const { data: authData, error: authError } = await supabase.auth.signInWithPassword({
               email: authForm.email,
               password: authForm.password,
@@ -502,8 +497,6 @@ const App = () => {
             if (authError) {
               alert('Erro de Acesso: ' + authError.message);
             } else if (authData?.user) { 
-              // 2. Se logou com sucesso, a função 'onAuthStateChange' (no useEffect lá em cima) 
-              // vai disparar e setar o currentUser automaticamente buscando da tabela members.
               addLog('Login', `Usuário autenticado via Auth: ${authData.user.email}`); 
             }
             setLoading(false);
@@ -563,7 +556,6 @@ const App = () => {
         </nav>
 
         <div className="p-4 border-t border-slate-700/50">
-            {/* BOTÃO DE SAÍDA ATUALIZADO */}
             <button 
               onClick={async () => {
                  await supabase.auth.signOut();
@@ -771,7 +763,40 @@ const App = () => {
                 <div className="space-y-6 animate-in fade-in">
                   <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm"><h1 className="text-2xl font-bold text-slate-800 tracking-tight italic">{isSuper ? 'Gestão Master de Contas' : 'Conselheiros'}</h1></div>
                   <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 items-start">
-                    <div className="bg-slate-900 p-8 rounded-2xl shadow-xl space-y-4 h-fit sticky top-24 border border-white/5"><h3 className="text-[10px] font-bold uppercase text-amber-500 border-b border-white/5 pb-3 tracking-widest">{isSuper ? 'Novo Cliente' : 'Novo Membro'}</h3><div><label className="text-[10px] font-bold text-slate-500 uppercase">Nome</label><input className="w-full p-3 bg-slate-800 text-white rounded-lg outline-none font-bold" value={newUserForm.name} onChange={e=>setnewUserForm({...newUserForm, name: e.target.value})} /></div><div><label className="text-[10px] font-bold text-slate-500 uppercase">E-mail</label><input className="w-full p-3 bg-slate-800 text-white rounded-lg outline-none font-bold" value={newUserForm.email} onChange={e=>setnewUserForm({...newUserForm, email: e.target.value})} /></div><div><label className="text-[10px] font-bold text-slate-500 uppercase">Perfil</label><select className="w-full p-3 bg-slate-800 text-white rounded-lg font-bold" value={newUserForm.role} onChange={e=>setnewUserForm({...newUserForm, role: e.target.value})}><option value="Conselheiro">Conselheiro</option><option value="Secretário">Secretário</option><option value="Administrador">Administrador</option>{isSuper && <option value="SuperAdmin">SuperAdmin</option>}</select></div><div><label className="text-[10px] font-bold text-slate-500 uppercase">Senha</label><input type="password" className="w-full p-3 bg-slate-800 text-white rounded-lg outline-none font-bold" value={newUserForm.password} onChange={e=>setnewUserForm({...newUserForm, password: e.target.value})} /></div><div><label className="text-[10px] font-bold text-amber-500 uppercase flex items-center gap-2"><Building2 size={12}/> Identificador</label><input placeholder={isSuper ? "Ex: Empresa-A" : "Auto"} className="w-full p-3 bg-slate-800 text-white rounded-lg outline-none font-bold border border-amber-500/30" value={isSuper ? newUserForm.client_id : (newUserForm.client_id || currentUser.client_id)} onChange={e=>setnewUserForm({...newUserForm, client_id: e.target.value})} readOnly={!isSuper} /></div><button onClick={async ()=>{ const payload = { ...newUserForm, client_id: isSuper ? newUserForm.client_id : currentUser.client_id }; const {data, error} = await supabase.from('members').insert([payload]).select(); if(!error && data) { setUsers([...users, data[0]]); setnewUserForm({name:'', email:'', role:'Conselheiro', password:'', client_id:''}); alert("Habilitado!"); } }} className="w-full py-3 bg-amber-600 text-white rounded-lg font-bold uppercase shadow-md hover:bg-amber-700 transition-all tracking-widest">Habilitar</button></div>
+                    <div className="bg-slate-900 p-8 rounded-2xl shadow-xl space-y-4 h-fit sticky top-24 border border-white/5"><h3 className="text-[10px] font-bold uppercase text-amber-500 border-b border-white/5 pb-3 tracking-widest">{isSuper ? 'Novo Cliente' : 'Novo Membro'}</h3><div><label className="text-[10px] font-bold text-slate-500 uppercase">Nome</label><input className="w-full p-3 bg-slate-800 text-white rounded-lg outline-none font-bold" value={newUserForm.name} onChange={e=>setnewUserForm({...newUserForm, name: e.target.value})} /></div><div><label className="text-[10px] font-bold text-slate-500 uppercase">E-mail</label><input className="w-full p-3 bg-slate-800 text-white rounded-lg outline-none font-bold" value={newUserForm.email} onChange={e=>setnewUserForm({...newUserForm, email: e.target.value})} /></div><div><label className="text-[10px] font-bold text-slate-500 uppercase">Perfil</label><select className="w-full p-3 bg-slate-800 text-white rounded-lg font-bold" value={newUserForm.role} onChange={e=>setnewUserForm({...newUserForm, role: e.target.value})}><option value="Conselheiro">Conselheiro</option><option value="Secretário">Secretário</option><option value="Administrador">Administrador</option>{isSuper && <option value="SuperAdmin">SuperAdmin</option>}</select></div><div><label className="text-[10px] font-bold text-slate-500 uppercase">Senha</label><input type="password" className="w-full p-3 bg-slate-800 text-white rounded-lg outline-none font-bold" value={newUserForm.password} onChange={e=>setnewUserForm({...newUserForm, password: e.target.value})} /></div><div><label className="text-[10px] font-bold text-amber-500 uppercase flex items-center gap-2"><Building2 size={12}/> Identificador</label><input placeholder={isSuper ? "Ex: Empresa-A" : "Auto"} className="w-full p-3 bg-slate-800 text-white rounded-lg outline-none font-bold border border-amber-500/30" value={isSuper ? newUserForm.client_id : (newUserForm.client_id || currentUser.client_id)} onChange={e=>setnewUserForm({...newUserForm, client_id: e.target.value})} readOnly={!isSuper} /></div>
+                    
+                    <button 
+                      disabled={loading}
+                      onClick={async ()=>{ 
+                        setLoading(true);
+                        const payload = { ...newUserForm, client_id: isSuper ? newUserForm.client_id : currentUser.client_id }; 
+                        
+                        const { data, error } = await supabase.auth.signUp({
+                          email: payload.email,
+                          password: payload.password,
+                          options: {
+                            data: {
+                              name: payload.name,
+                              role: payload.role,
+                              client_id: payload.client_id
+                            }
+                          }
+                        });
+
+                        if(error) {
+                          alert("Erro ao habilitar acesso: " + error.message);
+                        } else if (data.user) {
+                          setnewUserForm({name:'', email:'', role:'Conselheiro', password:'', client_id:''}); 
+                          alert("Sucesso! Membro habilitado e credenciais de login criadas."); 
+                          fetchInitialData();
+                        }
+                        setLoading(false);
+                      }} 
+                      className="w-full py-3 bg-amber-600 text-white rounded-lg font-bold uppercase shadow-md hover:bg-amber-700 transition-all tracking-widest disabled:opacity-50"
+                    >
+                      {loading ? "Processando..." : "Habilitar Acesso Oficial"}
+                    </button>
+                    </div>
                     <div className="lg:col-span-2 bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden overflow-x-auto"><table className="w-full text-left text-sm min-w-[500px] font-bold italic"><thead className="bg-slate-50 text-[10px] font-bold uppercase text-slate-400 border-b border-slate-50 tracking-widest"><tr><th className="px-6 py-4">Membro</th><th className="px-6 py-4 text-center">Empresa</th><th className="px-6 py-4 text-center">Nível</th><th className="px-6 py-4 text-center">Gestão</th></tr></thead><tbody className="divide-y divide-slate-100">{users.map((u:any, i:any) => (<tr key={u.id || i} className="hover:bg-slate-50 transition-all"><td className="px-6 py-4">{u.name} <br/><span className="text-[9px] text-slate-300">{u.email}</span></td><td className="px-6 py-4 text-center text-[10px] text-amber-600 uppercase">{u.client_id}</td><td className="px-6 py-4 text-center text-[10px]">{u.role}</td><td className="px-6 py-4 text-center"><button onClick={async ()=>{ if(window.confirm(`Remover?`)) { const {error} = await supabase.from('members').delete().eq('id', u.id); if(!error) setUsers(users.filter((x:any)=>x.id!==u.id)); } }} className="text-slate-200 hover:text-red-500"><Trash2 size={18}/></button></td></tr>))}</tbody></table></div>
                   </div>
                 </div>
