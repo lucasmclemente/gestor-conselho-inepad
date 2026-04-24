@@ -14,6 +14,7 @@ serve(async (req) => {
 
     const emailPromises = pendingSummary.map(async (user: any) => {
       
+      // Lista de ações específicas desta ata
       const currentActionsHtml = actions.length > 0 
         ? actions.map((a: any) => `
             <li style="margin-bottom: 8px;">
@@ -22,17 +23,18 @@ serve(async (req) => {
             </li>`).join('')
         : '<li>Nenhuma nova ação registrada nesta reunião.</li>'
 
-      // Renderização robusta das pendências
-      const totalPendingHtml = user.pendingActions.length > 0 
+      // Renderização robusta das pendências GLOBAIS (Plano Global)
+      const totalPendingHtml = (user.pendingActions && user.pendingActions.length > 0)
         ? user.pendingActions.map((pa: any) => `
-            <div style="background: #fff; border-left: 4px solid #b45309; padding: 12px; margin-bottom: 10px; border-radius: 6px; border: 1px solid #fed7aa;">
+            <div style="background: #fff; border-left: 4px solid #b45309; padding: 12px; margin-bottom: 10px; border-radius: 6px; border: 1px solid #fed7aa; box-shadow: 0 1px 2px rgba(0,0,0,0.05);">
               <p style="margin: 0; font-size: 13px; font-weight: bold; color: #1e293b;">${pa.title}</p>
               <p style="margin: 4px 0 0; font-size: 11px; color: #64748b;">
                 <strong>Origem:</strong> ${pa.meetingTitle} | <strong>Prazo:</strong> ${pa.date || 'S/D'}
               </p>
+              ${pa.obs ? `<p style="margin: 4px 0 0; font-size: 10px; color: #94a3b8; font-style: italic;">Obs: ${pa.obs}</p>` : ''}
             </div>
           `).join('')
-        : '<p style="font-size: 13px; color: #059669; font-weight: bold;">✅ Você não possui pendências em aberto no plano global.</p>'
+        : '<div style="padding: 15px; background: #ecfdf5; border-radius: 8px; border: 1px solid #d1fae5; text-align: center;"><p style="margin: 0; font-size: 13px; color: #059669; font-weight: bold;">✅ Você não possui pendências em aberto no plano global.</p></div>'
 
       return fetch('https://api.resend.com/emails', {
         method: 'POST',
@@ -43,7 +45,7 @@ serve(async (req) => {
         body: JSON.stringify({
           from: 'Governança INEPAD <conselho@inepadconsulting.com>',
           to: user.email,
-          subject: `ATA PUBLICADA E PENDÊNCIAS: ${meetingTitle}`, // Título restaurado
+          subject: `ATA PUBLICADA E PENDÊNCIAS: ${meetingTitle}`,
           html: `
             <div style="font-family: sans-serif; max-width: 600px; margin: auto; border: 1px solid #e2e8f0; border-radius: 12px; overflow: hidden; background: #ffffff;">
               <div style="background: #0f172a; padding: 20px; text-align: center;">

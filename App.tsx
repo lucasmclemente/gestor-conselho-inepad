@@ -189,22 +189,41 @@ const App = () => {
           alert(`Aviso: Os participantes (${unregistered.map((u: any) => u.name).join(', ')}) não possuem cadastro. O relatório global não será completo para eles.`);
         }
 
-        // --- CORREÇÃO: SCAN GLOBAL DE PENDÊNCIAS (DB + UI) ---
+        // --- CORREÇÃO DEFINITIVA: SCAN GLOBAL (BANCO + UI + MAPEAMENTO DE E-MAIL) ---
+        // 1. Criamos um mapa de Nome -> E-mail baseado nos membros cadastrados para vincular as tarefas corretamente
+        const nameToEmailMap = new Map();
+        users.forEach(u => {
+          if (u.name && u.email) nameToEmailMap.set(u.name.trim().toLowerCase(), u.email.trim().toLowerCase());
+        });
+
+        // 2. Fonte de dados unificada
         const allMeetingsSource = [...meetings.filter(m => m.id !== currentMeeting.id), currentMeeting];
 
+        // 3. Extraímos TODAS as ações pendentes do Plano de Ação
         const allPendingActions = allMeetingsSource.flatMap((m: any) => 
           (m.acoes || []).map((a: any) => ({ 
             ...a, 
-            meetingTitle: m.title 
+            meetingTitle: m.title,
+            respEmail: a.resp ? nameToEmailMap.get(a.resp.trim().toLowerCase()) : null
           }))
         ).filter((a: any) => a.status !== 'Concluída');
 
+        // 4. Montamos o resumo para cada destinatário
         const usersToNotify = participants.map((p: any) => {
+          const pEmail = p.email?.trim().toLowerCase();
           const pName = p.name?.trim().toLowerCase();
+
+          // Filtramos as pendências que pertencem a este usuário (seja pelo e-mail ou pelo nome exato)
+          const userTasks = allPendingActions.filter((a: any) => {
+            const isEmailMatch = a.respEmail && a.respEmail === pEmail;
+            const isNameMatch = a.resp?.trim().toLowerCase() === pName;
+            return isEmailMatch || isNameMatch;
+          });
+
           return {
             email: p.email,
             name: p.name,
-            pendingActions: allPendingActions.filter((a: any) => a.resp?.trim().toLowerCase() === pName)
+            pendingActions: userTasks
           };
         }).filter((u: any) => u.email);
 
