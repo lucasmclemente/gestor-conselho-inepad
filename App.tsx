@@ -183,12 +183,6 @@ const App = () => {
         const participants = currentMeeting.participants || [];
         const emails = participants.map((p: any) => p.email).filter((e: string) => e);
 
-        // --- VALIDAÇÃO DE GOVERNANÇA ---
-        const unregistered = participants.filter((p: any) => !users.find((u: any) => u.email === p.email));
-        if (unregistered.length > 0) {
-          alert(`Aviso de Governança: Os participantes (${unregistered.map((u: any) => u.name).join(', ')}) não possuem cadastro. O relatório global de pendências não será consolidado para eles.`);
-        }
-
         // --- SCAN GLOBAL DE PENDÊNCIAS ---
         const allPendingActions = meetings.flatMap((m: any) => 
           (m.acoes || []).map((a: any) => ({ 
@@ -660,10 +654,43 @@ const App = () => {
                             <h3 className="text-xs font-bold uppercase text-slate-500 tracking-widest flex items-center gap-2 border-b border-slate-50 pb-4"><UserCheck size={16} className="text-amber-600"/> Participantes</h3>
                             <div className="space-y-2">{(currentMeeting.participants || []).map((p:any, i:any) => (
                               <div key={i} className="flex justify-between items-center p-4 bg-slate-50 rounded-lg border border-slate-100 group transition-all hover:bg-white hover:shadow-md font-bold italic">
-                                {editingPart === i ? (<div className="flex gap-2 w-full items-center animate-in fade-in"><input className="flex-1 p-2 border border-slate-200 rounded-md text-sm outline-none bg-white" value={p.name} onChange={e=>{const newP=[...currentMeeting.participants]; newP[i].name=e.target.value; setCurrentMeeting({...currentMeeting, participants:newP});}}/><input className="flex-1 p-2 border border-slate-200 rounded-md text-sm outline-none bg-white" value={p.email} onChange={e=>{const newP=[...currentMeeting.participants]; newP[i].email=e.target.value; setCurrentMeeting({...currentMeeting, participants:newP});}}/><button onClick={() => setEditingPart(null)} className="p-2 text-emerald-600 hover:bg-emerald-50 rounded-md"><Check size={18}/></button></div>) : (<><div className="flex items-center gap-4"><div className="w-10 h-10 rounded-xl bg-white border border-slate-200 text-slate-400 flex items-center justify-center text-xs font-bold shadow-inner">{p.name[0]}</div><div><p className="text-sm text-slate-800">{p.name}</p><p className="text-[10px] text-slate-400 italic font-medium">{p.email}</p></div></div>{canEdit && <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity"><button onClick={()=>setEditingPart(i)} className="p-2 text-slate-400 hover:text-amber-600 rounded-md"><Edit2 size={16}/></button><button onClick={()=>setCurrentMeeting({...currentMeeting, participants:(currentMeeting.participants || []).filter((_:any,idx:any)=>idx!==i)})} className="p-2 text-slate-400 hover:text-red-500 rounded-md"><X size={16}/></button></div>}</>)}
+                                <div className="flex items-center gap-4"><div className="w-10 h-10 rounded-xl bg-white border border-slate-200 text-slate-400 flex items-center justify-center text-xs font-bold shadow-inner">{p.name[0]}</div><div><p className="text-sm text-slate-800">{p.name}</p><p className="text-[10px] text-slate-400 italic font-medium">{p.email}</p></div></div>{canEdit && <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity"><button onClick={()=>setCurrentMeeting({...currentMeeting, participants:(currentMeeting.participants || []).filter((_:any,idx:any)=>idx!==i)})} className="p-2 text-slate-400 hover:text-red-500 rounded-md"><X size={16}/></button></div>}
                               </div>
                             ))}</div>
-                            {canEdit && <div className="p-5 bg-slate-50 rounded-xl border border-dashed border-slate-300 grid grid-cols-1 sm:grid-cols-2 gap-4"><input placeholder="Nome" className="p-3 border rounded-lg text-sm bg-white font-bold" value={tmpPart.name} onChange={e=>setTmpPart({...tmpPart, name:e.target.value})}/><input placeholder="E-mail" className="p-3 border rounded-lg text-sm bg-white font-bold" value={tmpPart.email} onChange={e=>setTmpPart({...tmpPart, email:e.target.value})}/><button onClick={()=>{if(tmpPart.name){setCurrentMeeting({...currentMeeting, participants:[...(currentMeeting.participants || []), tmpPart]}); setTmpPart({name:'', email:''});}}} className="w-full sm:col-span-2 py-3 bg-amber-600 text-white rounded-lg text-xs font-bold uppercase hover:bg-amber-700 transition-all">Adicionar Participante</button></div>}
+                            {canEdit && (
+                              <div className="p-5 bg-slate-50 rounded-xl border border-dashed border-slate-300 flex flex-col sm:flex-row gap-4 items-end">
+                                <div className="flex-1 w-full">
+                                  <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Selecionar Membro Cadastrado</label>
+                                  <select 
+                                    className="w-full p-3 border rounded-lg text-sm bg-white font-bold mt-1 outline-none focus:ring-2 focus:ring-amber-500/20" 
+                                    onChange={e => {
+                                      const selected = users.find(u => u.id === e.target.value);
+                                      if (selected) setTmpPart({ name: selected.name, email: selected.email });
+                                      else setTmpPart({ name: '', email: '' });
+                                    }}
+                                    value={users.find(u => u.email === tmpPart.email)?.id || ''}
+                                  >
+                                    <option value="">Selecione um usuário...</option>
+                                    {users.map((u: any) => (
+                                      <option key={u.id} value={u.id}>{u.name} ({u.email})</option>
+                                    ))}
+                                  </select>
+                                </div>
+                                <button 
+                                  onClick={() => {
+                                    if (tmpPart.name && !(currentMeeting.participants || []).some((p: any) => p.email === tmpPart.email)) {
+                                      setCurrentMeeting({ ...currentMeeting, participants: [...(currentMeeting.participants || []), tmpPart] });
+                                      setTmpPart({ name: '', email: '' });
+                                    } else if (tmpPart.name) {
+                                      alert("Este membro já está na lista.");
+                                    }
+                                  }} 
+                                  className="h-12 px-6 bg-amber-600 text-white rounded-lg text-[10px] font-bold uppercase tracking-widest hover:bg-amber-700 transition-all shadow-md whitespace-nowrap"
+                                >
+                                  Adicionar à Reunião
+                                </button>
+                              </div>
+                            )}
                           </div>
                         </div>
                         <div className="bg-white p-6 md:p-8 rounded-xl border border-slate-200 shadow-sm space-y-6 h-fit"><h3 className="text-xs font-bold uppercase text-slate-500 tracking-widest border-b border-slate-50 pb-4">Logística</h3><div className="space-y-4"><div><label className="block text-[10px] font-bold text-slate-400 mb-1 uppercase tracking-widest">Data</label><input type="date" value={currentMeeting.date} className="w-full p-3 border rounded-lg text-sm font-bold" onChange={e=>setCurrentMeeting({...currentMeeting, date:e.target.value})} readOnly={!canEdit}/></div><div><label className="block text-[10px] font-bold text-slate-400 mb-1 uppercase tracking-widest">Horário</label><input type="time" value={currentMeeting.time} className="w-full p-3 border rounded-lg text-sm font-bold" onChange={e=>setCurrentMeeting({...currentMeeting, time:e.target.value})} readOnly={!canEdit}/></div><div><label className="block text-[10px] font-bold text-slate-400 mb-1 uppercase tracking-widest">Tipo</label><select className="w-full p-3 border rounded-lg text-sm font-bold" value={currentMeeting.type} onChange={e=>setCurrentMeeting({...currentMeeting, type:e.target.value})} disabled={!canEdit}><option value="Presencial">Presencial</option><option value="Online">Online</option><option value="Híbrida">Híbrida</option></select></div></div></div>
@@ -686,7 +713,6 @@ const App = () => {
                       <div className="bg-white p-8 rounded-xl border border-slate-200 shadow-sm animate-in fade-in space-y-6">
                         <div className="space-y-3">{(currentMeeting.acoes || []).map((a:any, i:any) => (<div key={a.id || i} className="p-4 bg-white rounded-lg border border-l-4 border-l-emerald-500 shadow-sm flex flex-col group font-bold italic"><div className="flex justify-between items-center w-full"><div><p className="text-sm text-slate-800">{a.title}</p><p className="text-[10px] text-slate-400 uppercase mt-1 tracking-widest">{a.resp} • {a.date}</p></div>{canEdit && <button onClick={()=>setCurrentMeeting({...currentMeeting, acoes: (currentMeeting.acoes || []).filter((_:any, idx:any)=>idx!==i)})}><Trash2 size={18} className="text-slate-200 hover:text-red-500"/></button>}</div>{a.obs && <div className="mt-2 text-[10px] text-amber-700 bg-amber-50/50 p-2 rounded border border-amber-100/50 whitespace-pre-wrap">OBS: {a.obs}</div>}</div>))}</div>
                         {canEdit && (<div className="p-5 bg-slate-50 border border-dashed border-slate-300 rounded-xl grid grid-cols-1 sm:grid-cols-12 gap-4 items-end"><div className="sm:col-span-5"><label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Ação</label><input placeholder="Título" className="w-full p-3 border rounded-lg text-sm bg-white font-bold italic" value={tmpAcao.title} onChange={e=>setTmpAcao({...tmpAcao, title:e.target.value})}/></div><div className="sm:col-span-3"><label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Resp.</label>
-                        {/* ALTERAÇÃO SOLICITADA: Apenas usuários cadastrados podem ser responsáveis */}
                         <select className="w-full p-3 border rounded-lg text-sm bg-white font-bold" value={tmpAcao.resp} onChange={e=>setTmpAcao({...tmpAcao, resp:e.target.value})}>
                           <option value="">Selecione um Usuário...</option>
                           {users.map((u:any) => <option key={u.id} value={u.name}>{u.name}</option>)}
@@ -741,7 +767,6 @@ const App = () => {
                   {canEdit && (
                     <div className="bg-white p-5 border border-amber-200 rounded-xl shadow-sm grid grid-cols-1 md:grid-cols-12 gap-4 items-end animate-in slide-in-from-top-2">
                       <div className="md:col-span-3"><label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Iniciativa</label><input placeholder="Título" className="w-full p-3 border rounded-lg text-sm font-bold bg-slate-50 outline-none italic" value={tmpGlobalAcao.title} onChange={e=>setTmpGlobalAcao({...tmpGlobalAcao, title: e.target.value})} /></div>
-                      {/* ALTERAÇÃO SOLICITADA: Restrição aplicada no Plano Global */}
                       <div className="md:col-span-2"><label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Resp.</label><select className="w-full p-3 border rounded-lg text-sm font-bold bg-slate-50" value={tmpGlobalAcao.resp} onChange={e=>setTmpGlobalAcao({...tmpGlobalAcao, resp: e.target.value})}><option value="">Selecione um Usuário...</option>{users.map((u, i) => <option key={i} value={u.name}>{u.name}</option>)}</select></div>
                       <div className="md:col-span-2"><label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Origem</label><select className="w-full p-3 border rounded-lg text-sm font-bold bg-slate-50" value={tmpGlobalAcao.meetingId} onChange={e=>setTmpGlobalAcao({...tmpGlobalAcao, meetingId: e.target.value})}><option value="">Vincular...</option>{meetings.map(m => <option key={m.id} value={m.id}>{m.title}</option>)}</select></div>
                       <div className="md:col-span-2"><label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Prazo</label><input type="date" className="w-full p-3 border rounded-lg text-sm font-bold bg-slate-50" value={tmpGlobalAcao.date} onChange={e=>setTmpGlobalAcao({...tmpGlobalAcao, date: e.target.value})} /></div>
