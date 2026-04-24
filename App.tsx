@@ -190,7 +190,6 @@ const App = () => {
         }
 
         // --- CORREÇÃO: SCAN GLOBAL DE PENDÊNCIAS (DB + UI) ---
-        // Pegamos todas as reuniões do estado, exceto a atual (para não duplicar) e adicionamos a versão "fresca" da tela
         const allMeetingsSource = [...meetings.filter(m => m.id !== currentMeeting.id), currentMeeting];
 
         const allPendingActions = allMeetingsSource.flatMap((m: any) => 
@@ -367,20 +366,33 @@ const App = () => {
     return (currentMeeting.pautas || []).reduce((acc: number, p: any) => acc + (parseInt(p.dur) || 0), 0);
   }, [currentMeeting.pautas]);
 
+  // FONTE GLOBAL DE DADOS (BANCO + UI ATUAL)
+  const allMeetingsSource = useMemo(() => {
+    return currentMeeting?.id 
+      ? meetings.map(m => m.id === currentMeeting.id ? currentMeeting : m)
+      : meetings;
+  }, [meetings, currentMeeting]);
+
   const stats = useMemo(() => {
     const today = new Date(); today.setHours(0,0,0,0);
-    const filteredM = dashboardFilter === 'all' ? meetings : meetings.filter(m => m.id === dashboardFilter);
-    const allA = filteredM.flatMap(m => (m.acoes || []).map((a:any) => ({ ...a, mTitle: m.title, mId: m.id })))
+    
+    // Se estivermos no Plano de Ação, ignoramos o filtro de reunião do Dashboard (Filtro Consolidado)
+    const sourceForStats = (activeMenu === 'plano-acao') 
+      ? allMeetingsSource 
+      : (dashboardFilter === 'all' ? allMeetingsSource : allMeetingsSource.filter(m => m.id === dashboardFilter));
+
+    const allA = sourceForStats.flatMap(m => (m.acoes || []).map((a:any) => ({ ...a, mTitle: m.title, mId: m.id })))
       .filter(a => (filterResp === 'all' || a.resp === filterResp))
       .filter(a => (filterStatus === 'all' || a.status === filterStatus))
       .filter(a => (filterOrigin === 'all' || a.mId === filterOrigin));
 
     const count = (st: string) => allA.filter(a => a.status === st).length;
     const atrasadas = allA.filter(a => a.status !== 'Concluída' && a.date && new Date(a.date) < today).length;
+    
     return {
       concluida: `${allA.filter(a => a.status === 'Concluída').length}/${allA.length || 0}`,
-      delibs: filteredM.flatMap(m => m.deliberacoes || []).length,
-      atas: filteredM.reduce((acc, m) => acc + (m.atas?.length || 0), 0),
+      delibs: sourceForStats.flatMap(m => m.deliberacoes || []).length,
+      atas: sourceForStats.reduce((acc, m) => acc + (m.atas?.length || 0), 0),
       atrasadas,
       allActions: allA,
       pieData: [
@@ -388,9 +400,9 @@ const App = () => {
         { name: 'Pendente', value: count('Pendente'), color: '#94a3b8' },
         { name: 'Atrasada', value: atrasadas, color: '#be123c' }
       ],
-      barData: filteredM.slice(0,6).map(m => ({ name: m.date || 'S/D', 'Pautas': m.pautas?.length || 0, 'Ações': m.acoes?.length || 0 }))
+      barData: sourceForStats.slice(0,6).map(m => ({ name: m.date || 'S/D', 'Pautas': m.pautas?.length || 0, 'Ações': m.acoes?.length || 0 }))
     };
-  }, [meetings, dashboardFilter, filterResp, filterStatus, filterOrigin]);
+  }, [allMeetingsSource, activeMenu, dashboardFilter, filterResp, filterStatus, filterOrigin]);
 
   const ConvocationModal = () => (
     <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-md z-[100] flex items-center justify-center p-4">
@@ -675,7 +687,9 @@ const App = () => {
                     {tab === 'pauta' && (
                       <div className="bg-white p-8 rounded-xl border border-slate-200 shadow-sm animate-in fade-in space-y-6">
                         <div className="flex justify-between items-center bg-slate-900 p-6 rounded-xl border border-white/10 shadow-lg gap-4"><div className="flex items-center gap-4"><div className="p-3 bg-amber-600/20 text-amber-500 rounded-lg"><Timer size={24}/></div><div><p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Estimativa da Sessão</p><p className="text-2xl font-bold text-white italic">{totalEstimatedTime} <span className="text-sm font-normal not-italic text-slate-400">min</span></p></div></div><button onClick={() => { setIsSessionActive(!isSessionActive); if(!isSessionActive) addLog('Início Sessão', `Reunião iniciada por ${currentUser.name}`); }} className={`px-6 py-3 rounded-lg font-bold text-xs uppercase flex items-center gap-2 transition-all shadow-md ${isSessionActive ? 'bg-red-500 text-white' : 'bg-emerald-600 text-white'}`}>{isSessionActive ? <><Square size={16}/> Parar</> : <><Play size={16}/> Iniciar</>}</button></div>
-                        <div className="space-y-2">{(currentMeeting.pautas || []).map((p:any, i:any) => (<div key={i} className={`flex justify-between items-center p-4 border rounded-lg transition-all group border-l-4 font-bold italic ${activePautaIndex === i ? 'bg-amber-50 border-amber-500' : 'bg-white border-slate-200'}`}><div className="flex items-center gap-4 flex-1"><span className="text-slate-300">#{i+1}</span><div><p className="text-sm text-slate-800">{p.title}</p><p className="text-[10px] text-slate-500 font-bold uppercase">{p.resp} • {p.dur} min</p></div></div><div className="flex items-center gap-2">{isSessionActive && activePautaIndex === i && (<div className={`font-mono text-lg ${timeElapsed > (parseInt(p.dur) * 60) ? 'text-red-600' : 'text-amber-600'}`}>{formatTime(timeElapsed)}</div>)}{isSessionActive && activePautaIndex === i && <button onClick={() => handleFinalizePauta(i)} className="bg-emerald-600 text-white p-2 rounded-md"><Check size={16}/></button>}{canEdit && <button onClick={()=>setCurrentMeeting({...currentMeeting, pautas: (currentMeeting.pautas || []).filter((_:any, idx:any)=>idx!==i)})} className="p-2 text-slate-200 hover:text-red-500"><Trash2 size={18}/></button>}</div></div>))}</div>
+                        <div className="space-y-2">{(currentMeeting.pautas || []).map((p:any, i:any) => (
+                          <div key={i} className={`flex justify-between items-center p-4 border rounded-lg transition-all group border-l-4 font-bold italic ${activePautaIndex === i ? 'bg-amber-50 border-amber-500' : 'bg-white border-slate-200'}`}><div className="flex items-center gap-4 flex-1"><span className="text-slate-300">#{i+1}</span><div><p className="text-sm text-slate-800">{p.title}</p><p className="text-[10px] text-slate-500 font-bold uppercase">{p.resp} • {p.dur} min</p></div></div><div className="flex items-center gap-2">{isSessionActive && activePautaIndex === i && (<div className={`font-mono text-lg ${timeElapsed > (parseInt(p.dur) * 60) ? 'text-red-600' : 'text-amber-600'}`}>{formatTime(timeElapsed)}</div>)}{isSessionActive && activePautaIndex === i && <button onClick={() => handleFinalizePauta(i)} className="bg-emerald-600 text-white p-2 rounded-md"><Check size={16}/></button>}{canEdit && <button onClick={()=>setCurrentMeeting({...currentMeeting, pautas: (currentMeeting.pautas || []).filter((_:any, idx:any)=>idx!==i)})} className="p-2 text-slate-200 hover:text-red-500"><Trash2 size={18}/></button>}</div></div>
+                        ))}</div>
                         {canEdit && (<div className="p-5 bg-slate-50 rounded-xl border border-dashed border-slate-300 grid grid-cols-1 sm:grid-cols-5 gap-4 items-end"><div className="sm:col-span-2"><label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Assunto</label><input placeholder="Título" className="w-full p-3 border rounded-lg text-sm bg-white font-bold" value={tmpPauta.title} onChange={e=>setTmpPauta({...tmpPauta, title:e.target.value})}/></div><div><label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Resp.</label><select className="w-full p-3 border rounded-lg text-sm bg-white font-bold" value={tmpPauta.resp} onChange={e=>setTmpPauta({...tmpPauta, resp:e.target.value})}><option value="">Selecione...</option>{(currentMeeting.participants || []).map((p:any, i:number) => <option key={i} value={p.name}>{p.name}</option>)}</select></div><div><label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Tempo</label><input type="number" className="w-full p-3 border rounded-lg text-sm bg-white font-bold" value={tmpPauta.dur} onChange={e=>setTmpPauta({...tmpPauta, dur:e.target.value})}/></div><button onClick={()=>{if(tmpPauta.title){setCurrentMeeting({...currentMeeting, pautas:[...(currentMeeting.pautas || []), tmpPauta]}); setTmpPauta({title:'', resp:'', dur:''});}}} className="h-12 bg-amber-600 text-white rounded-lg flex items-center justify-center shadow-md"><Plus size={24}/></button></div>)}
                       </div>
                     )}
@@ -712,7 +726,7 @@ const App = () => {
                       <div className="flex items-center gap-2 bg-white px-3 py-1.5 rounded border border-slate-200">
                         <User size={14} className="text-amber-500"/><select className="text-[10px] font-bold uppercase outline-none bg-transparent cursor-pointer text-slate-600" value={filterResp} onChange={e=>setFilterResp(e.target.value)}>
                           <option value="all">Responsável</option>
-                          {[...new Set(meetings.flatMap((m: any) => (m.acoes || []).map((a: any) => a.resp)))].filter(r => r).map(r => <option key={r} value={r}>{r}</option>)}
+                          {[...new Set(allMeetingsSource.flatMap((m: any) => (m.acoes || []).map((a: any) => a.resp)))].filter(r => r).map(r => <option key={r} value={r}>{r}</option>)}
                         </select>
                       </div>
                       <div className="flex items-center gap-2 bg-white px-3 py-1.5 rounded border border-slate-200">
@@ -726,7 +740,7 @@ const App = () => {
                       <div className="flex items-center gap-2 bg-white px-3 py-1.5 rounded border border-slate-200">
                         <Building2 size={14} className="text-amber-500"/><select className="text-[10px] font-bold uppercase outline-none bg-transparent cursor-pointer text-slate-600" value={filterOrigin} onChange={e=>setFilterOrigin(e.target.value)}>
                           <option value="all">Origem (Reunião)</option>
-                          {meetings.map(m => <option key={m.id} value={m.id}>{m.title}</option>)}
+                          {allMeetingsSource.map(m => <option key={m.id} value={m.id}>{m.title}</option>)}
                         </select>
                       </div>
                       {(filterResp !== 'all' || filterStatus !== 'all' || filterOrigin !== 'all') && (
