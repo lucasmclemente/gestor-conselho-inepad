@@ -22,13 +22,13 @@ serve(async (req) => {
             </li>`).join('')
         : '<li>Nenhuma nova ação registrada nesta reunião.</li>'
 
-      // Renderização robusta de TODAS as pendências globais
+      // Renderização robusta das pendências
       const totalPendingHtml = user.pendingActions.length > 0 
         ? user.pendingActions.map((pa: any) => `
             <div style="background: #fff; border-left: 4px solid #b45309; padding: 12px; margin-bottom: 10px; border-radius: 6px; border: 1px solid #fed7aa;">
               <p style="margin: 0; font-size: 13px; font-weight: bold; color: #1e293b;">${pa.title}</p>
               <p style="margin: 4px 0 0; font-size: 11px; color: #64748b;">
-                <strong>Reunião:</strong> ${pa.meetingTitle} | <strong>Prazo:</strong> ${pa.date || 'S/D'}
+                <strong>Origem:</strong> ${pa.meetingTitle} | <strong>Prazo:</strong> ${pa.date || 'S/D'}
               </p>
             </div>
           `).join('')
@@ -43,7 +43,7 @@ serve(async (req) => {
         body: JSON.stringify({
           from: 'Governança INEPAD <conselho@inepadconsulting.com>',
           to: user.email,
-          subject: `NOTIFICAÇÃO DE GOVERNANÇA: ${meetingTitle}`,
+          subject: `ATA PUBLICADA E PENDÊNCIAS: ${meetingTitle}`, // Título restaurado
           html: `
             <div style="font-family: sans-serif; max-width: 600px; margin: auto; border: 1px solid #e2e8f0; border-radius: 12px; overflow: hidden; background: #ffffff;">
               <div style="background: #0f172a; padding: 20px; text-align: center;">
@@ -52,27 +52,25 @@ serve(async (req) => {
               
               <div style="padding: 30px; color: #1e293b;">
                 <p style="font-size: 16px;">Olá, <strong>${user.name}</strong>,</p>
-                <p style="font-size: 14px; line-height: 1.5;">Informamos que a ata da reunião <strong>${meetingTitle}</strong> foi publicada e as pendências do Plano de Ação Global foram atualizadas.</p>
+                <p style="font-size: 14px; line-height: 1.5;">A ata da reunião <strong>${meetingTitle}</strong> foi publicada e as pendências globais foram atualizadas.</p>
                 
                 <div style="background: #f8fafc; padding: 15px; border-radius: 8px; margin: 20px 0; border: 1px dashed #cbd5e1; text-align: center;">
                   <p style="margin: 0; font-weight: bold; font-size: 14px; color: #1e293b;">${minuteName}</p>
                   <a href="${minuteUrl}" style="color: #b45309; font-size: 13px; font-weight: bold; text-decoration: none;">⬇ Baixar Ata em PDF</a>
                 </div>
 
-                <h4 style="text-transform: uppercase; font-size: 11px; color: #64748b; border-bottom: 1px solid #f1f5f9; padding-bottom: 5px; letter-spacing: 1px; margin-top: 25px;">Novas Ações (Desta Reunião)</h4>
+                <h4 style="text-transform: uppercase; font-size: 11px; color: #64748b; border-bottom: 1px solid #f1f5f9; padding-bottom: 5px; letter-spacing: 1px; margin-top: 25px;">Plano de Ação (Desta Reunião)</h4>
                 <ul style="padding-left: 20px; color: #334155; font-size: 13px;">
                   ${currentActionsHtml}
                 </ul>
 
                 <div style="margin-top: 30px; padding: 20px; background: #fff7ed; border-radius: 10px; border: 1px solid #ffedd5;">
-                  <h4 style="margin: 0 0 15px; color: #9a3412; font-size: 12px; text-transform: uppercase; letter-spacing: 1px; display: flex; align-items: center;">
-                    🚨 Seu Resumo de Pendências Globais
-                  </h4>
+                  <h4 style="margin: 0 0 15px; color: #9a3412; font-size: 12px; text-transform: uppercase; letter-spacing: 1px;">🚨 Seu Resumo de Pendências Globais</h4>
                   ${totalPendingHtml}
                 </div>
 
                 <div style="text-align: center; margin-top: 35px;">
-                  <a href="https://conselho.inepadconsulting.com" style="background: #0f172a; color: white; padding: 12px 24px; text-decoration: none; border-radius: 8px; font-weight: bold; font-size: 13px; display: inline-block;">Ver Detalhes no Portal GovCorp</a>
+                  <a href="https://conselho.inepadconsulting.com" style="background: #0f172a; color: white; padding: 12px 24px; text-decoration: none; border-radius: 8px; font-weight: bold; font-size: 13px; display: inline-block;">Ver Painel Completo</a>
                 </div>
               </div>
             </div>
@@ -82,7 +80,7 @@ serve(async (req) => {
     })
 
     const results = await Promise.all(emailPromises)
-    return new Response(JSON.stringify({ message: "Processado", enviados: results.length }), {
+    return new Response(JSON.stringify({ count: results.length }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       status: 200,
     })
