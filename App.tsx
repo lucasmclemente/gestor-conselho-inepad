@@ -181,30 +181,47 @@ const App = () => {
 
       if (type === 'atas') {
         const emails = (currentMeeting.participants || []).map((p: any) => p.email).filter((e: string) => e);
+        
+        // --- NOVO: Lógica para envio de Ações Pendentes por Usuário ---
+        // Filtramos todas as ações de todas as reuniões que não estão concluídas
+        const allPendingActions = meetings.flatMap(m => 
+          (m.acoes || []).map((a: any) => ({ ...a, meetingTitle: m.title }))
+        ).filter(a => a.status !== 'Concluída');
+
+        // Mapeamos os usuários e suas respectivas ações pendentes
+        const usersToNotify = users.map(u => ({
+          email: u.email,
+          name: u.name,
+          pendingActions: allPendingActions.filter(a => a.resp === u.name)
+        })).filter(u => u.pendingActions.length > 0);
+
         if (emails.length > 0) {
           try {
+            // Chamada da Function para Notificação da Ata e Relatório de Pendências
             const { error: fnError } = await supabase.functions.invoke('send-minute-notification', {
               body: {
                 meetingTitle: currentMeeting.title,
                 minuteName: file.name,
                 minuteUrl: publicUrl,
                 actions: currentMeeting.acoes || [],
-                recipients: emails
+                recipients: emails,
+                // Enviamos o resumo de pendências global para a function processar os envios individuais
+                pendingSummary: usersToNotify 
               }
             });
 
             if (fnError) {
               console.error("Erro na Function:", fnError);
-              alert("Ata publicada, mas houve um erro no disparo dos e-mails.");
+              alert("Ata publicada, mas houve um erro no disparo dos e-mails de notificação.");
             } else {
-              alert("Ata publicada e enviada aos participantes com sucesso!");
+              alert("Ata publicada! Notificações e Planos de Ação pendentes enviados com sucesso.");
             }
           } catch (notificationError) {
             console.error("Erro ao notificar participantes:", notificationError);
             alert("Ata publicada, mas não foi possível conectar ao serviço de e-mail.");
           }
         } else {
-          alert("Ata publicada! (Nenhum e-mail enviado pois não há participantes com e-mail cadastrado).");
+          alert("Ata publicada! (Nenhum e-mail enviado pois não há participantes cadastrados).");
         }
       }
       
