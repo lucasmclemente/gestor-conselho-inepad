@@ -180,24 +180,33 @@ const App = () => {
       addLog('Upload', `Arquivo ${file.name} em ${type}`);
 
       if (type === 'atas') {
-        const emails = (currentMeeting.participants || []).map((p: any) => p.email).filter((e: string) => e);
-        
-        // --- NOVO: Lógica para envio de Ações Pendentes por Usuário ---
-        // Filtramos todas as ações de todas as reuniões que não estão concluídas
+        const participants = currentMeeting.participants || [];
+        const emails = participants.map((p: any) => p.email).filter((e: string) => e);
+
+        // --- VALIDAÇÃO DE USUÁRIOS NÃO CADASTRADOS ---
+        const unregistered = participants.filter(p => !users.find(u => u.email === p.email));
+        if (unregistered.length > 0) {
+          alert(`Aviso de Governança: Os participantes (${unregistered.map(u => u.name).join(', ')}) não possuem cadastro no sistema. Eles receberão a ata, mas o relatório de pendências globais não poderá ser consolidado para eles.`);
+        }
+
+        // --- BUSCA GLOBAL DE PENDÊNCIAS EM TODAS AS REUNIÕES ---
         const allPendingActions = meetings.flatMap(m => 
-          (m.acoes || []).map((a: any) => ({ ...a, meetingTitle: m.title }))
+          (m.acoes || []).map((a: any) => ({ 
+            ...a, 
+            meetingTitle: m.title 
+          }))
         ).filter(a => a.status !== 'Concluída');
 
-        // Mapeamos os usuários e suas respectivas ações pendentes
-        const usersToNotify = users.map(u => ({
-          email: u.email,
-          name: u.name,
-          pendingActions: allPendingActions.filter(a => a.resp === u.name)
-        })).filter(u => u.pendingActions.length > 0);
+        // Mapeamos os dados personalizados para cada destinatário
+        const usersToNotify = participants.map(p => ({
+          email: p.email,
+          name: p.name,
+          // Filtra todas as ações pendentes do banco que pertencem a este nome
+          pendingActions: allPendingActions.filter(a => a.resp === p.name)
+        })).filter(u => u.email);
 
         if (emails.length > 0) {
           try {
-            // Chamada da Function para Notificação da Ata e Relatório de Pendências
             const { error: fnError } = await supabase.functions.invoke('send-minute-notification', {
               body: {
                 meetingTitle: currentMeeting.title,
@@ -205,23 +214,18 @@ const App = () => {
                 minuteUrl: publicUrl,
                 actions: currentMeeting.acoes || [],
                 recipients: emails,
-                // Enviamos o resumo de pendências global para a function processar os envios individuais
                 pendingSummary: usersToNotify 
               }
             });
 
-            if (fnError) {
-              console.error("Erro na Function:", fnError);
-              alert("Ata publicada, mas houve um erro no disparo dos e-mails de notificação.");
-            } else {
-              alert("Ata publicada! Notificações e Planos de Ação pendentes enviados com sucesso.");
-            }
+            if (fnError) throw fnError;
+            alert("Ata publicada e relatórios de pendências globais enviados!");
           } catch (notificationError) {
             console.error("Erro ao notificar participantes:", notificationError);
-            alert("Ata publicada, mas não foi possível conectar ao serviço de e-mail.");
+            alert("Ata publicada, mas houve uma falha técnica no disparo dos e-mails.");
           }
         } else {
-          alert("Ata publicada! (Nenhum e-mail enviado pois não há participantes cadastrados).");
+          alert("Ata publicada com sucesso!");
         }
       }
       
