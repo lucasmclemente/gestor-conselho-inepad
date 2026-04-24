@@ -386,9 +386,9 @@ const App = () => {
         <div className="flex-1 overflow-y-auto p-8 space-y-8 bg-slate-50/30">
           <div className="bg-white border border-slate-200 rounded-xl p-8 shadow-sm space-y-6 font-sans">
             <div className="text-center border-b border-slate-100 pb-6">
-               <img src="/logo-login.jpg" alt="INEPAD" className="h-12 mx-auto mb-4" />
-               <h2 className="text-2xl font-extrabold text-slate-900 italic">{currentMeeting.title}</h2>
-               <p className="text-sm text-amber-600 font-bold uppercase tracking-widest mt-2">Pauta e Convocação de Conselho</p>
+                <img src="/logo-login.jpg" alt="INEPAD" className="h-12 mx-auto mb-4" />
+                <h2 className="text-2xl font-extrabold text-slate-900 italic">{currentMeeting.title}</h2>
+                <p className="text-sm text-amber-600 font-bold uppercase tracking-widest mt-2">Pauta e Convocação de Conselho</p>
             </div>
 
             <div className="grid grid-cols-2 gap-4">
@@ -504,7 +504,7 @@ const App = () => {
             <input type="email" placeholder="E-mail Corporativo" className="w-full p-4 bg-slate-50 border border-slate-200 rounded-lg outline-none font-bold" value={authForm.email} onChange={e=>setAuthForm({...authForm, email:e.target.value})} required />
             <input type="password" placeholder="Senha" className="w-full p-4 bg-slate-50 border border-slate-200 rounded-lg outline-none font-bold" value={authForm.password} onChange={e=>setAuthForm({...authForm, password:e.target.value})} required />
             <button disabled={loading} className="w-full bg-amber-600 hover:bg-amber-700 text-white py-4 rounded-lg font-bold uppercase shadow-md transition-all disabled:opacity-50">
-               {loading ? 'Validando...' : 'Entrar na Plataforma'}
+                {loading ? 'Validando...' : 'Entrar na Plataforma'}
             </button>
           </form>
         </div>
@@ -780,6 +780,7 @@ const App = () => {
                           }
                         });
 
+                        // 1. Cria o usuário no Auth com os metadados (O Crachá Digital)
                         const { data, error } = await authClient.auth.signUp({
                           email: payload.email,
                           password: payload.password,
@@ -787,7 +788,8 @@ const App = () => {
                             data: {
                               name: payload.name,
                               role: payload.role,
-                              client_id: payload.client_id
+                              client_id: payload.client_id,
+                              email_verified: true
                             }
                           }
                         });
@@ -795,9 +797,23 @@ const App = () => {
                         if(error) {
                           alert("Erro ao habilitar acesso: " + error.message);
                         } else if (data.user) {
-                          setnewUserForm({name:'', email:'', role:'Conselheiro', password:'', client_id:''}); 
-                          alert("Sucesso! Membro habilitado e credenciais de login criadas."); 
-                          fetchInitialData();
+                          // 2. CRUCIAL: Insere o perfil na tabela members para o RLS liberar o acesso
+                          const { error: dbError } = await supabase.from('members').insert([{
+                            id: data.user.id,
+                            name: payload.name,
+                            email: payload.email,
+                            role: payload.role,
+                            client_id: payload.client_id
+                          }]);
+
+                          if (dbError) {
+                            console.error("Erro ao criar perfil no banco:", dbError);
+                            alert("Acesso criado, mas erro ao registrar perfil. Verifique o banco.");
+                          } else {
+                            setnewUserForm({name:'', email:'', role:'Conselheiro', password:'', client_id:''}); 
+                            alert("Sucesso! Membro habilitado e perfil de segurança configurado."); 
+                            fetchInitialData();
+                          }
                         }
                         setLoading(false);
                       }} 
