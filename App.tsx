@@ -183,23 +183,13 @@ const App = () => {
         const participants = currentMeeting.participants || [];
         const emails = participants.map((p: any) => p.email).filter((e: string) => e);
 
-        // --- VALIDAÇÃO DE USUÁRIOS ---
-        const unregistered = participants.filter((p: any) => !users.find((u: any) => u.email === p.email));
-        if (unregistered.length > 0) {
-          alert(`Aviso: Os participantes (${unregistered.map((u: any) => u.name).join(', ')}) não possuem cadastro. O relatório global não será completo para eles.`);
-        }
-
-        // --- CORREÇÃO DEFINITIVA: SCAN GLOBAL (BANCO + UI + MAPEAMENTO DE E-MAIL) ---
-        // 1. Criamos um mapa de Nome -> E-mail baseado nos membros cadastrados para vincular as tarefas corretamente
         const nameToEmailMap = new Map();
         users.forEach(u => {
           if (u.name && u.email) nameToEmailMap.set(u.name.trim().toLowerCase(), u.email.trim().toLowerCase());
         });
 
-        // 2. Fonte de dados unificada
         const allMeetingsSource = [...meetings.filter(m => m.id !== currentMeeting.id), currentMeeting];
 
-        // 3. Extraímos TODAS as ações pendentes do Plano de Ação
         const allPendingActions = allMeetingsSource.flatMap((m: any) => 
           (m.acoes || []).map((a: any) => ({ 
             ...a, 
@@ -208,12 +198,10 @@ const App = () => {
           }))
         ).filter((a: any) => a.status !== 'Concluída');
 
-        // 4. Montamos o resumo para cada destinatário
         const usersToNotify = participants.map((p: any) => {
           const pEmail = p.email?.trim().toLowerCase();
           const pName = p.name?.trim().toLowerCase();
 
-          // Filtramos as pendências que pertencem a este usuário (seja pelo e-mail ou pelo nome exato)
           const userTasks = allPendingActions.filter((a: any) => {
             const isEmailMatch = a.respEmail && a.respEmail === pEmail;
             const isNameMatch = a.resp?.trim().toLowerCase() === pName;
@@ -273,7 +261,9 @@ const App = () => {
 
   const saveGlobalAction = async () => {
     if (!canEdit) return;
-    if (!tmpGlobalAcao.title || !tmpGlobalAcao.meetingId) return alert("Título e Reunião de Origem são obrigatórios.");
+    if (!tmpGlobalAcao.title || !tmpGlobalAcao.meetingId || !tmpGlobalAcao.resp) {
+      return alert("Título, Reunião de Origem e Responsável são obrigatórios para garantir a integridade.");
+    }
     const targetMeeting = meetings.find(m => m.id === tmpGlobalAcao.meetingId);
     if (!targetMeeting) return;
     const newAction = { id: Date.now(), title: tmpGlobalAcao.title, resp: tmpGlobalAcao.resp, date: tmpGlobalAcao.date, obs: tmpGlobalAcao.obs, status: 'Pendente' };
@@ -385,7 +375,6 @@ const App = () => {
     return (currentMeeting.pautas || []).reduce((acc: number, p: any) => acc + (parseInt(p.dur) || 0), 0);
   }, [currentMeeting.pautas]);
 
-  // FONTE GLOBAL DE DADOS (BANCO + UI ATUAL)
   const allMeetingsSource = useMemo(() => {
     return currentMeeting?.id 
       ? meetings.map(m => m.id === currentMeeting.id ? currentMeeting : m)
@@ -395,13 +384,18 @@ const App = () => {
   const stats = useMemo(() => {
     const today = new Date(); today.setHours(0,0,0,0);
     
-    // Se estivermos no Plano de Ação, ignoramos o filtro de reunião do Dashboard (Filtro Consolidado)
     const sourceForStats = (activeMenu === 'plano-acao') 
       ? allMeetingsSource 
       : (dashboardFilter === 'all' ? allMeetingsSource : allMeetingsSource.filter(m => m.id === dashboardFilter));
 
     const allA = sourceForStats.flatMap(m => (m.acoes || []).map((a:any) => ({ ...a, mTitle: m.title, mId: m.id })))
-      .filter(a => (filterResp === 'all' || a.resp === filterResp))
+      .filter(a => {
+        if (filterResp === 'all') return true;
+        // FILTRO INTELIGENTE: Lucas Clemente inclui Lucas e vice-versa
+        const r = (a.resp || "").toLowerCase();
+        const f = filterResp.toLowerCase();
+        return r.includes(f) || f.includes(r);
+      })
       .filter(a => (filterStatus === 'all' || a.status === filterStatus))
       .filter(a => (filterOrigin === 'all' || a.mId === filterOrigin));
 
@@ -492,31 +486,19 @@ const App = () => {
             disabled={isSendingEmail}
             onClick={async () => {
               const emails = (currentMeeting.participants || []).map((p: any) => p.email).filter((e: string) => e);
-              
-              if (emails.length === 0) {
-                return alert("Erro: Não há participantes com e-mail cadastrado nesta reunião.");
-              }
-
+              if (emails.length === 0) return alert("Erro: Não há participantes com e-mail cadastrado.");
               setIsSendingEmail(true);
               try {
-                const { data, error } = await supabase.functions.invoke('send-invitation', {
-                  body: {
-                    meetingData: currentMeeting,
-                    recipients: emails
-                  }
+                const { error } = await supabase.functions.invoke('send-invitation', {
+                  body: { meetingData: currentMeeting, recipients: emails }
                 });
-
                 if (error) throw error;
-
                 addLog('Convocação', `E-mails oficiais enviados para ${emails.length} membros.`);
-                alert("Convocações enviadas com sucesso via Resend!");
+                alert("Convocações enviadas com sucesso!");
                 setIsConvocationOpen(false);
               } catch (err: any) {
-                console.error(err);
                 alert("Erro ao disparar e-mails: " + err.message);
-              } finally {
-                setIsSendingEmail(false);
-              }
+              } finally { setIsSendingEmail(false); }
             }}
             className="flex-1 bg-slate-900 text-white py-4 rounded-xl font-bold uppercase text-[10px] tracking-[2px] flex items-center justify-center gap-3 hover:bg-slate-800 transition-all shadow-xl disabled:opacity-50"
           >
@@ -539,17 +521,11 @@ const App = () => {
           <form className="space-y-4" onSubmit={async (e)=>{
             e.preventDefault();
             setLoading(true);
-            
             const { data: authData, error: authError } = await supabase.auth.signInWithPassword({
-              email: authForm.email,
-              password: authForm.password,
+              email: authForm.email, password: authForm.password,
             });
-            
-            if (authError) {
-              alert('Erro de Acesso: ' + authError.message);
-            } else if (authData?.user) { 
-              addLog('Login', `Usuário autenticado via Auth: ${authData.user.email}`); 
-            }
+            if (authError) alert('Erro de Acesso: ' + authError.message);
+            else if (authData?.user) addLog('Login', `Autenticado: ${authData.user.email}`);
             setLoading(false);
           }}>
             <input type="email" placeholder="E-mail Corporativo" className="w-full p-4 bg-slate-50 border border-slate-200 rounded-lg outline-none font-bold" value={authForm.email} onChange={e=>setAuthForm({...authForm, email:e.target.value})} required />
@@ -568,22 +544,12 @@ const App = () => {
       {isMobileMenuOpen && <div className="fixed inset-0 bg-slate-900/60 z-40 md:hidden backdrop-blur-sm" onClick={() => setIsMobileMenuOpen(false)} />}
       
       <aside className={`fixed inset-y-0 left-0 z-50 bg-slate-900 text-slate-300 flex flex-col shadow-xl transition-all duration-300 md:relative transform ${isMobileMenuOpen ? 'translate-x-0 w-64' : '-translate-x-full md:translate-x-0'} ${isSidebarCollapsed ? 'md:w-20' : 'md:w-64'}`}>
-        <button 
-          onClick={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
-          className="absolute -right-3 top-20 bg-amber-600 text-white rounded-full p-1 shadow-md hidden md:block z-[60] hover:bg-amber-700 transition-colors"
-        >
+        <button onClick={() => setIsSidebarCollapsed(!isSidebarCollapsed)} className="absolute -right-3 top-20 bg-amber-600 text-white rounded-full p-1 shadow-md hidden md:block z-[60] hover:bg-amber-700 transition-colors">
           {isSidebarCollapsed ? <ChevronRight size={16}/> : <ChevronLeft size={16}/>}
         </button>
-
         <div className={`flex flex-col items-center justify-center border-b border-white/5 bg-slate-900/30 transition-all duration-300 ${isSidebarCollapsed ? 'p-4' : 'p-10'}`}>
-            <img 
-              src={isSidebarCollapsed ? "/favicon.png" : "/logo-sidebar.jpg"} 
-              alt="INEPAD Logo" 
-              className={`w-auto object-contain transition-all ${isSidebarCollapsed ? 'h-8' : 'h-12'}`} 
-              style={{ mixBlendMode: 'lighten' }} 
-            />
+            <img src={isSidebarCollapsed ? "/favicon.png" : "/logo-sidebar.jpg"} alt="Logo" className={`w-auto object-contain transition-all ${isSidebarCollapsed ? 'h-8' : 'h-12'}`} style={{ mixBlendMode: 'lighten' }} />
         </div>
-
         <nav className="flex-1 px-3 py-4 space-y-1 text-[10px] font-bold uppercase tracking-widest">
           {[
             { id: 'dashboard', icon: <LayoutDashboard size={18}/>, label: 'Dashboard' },
@@ -593,30 +559,16 @@ const App = () => {
             { id: 'auditoria', icon: <History size={18}/>, label: 'Auditoria', adm: true }
           ].map((item) => (
             (!item.adm || isAdm) && (
-              <button 
-                key={item.id} 
-                onClick={() => { setActiveMenu(item.id); if(item.action) item.action(); setIsMobileMenuOpen(false); }} 
-                className={`w-full flex items-center gap-3 rounded-lg transition-all ${activeMenu === item.id ? 'bg-amber-600 text-white shadow-sm' : 'hover:bg-slate-700 hover:text-white'} ${isSidebarCollapsed ? 'justify-center p-3' : 'px-4 py-3'}`}
-                title={isSidebarCollapsed ? item.label : ''}
-              >
+              <button key={item.id} onClick={() => { setActiveMenu(item.id); if(item.action) item.action(); setIsMobileMenuOpen(false); }} className={`w-full flex items-center gap-3 rounded-lg transition-all ${activeMenu === item.id ? 'bg-amber-600 text-white shadow-sm' : 'hover:bg-slate-700 hover:text-white'} ${isSidebarCollapsed ? 'justify-center p-3' : 'px-4 py-3'}`}>
                 <span className="shrink-0">{item.icon}</span>
                 {!isSidebarCollapsed && <span className="truncate">{item.label}</span>}
               </button>
             )
           ))}
         </nav>
-
         <div className="p-4 border-t border-slate-700/50">
-            <button 
-              onClick={async () => {
-                 await supabase.auth.signOut();
-                 setCurrentUser(null);
-              }} 
-              className={`w-full flex items-center gap-3 rounded-lg text-red-400 hover:bg-red-500/10 hover:text-red-300 transition-all text-[10px] font-bold uppercase tracking-widest ${isSidebarCollapsed ? 'justify-center p-3' : 'px-4 py-3'}`}
-              title={isSidebarCollapsed ? 'Sair' : ''}
-            >
-              <LogOut size={18}/>
-              {!isSidebarCollapsed && <span>Sair</span>}
+            <button onClick={async () => { await supabase.auth.signOut(); setCurrentUser(null); }} className={`w-full flex items-center gap-3 rounded-lg text-red-400 hover:bg-red-500/10 hover:text-red-300 transition-all text-[10px] font-bold uppercase tracking-widest ${isSidebarCollapsed ? 'justify-center p-3' : 'px-4 py-3'}`}>
+              <LogOut size={18}/> {!isSidebarCollapsed && <span>Sair</span>}
             </button>
         </div>
       </aside>
@@ -664,24 +616,20 @@ const App = () => {
                     <div className="bg-slate-900 p-6 rounded-xl shadow-xl flex flex-col h-full"><h3 className="text-xs font-bold uppercase text-amber-500 mb-4 tracking-widest italic">Status das Ações</h3><div className="flex-1 min-h-0"><ResponsiveContainer width="100%" height="100%"><PieChart><Pie chart-id="status-pie" data={stats.pieData} innerRadius={60} outerRadius={80} dataKey="value" paddingAngle={5}>{stats.pieData.map((e,i)=>(<Cell key={i} fill={e.color} stroke="none"/>))}</Pie><Tooltip/><Legend wrapperStyle={{fontSize:'10px', textTransform:'uppercase'}}/></PieChart></ResponsiveContainer></div></div>
                     <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm flex flex-col h-full"><h3 className="text-xs font-bold uppercase text-slate-500 mb-4 tracking-widest italic">Produtividade Recente</h3><div className="flex-1 min-h-0"><ResponsiveContainer width="100%" height="100%"><BarChart data={stats.barData}><CartesianGrid vertical={false} stroke="#f1f5f9"/><XAxis dataKey="name" tick={{fontSize:10, fontWeight:600}}/><YAxis hide/><Tooltip/><Bar dataKey="Pautas" fill="#cbd5e1" radius={[4,4,0,0]} barSize={20}/><Bar dataKey="Ações" fill="#d97706" radius={[4,4,0,0]} barSize={20}/></BarChart></ResponsiveContainer></div></div>
                   </div>
-                  <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden animate-in fade-in slide-in-from-bottom-2">
-                    <div className="p-4 border-b border-slate-50 bg-slate-50/50 flex justify-between items-center"><h3 className="text-xs font-bold uppercase text-slate-500 tracking-widest italic flex items-center gap-2"><ListChecks size={16} className="text-amber-600"/> Resumo do Plano de Ação</h3></div>
-                    <div className="overflow-x-auto"><table className="w-full text-left text-sm font-bold italic"><thead className="bg-slate-900 text-[10px] font-bold uppercase text-amber-500 tracking-widest"><tr><th className="px-6 py-4">Iniciativa</th><th className="px-6 py-4">Responsável</th><th className="px-6 py-4">Origem</th><th className="px-6 py-4 text-center">Status</th></tr></thead><tbody className="divide-y divide-slate-100">{stats.allActions.length === 0 ? (<tr><td colSpan={4} className="px-6 py-8 text-center text-slate-400 uppercase text-[10px]">Nenhuma ação pendente</td></tr>) : (stats.allActions.slice(0, 5).map((acao: any, idx: any) => (<tr key={idx} className="hover:bg-slate-50 transition-all border-l-4 border-l-transparent hover:border-l-amber-500"><td className="px-6 py-4 text-slate-800">{acao.title}</td><td className="px-6 py-4 text-slate-600">{acao.resp || 'N/D'}</td><td className="px-6 py-4 text-slate-400 text-[10px] uppercase tracking-widest">{acao.mTitle}</td><td className="px-6 py-4 text-center"><span className={`px-3 py-1 rounded-full text-[9px] uppercase font-bold ${acao.status === 'Concluída' ? 'bg-emerald-100 text-emerald-700' : acao.status === 'Em andamento' ? 'bg-amber-100 text-amber-700' : 'bg-slate-100 text-slate-500'}`}>{acao.status}</span></td></tr>)))}</tbody></table></div>
-                  </div>
                 </div>
               )}
 
               {activeMenu === 'reunioes' && (
                 view === 'list' ? (
                   <div className="space-y-6 animate-in fade-in">
-                    <div className="flex justify-between items-center gap-4 bg-white p-4 rounded-xl border border-slate-200 shadow-sm"><h1 className="text-2xl font-bold text-slate-800 tracking-tight italic">Conselho Deliberativo</h1>{canEdit && (<button onClick={()=>{setCurrentMeeting(blankMeeting); setView('details'); setTab('info');}} className="bg-amber-600 hover:bg-amber-700 text-white px-6 py-3 rounded-lg font-bold text-xs uppercase flex items-center justify-center gap-2 transition-all shadow-md tracking-widest">+ Nova Reunião</button>)}</div>
-                    <div className="grid gap-4">{meetings.map((m, idx) => (<div key={m.id} onClick={()=>{setCurrentMeeting(m); setView('details'); setTab('info');}} className="bg-white p-6 rounded-xl border border-slate-200 flex justify-between items-center group cursor-pointer hover:border-amber-500 hover:shadow-md transition-all shadow-sm"><div className="flex items-center gap-4"><div className="p-3 bg-slate-100 text-slate-500 rounded-lg group-hover:bg-amber-100 group-hover:text-amber-700 transition-all"><Calendar size={24}/></div><div><h3 className="font-bold text-lg text-slate-800 group-hover:text-amber-600 transition-all italic">{m.title}</h3><p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">{m.status} • {m.date || 'DATA N/D'}</p></div></div><div className="flex items-center gap-3">{canEdit && <button onClick={(e) => { e.stopPropagation(); deleteMeeting(m.id, m.title); }} className="p-3 text-slate-200 hover:text-red-600 transition-all hover:bg-red-50 rounded-lg"><Trash2 size={20}/></button>}<ChevronRight size={20} className="text-slate-300 group-hover:text-amber-500 transition-all"/></div></div>))}</div>
+                    <div className="flex justify-between items-center gap-4 bg-white p-4 rounded-xl border border-slate-200 shadow-sm"><h1 className="text-2xl font-bold text-slate-800 tracking-tight italic">Conselho Deliberativo</h1>{canEdit && (<button onClick={()=>{setCurrentMeeting(blankMeeting); setView('details'); setTab('info');}} className="bg-amber-600 hover:bg-amber-700 text-white px-6 py-3 rounded-lg font-bold text-xs uppercase shadow-md">+ Nova Reunião</button>)}</div>
+                    <div className="grid gap-4">{meetings.map((m) => (<div key={m.id} onClick={()=>{setCurrentMeeting(m); setView('details'); setTab('info');}} className="bg-white p-6 rounded-xl border border-slate-200 flex justify-between items-center group cursor-pointer hover:border-amber-500 hover:shadow-md transition-all shadow-sm"><div className="flex items-center gap-4"><div className="p-3 bg-slate-100 text-slate-500 rounded-lg group-hover:bg-amber-100 group-hover:text-amber-700"><Calendar size={24}/></div><div><h3 className="font-bold text-lg text-slate-800 group-hover:text-amber-600 italic">{m.title}</h3><p className="text-[10px] font-bold text-slate-400 uppercase">{m.status} • {m.date || 'DATA N/D'}</p></div></div><div className="flex items-center gap-3">{canEdit && <button onClick={(e) => { e.stopPropagation(); deleteMeeting(m.id, m.title); }} className="p-3 text-slate-200 hover:text-red-600"><Trash2 size={20}/></button>}<ChevronRight size={20} className="text-slate-300 group-hover:text-amber-500"/></div></div>))}</div>
                   </div>
                 ) : (
                   <div className="animate-in fade-in duration-300 pb-20">
-                    <div className="flex items-center justify-between mb-6 bg-white p-4 rounded-xl border border-slate-200 shadow-sm sticky top-0 z-10"><button onClick={()=>setView('list')} className="p-2 text-slate-500 hover:bg-slate-100 rounded-lg transition-all flex items-center gap-2 text-xs font-bold uppercase tracking-widest"><ChevronRight className="rotate-180" size={20}/> Voltar</button>{canEdit && (<button onClick={saveMeeting} className="bg-slate-800 hover:bg-slate-900 text-white px-6 py-2.5 rounded-lg font-bold text-xs uppercase shadow-sm flex items-center gap-2 transition-all"><Save size={16} className="text-amber-500"/> Salvar</button>)}</div>
+                    <div className="flex items-center justify-between mb-6 bg-white p-4 rounded-xl border border-slate-200 shadow-sm sticky top-0 z-10"><button onClick={()=>setView('list')} className="p-2 text-slate-500 hover:bg-slate-100 rounded-lg transition-all flex items-center gap-2 text-xs font-bold uppercase"><ChevronRight className="rotate-180" size={20}/> Voltar</button>{canEdit && (<button onClick={saveMeeting} className="bg-slate-800 hover:bg-slate-900 text-white px-6 py-2.5 rounded-lg font-bold text-xs uppercase shadow-sm flex items-center gap-2"><Save size={16} className="text-amber-500"/> Salvar</button>)}</div>
                     <input placeholder="Título da Reunião..." className="text-3xl md:text-4xl font-bold italic text-slate-900 bg-transparent outline-none w-full border-b border-slate-200 focus:border-amber-500 pb-2 mb-8" value={currentMeeting.title} onChange={e=>setCurrentMeeting({...currentMeeting, title: e.target.value})} readOnly={!canEdit} />
-                    <div className="border-b border-slate-200 flex gap-6 mb-8 overflow-x-auto font-bold text-[10px] uppercase tracking-widest no-scrollbar italic py-2">{['Informações', 'Ordem do Dia', 'Materiais', 'Deliberações', 'Plano de Ação', 'Atas'].map((label, i) => { const ids = ['info', 'pauta', 'materiais', 'delib', 'acoes', 'atas']; return <button key={i} onClick={()=>setTab(ids[i])} className={`pb-3 transition-all relative whitespace-nowrap ${tab === ids[i] ? 'text-amber-600 border-b-2 border-amber-600 scale-105' : 'text-slate-400 hover:text-slate-800'}`}>{label}</button> })}</div>
+                    <div className="border-b border-slate-200 flex gap-6 mb-8 overflow-x-auto font-bold text-[10px] uppercase italic py-2">{['Informações', 'Ordem do Dia', 'Materiais', 'Deliberações', 'Plano de Ação', 'Atas'].map((label, i) => { const ids = ['info', 'pauta', 'materiais', 'delib', 'acoes', 'atas']; return <button key={i} onClick={()=>setTab(ids[i])} className={`pb-3 transition-all relative whitespace-nowrap ${tab === ids[i] ? 'text-amber-600 border-b-2 border-amber-600 scale-105' : 'text-slate-400 hover:text-slate-800'}`}>{label}</button> })}</div>
                     {tab === 'info' && (
                       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 animate-in fade-in">
                         <div className="lg:col-span-2 space-y-6">
@@ -697,36 +645,49 @@ const App = () => {
                                 {editingPart === i ? (<div className="flex gap-2 w-full items-center animate-in fade-in"><input className="flex-1 p-2 border border-slate-200 rounded-md text-sm outline-none bg-white" value={p.name} onChange={e=>{const newP=[...currentMeeting.participants]; newP[i].name=e.target.value; setCurrentMeeting({...currentMeeting, participants:newP});}}/><input className="flex-1 p-2 border border-slate-200 rounded-md text-sm outline-none bg-white" value={p.email} onChange={e=>{const newP=[...currentMeeting.participants]; newP[i].email=e.target.value; setCurrentMeeting({...currentMeeting, participants:newP});}}/><button onClick={() => setEditingPart(null)} className="p-2 text-emerald-600 hover:bg-emerald-50 rounded-md"><Check size={18}/></button></div>) : (<><div className="flex items-center gap-4"><div className="w-10 h-10 rounded-xl bg-white border border-slate-200 text-slate-400 flex items-center justify-center text-xs font-bold shadow-inner">{p.name[0]}</div><div><p className="text-sm text-slate-800">{p.name}</p><p className="text-[10px] text-slate-400 italic font-medium">{p.email}</p></div></div>{canEdit && <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity"><button onClick={()=>setEditingPart(i)} className="p-2 text-slate-400 hover:text-amber-600 rounded-md"><Edit2 size={16}/></button><button onClick={()=>setCurrentMeeting({...currentMeeting, participants:(currentMeeting.participants || []).filter((_:any,idx:any)=>idx!==i)})} className="p-2 text-slate-400 hover:text-red-500 rounded-md"><X size={16}/></button></div>}</>)}
                               </div>
                             ))}</div>
-                            {canEdit && <div className="p-5 bg-slate-50 rounded-xl border border-dashed border-slate-300 grid grid-cols-1 sm:grid-cols-2 gap-4"><input placeholder="Nome" className="p-3 border rounded-lg text-sm bg-white font-bold" value={tmpPart.name} onChange={e=>setTmpPart({...tmpPart, name:e.target.value})}/><input placeholder="E-mail" className="p-3 border rounded-lg text-sm bg-white font-bold" value={tmpPart.email} onChange={e=>setTmpPart({...tmpPart, email:e.target.value})}/><button onClick={()=>{if(tmpPart.name){setCurrentMeeting({...currentMeeting, participants:[...(currentMeeting.participants || []), tmpPart]}); setTmpPart({name:'', email:''});}}} className="w-full sm:col-span-2 py-3 bg-amber-600 text-white rounded-lg text-xs font-bold uppercase hover:bg-amber-700 transition-all">Adicionar Participante</button></div>}
+                            {canEdit && <div className="p-5 bg-slate-50 rounded-xl border border-dashed border-slate-300 grid grid-cols-1 sm:grid-cols-2 gap-4"><input placeholder="Nome" className="p-3 border rounded-lg text-sm bg-white font-bold" value={tmpPart.name} onChange={e=>setTmpPart({...tmpPart, name:e.target.value})}/><input placeholder="E-mail" className="p-3 border rounded-lg text-sm bg-white font-bold" value={tmpPart.email} onChange={e=>setTmpPart({...tmpPart, email:e.target.value})}/><button onClick={()=>{if(tmpPart.name){setCurrentMeeting({...currentMeeting, participants:[...(currentMeeting.participants || []), tmpPart]}); setTmpPart({name:'', email:''});}}} className="w-full sm:col-span-2 py-3 bg-amber-600 text-white rounded-lg text-xs font-bold uppercase hover:bg-amber-700">Adicionar Participante</button></div>}
                           </div>
                         </div>
-                        <div className="bg-white p-6 md:p-8 rounded-xl border border-slate-200 shadow-sm space-y-6 h-fit"><h3 className="text-xs font-bold uppercase text-slate-500 tracking-widest border-b border-slate-50 pb-4">Logística</h3><div className="space-y-4"><div><label className="block text-[10px] font-bold text-slate-400 mb-1 uppercase tracking-widest">Data</label><input type="date" value={currentMeeting.date} className="w-full p-3 border rounded-lg text-sm font-bold" onChange={e=>setCurrentMeeting({...currentMeeting, date:e.target.value})} readOnly={!canEdit}/></div><div><label className="block text-[10px] font-bold text-slate-400 mb-1 uppercase tracking-widest">Horário</label><input type="time" value={currentMeeting.time} className="w-full p-3 border rounded-lg text-sm font-bold" onChange={e=>setCurrentMeeting({...currentMeeting, time:e.target.value})} readOnly={!canEdit}/></div><div><label className="block text-[10px] font-bold text-slate-400 mb-1 uppercase tracking-widest">Tipo</label><select className="w-full p-3 border rounded-lg text-sm font-bold" value={currentMeeting.type} onChange={e=>setCurrentMeeting({...currentMeeting, type:e.target.value})} disabled={!canEdit}><option value="Presencial">Presencial</option><option value="Online">Online</option><option value="Híbrida">Híbrida</option></select></div></div></div>
+                        <div className="bg-white p-6 md:p-8 rounded-xl border border-slate-200 shadow-sm space-y-6 h-fit"><h3 className="text-xs font-bold uppercase text-slate-500 tracking-widest border-b border-slate-50 pb-4">Logística</h3><div className="space-y-4"><div><label className="block text-[10px] font-bold text-slate-400 mb-1 uppercase">Data</label><input type="date" value={currentMeeting.date} className="w-full p-3 border rounded-lg text-sm font-bold" onChange={e=>setCurrentMeeting({...currentMeeting, date:e.target.value})} readOnly={!canEdit}/></div><div><label className="block text-[10px] font-bold text-slate-400 mb-1 uppercase">Horário</label><input type="time" value={currentMeeting.time} className="w-full p-3 border rounded-lg text-sm font-bold" onChange={e=>setCurrentMeeting({...currentMeeting, time:e.target.value})} readOnly={!canEdit}/></div><div><label className="block text-[10px] font-bold text-slate-400 mb-1 uppercase">Tipo</label><select className="w-full p-3 border rounded-lg text-sm font-bold" value={currentMeeting.type} onChange={e=>setCurrentMeeting({...currentMeeting, type:e.target.value})} disabled={!canEdit}><option value="Presencial">Presencial</option><option value="Online">Online</option><option value="Híbrida">Híbrida</option></select></div></div></div>
                       </div>
                     )}
                     {tab === 'pauta' && (
                       <div className="bg-white p-8 rounded-xl border border-slate-200 shadow-sm animate-in fade-in space-y-6">
-                        <div className="flex justify-between items-center bg-slate-900 p-6 rounded-xl border border-white/10 shadow-lg gap-4"><div className="flex items-center gap-4"><div className="p-3 bg-amber-600/20 text-amber-500 rounded-lg"><Timer size={24}/></div><div><p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Estimativa da Sessão</p><p className="text-2xl font-bold text-white italic">{totalEstimatedTime} <span className="text-sm font-normal not-italic text-slate-400">min</span></p></div></div><button onClick={() => { setIsSessionActive(!isSessionActive); if(!isSessionActive) addLog('Início Sessão', `Reunião iniciada por ${currentUser.name}`); }} className={`px-6 py-3 rounded-lg font-bold text-xs uppercase flex items-center gap-2 transition-all shadow-md ${isSessionActive ? 'bg-red-500 text-white' : 'bg-emerald-600 text-white'}`}>{isSessionActive ? <><Square size={16}/> Parar</> : <><Play size={16}/> Iniciar</>}</button></div>
+                        <div className="flex justify-between items-center bg-slate-900 p-6 rounded-xl shadow-lg gap-4"><div className="flex items-center gap-4"><div className="p-3 bg-amber-600/20 text-amber-500 rounded-lg"><Timer size={24}/></div><div><p className="text-[10px] font-bold text-slate-400 uppercase">Estimativa da Sessão</p><p className="text-2xl font-bold text-white italic">{totalEstimatedTime} <span className="text-sm font-normal not-italic text-slate-400">min</span></p></div></div><button onClick={() => { setIsSessionActive(!isSessionActive); if(!isSessionActive) addLog('Início Sessão', `Iniciada por ${currentUser.name}`); }} className={`px-6 py-3 rounded-lg font-bold text-xs uppercase flex items-center gap-2 shadow-md ${isSessionActive ? 'bg-red-500 text-white' : 'bg-emerald-600 text-white'}`}>{isSessionActive ? <><Square size={16}/> Parar</> : <><Play size={16}/> Iniciar</>}</button></div>
                         <div className="space-y-2">{(currentMeeting.pautas || []).map((p:any, i:any) => (
                           <div key={i} className={`flex justify-between items-center p-4 border rounded-lg transition-all group border-l-4 font-bold italic ${activePautaIndex === i ? 'bg-amber-50 border-amber-500' : 'bg-white border-slate-200'}`}><div className="flex items-center gap-4 flex-1"><span className="text-slate-300">#{i+1}</span><div><p className="text-sm text-slate-800">{p.title}</p><p className="text-[10px] text-slate-500 font-bold uppercase">{p.resp} • {p.dur} min</p></div></div><div className="flex items-center gap-2">{isSessionActive && activePautaIndex === i && (<div className={`font-mono text-lg ${timeElapsed > (parseInt(p.dur) * 60) ? 'text-red-600' : 'text-amber-600'}`}>{formatTime(timeElapsed)}</div>)}{isSessionActive && activePautaIndex === i && <button onClick={() => handleFinalizePauta(i)} className="bg-emerald-600 text-white p-2 rounded-md"><Check size={16}/></button>}{canEdit && <button onClick={()=>setCurrentMeeting({...currentMeeting, pautas: (currentMeeting.pautas || []).filter((_:any, idx:any)=>idx!==i)})} className="p-2 text-slate-200 hover:text-red-500"><Trash2 size={18}/></button>}</div></div>
                         ))}</div>
-                        {canEdit && (<div className="p-5 bg-slate-50 rounded-xl border border-dashed border-slate-300 grid grid-cols-1 sm:grid-cols-5 gap-4 items-end"><div className="sm:col-span-2"><label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Assunto</label><input placeholder="Título" className="w-full p-3 border rounded-lg text-sm bg-white font-bold" value={tmpPauta.title} onChange={e=>setTmpPauta({...tmpPauta, title:e.target.value})}/></div><div><label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Resp.</label><select className="w-full p-3 border rounded-lg text-sm bg-white font-bold" value={tmpPauta.resp} onChange={e=>setTmpPauta({...tmpPauta, resp:e.target.value})}><option value="">Selecione...</option>{(currentMeeting.participants || []).map((p:any, i:number) => <option key={i} value={p.name}>{p.name}</option>)}</select></div><div><label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Tempo</label><input type="number" className="w-full p-3 border rounded-lg text-sm bg-white font-bold" value={tmpPauta.dur} onChange={e=>setTmpPauta({...tmpPauta, dur:e.target.value})}/></div><button onClick={()=>{if(tmpPauta.title){setCurrentMeeting({...currentMeeting, pautas:[...(currentMeeting.pautas || []), tmpPauta]}); setTmpPauta({title:'', resp:'', dur:''});}}} className="h-12 bg-amber-600 text-white rounded-lg flex items-center justify-center shadow-md"><Plus size={24}/></button></div>)}
+                        {canEdit && (<div className="p-5 bg-slate-50 rounded-xl border border-dashed border-slate-300 grid grid-cols-1 sm:grid-cols-5 gap-4 items-end"><div className="sm:col-span-2"><label className="text-[10px] font-bold text-slate-400 uppercase">Assunto</label><input placeholder="Título" className="w-full p-3 border rounded-lg text-sm bg-white font-bold" value={tmpPauta.title} onChange={e=>setTmpPauta({...tmpPauta, title:e.target.value})}/></div><div><label className="text-[10px] font-bold text-slate-400 uppercase">Resp.</label><select className="w-full p-3 border rounded-lg text-sm bg-white font-bold" value={tmpPauta.resp} onChange={e=>setTmpPauta({...tmpPauta, resp:e.target.value})}><option value="">Selecione...</option>{(currentMeeting.participants || []).map((p:any, i:number) => <option key={i} value={p.name}>{p.name}</option>)}</select></div><div><label className="text-[10px] font-bold text-slate-400 uppercase">Tempo</label><input type="number" className="w-full p-3 border rounded-lg text-sm bg-white font-bold" value={tmpPauta.dur} onChange={e=>setTmpPauta({...tmpPauta, dur:e.target.value})}/></div><button onClick={()=>{if(tmpPauta.title){setCurrentMeeting({...currentMeeting, pautas:[...(currentMeeting.pautas || []), tmpPauta]}); setTmpPauta({title:'', resp:'', dur:''});}}} className="h-12 bg-amber-600 text-white rounded-lg flex items-center justify-center"><Plus size={24}/></button></div>)}
                       </div>
                     )}
                     {tab === 'materiais' && (
-                      <div className="bg-white p-8 rounded-xl border border-slate-200 shadow-sm animate-in fade-in space-y-6"><div className="flex justify-between items-center mb-4"><h3 className="text-xs font-bold uppercase text-slate-600 tracking-widest">Documentos</h3>{canEdit && <button onClick={()=>fileRef.current?.click()} className="bg-slate-100 hover:bg-slate-200 text-slate-700 px-4 py-2 rounded-lg text-[10px] font-bold uppercase flex items-center gap-2 transition-all"><Upload size={14}/> Upload</button>}</div><div className="grid grid-cols-1 sm:grid-cols-3 gap-4">{(currentMeeting.materiais || []).map((m:any, i:any) => (<div key={i} className="p-4 bg-white border border-slate-200 rounded-xl flex items-center gap-3 relative group"><FileText size={20} className="text-amber-600"/><div className="flex-1 truncate text-xs font-bold italic">{m.name}</div><a href={m.url} target="_blank" rel="noreferrer" className="text-slate-400 hover:text-amber-600"><ExternalLink size={14}/></a></div>))}</div></div>
+                      <div className="bg-white p-8 rounded-xl border border-slate-200 shadow-sm animate-in fade-in space-y-6"><div className="flex justify-between items-center mb-4"><h3 className="text-xs font-bold uppercase text-slate-600 tracking-widest">Documentos</h3>{canEdit && <button onClick={()=>fileRef.current?.click()} className="bg-slate-100 hover:bg-slate-200 text-slate-700 px-4 py-2 rounded-lg text-[10px] font-bold uppercase flex items-center gap-2"><Upload size={14}/> Upload</button>}</div><div className="grid grid-cols-1 sm:grid-cols-3 gap-4">{(currentMeeting.materiais || []).map((m:any, i:any) => (<div key={i} className="p-4 bg-white border border-slate-200 rounded-xl flex items-center gap-3 relative group"><FileText size={20} className="text-amber-600"/><div className="flex-1 truncate text-xs font-bold italic">{m.name}</div><a href={m.url} target="_blank" rel="noreferrer" className="text-slate-400 hover:text-amber-600"><ExternalLink size={14}/></a></div>))}</div></div>
                     )}
                     {tab === 'delib' && (
-                      <div className="bg-white p-8 rounded-xl border border-slate-200 shadow-sm animate-in fade-in space-y-8"><div className="space-y-4">{(currentMeeting.deliberacoes || []).map((d:any, i:any) => (<div key={i} className="p-6 bg-slate-50 rounded-xl border border-slate-200 shadow-sm group font-bold italic"><p className="text-sm text-slate-800">"{d.title}"</p><div className="flex flex-wrap gap-2 pt-4 border-t border-slate-200 mt-4"><span className="text-[10px] font-bold uppercase text-slate-400">Votantes:</span> {d.voters.map((v:any, vi:any) => <span key={vi} className="bg-white px-3 py-1 rounded-full text-[9px] uppercase border">{v}</span>)}</div></div>))}</div>{canEdit && (<div className="p-6 bg-amber-50 rounded-xl border border-amber-200 space-y-4"><textarea placeholder="Texto da Deliberação..." className="w-full p-4 border rounded-lg text-sm h-24 font-bold italic outline-none" value={tmpDelib.title} onChange={e=>setTmpDelib({...tmpDelib, title:e.target.value})} /><div className="flex flex-wrap gap-3 p-4 bg-white rounded-lg border max-h-40 overflow-y-auto">{(currentMeeting.participants || []).map((p:any, i:number) => (<label key={i} className="flex items-center gap-2 text-[10px] font-bold uppercase text-slate-500 cursor-pointer"><input type="checkbox" checked={tmpDelib.voters.includes(p.name)} onChange={(e) => { if(e.target.checked) setTmpDelib({...tmpDelib, voters: [...tmpDelib.voters, p.name]}); else setTmpDelib({...tmpDelib, voters: tmpDelib.voters.filter(v => v !== p.name)}); }} /> {p.name}</label>))}</div><button onClick={()=>{if(tmpDelib.title){setCurrentMeeting({...currentMeeting, deliberacoes:[...(currentMeeting.deliberacoes || []), tmpDelib]}); setTmpDelib({title:'', voters:[]});}}} className="w-full py-3 bg-amber-600 text-white rounded-lg font-bold uppercase shadow-sm">Oficializar</button></div>)}</div>
+                      <div className="bg-white p-8 rounded-xl border border-slate-200 shadow-sm animate-in fade-in space-y-8"><div className="space-y-4">{(currentMeeting.deliberacoes || []).map((d:any, i:any) => (<div key={i} className="p-6 bg-slate-50 rounded-xl border border-slate-200 font-bold italic"><p className="text-sm text-slate-800">"{d.title}"</p><div className="flex flex-wrap gap-2 pt-4 border-t border-slate-200 mt-4"><span className="text-[10px] font-bold uppercase text-slate-400">Votantes:</span> {d.voters.map((v:any, vi:any) => <span key={vi} className="bg-white px-3 py-1 rounded-full text-[9px] uppercase border">{v}</span>)}</div></div>))}</div>{canEdit && (<div className="p-6 bg-amber-50 rounded-xl border border-amber-200 space-y-4"><textarea placeholder="Texto da Deliberação..." className="w-full p-4 border rounded-lg text-sm h-24 font-bold italic outline-none" value={tmpDelib.title} onChange={e=>setTmpDelib({...tmpDelib, title:e.target.value})} /><div className="flex flex-wrap gap-3 p-4 bg-white rounded-lg border max-h-40 overflow-y-auto">{(currentMeeting.participants || []).map((p:any, i:number) => (<label key={i} className="flex items-center gap-2 text-[10px] font-bold uppercase text-slate-500 cursor-pointer"><input type="checkbox" checked={tmpDelib.voters.includes(p.name)} onChange={(e) => { if(e.target.checked) setTmpDelib({...tmpDelib, voters: [...tmpDelib.voters, p.name]}); else setTmpDelib({...tmpDelib, voters: tmpDelib.voters.filter(v => v !== p.name)}); }} /> {p.name}</label>))}</div><button onClick={()=>{if(tmpDelib.title){setCurrentMeeting({...currentMeeting, deliberacoes:[...(currentMeeting.deliberacoes || []), tmpDelib]}); setTmpDelib({title:'', voters:[]});}}} className="w-full py-3 bg-amber-600 text-white rounded-lg font-bold uppercase">Oficializar</button></div>)}</div>
                     )}
                     {tab === 'acoes' && (
                       <div className="bg-white p-8 rounded-xl border border-slate-200 shadow-sm animate-in fade-in space-y-6">
-                        <div className="space-y-3">{(currentMeeting.acoes || []).map((a:any, i:any) => (<div key={a.id || i} className="p-4 bg-white rounded-lg border border-l-4 border-l-emerald-500 shadow-sm flex flex-col group font-bold italic"><div className="flex justify-between items-center w-full"><div><p className="text-sm text-slate-800">{a.title}</p><p className="text-[10px] text-slate-400 uppercase mt-1 tracking-widest">{a.resp} • {a.date}</p></div>{canEdit && <button onClick={()=>setCurrentMeeting({...currentMeeting, acoes: (currentMeeting.acoes || []).filter((_:any, idx:any)=>idx!==i)})}><Trash2 size={18} className="text-slate-200 hover:text-red-500"/></button>}</div>{a.obs && <div className="mt-2 text-[10px] text-amber-700 bg-amber-50/50 p-2 rounded border border-amber-100/50 whitespace-pre-wrap">OBS: {a.obs}</div>}</div>))}</div>
-                        {canEdit && (<div className="p-5 bg-slate-50 border border-dashed border-slate-300 rounded-xl grid grid-cols-1 sm:grid-cols-12 gap-4 items-end"><div className="sm:col-span-5"><label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Ação</label><input placeholder="Título" className="w-full p-3 border rounded-lg text-sm bg-white font-bold italic" value={tmpAcao.title} onChange={e=>setTmpAcao({...tmpAcao, title:e.target.value})}/></div><div className="sm:col-span-3"><label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Resp.</label><select className="w-full p-3 border rounded-lg text-sm bg-white font-bold" value={tmpAcao.resp} onChange={e=>setTmpAcao({...tmpAcao, resp:e.target.value})}><option value="">Executor...</option>{(currentMeeting.participants || []).map((p:any, i:number) => <option key={i} value={p.name}>{p.name}</option>)}</select></div><div className="sm:col-span-3"><label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Prazo</label><input type="date" className="w-full p-3 border rounded-lg text-sm bg-white font-bold" value={tmpAcao.date} onChange={e=>setTmpAcao({...tmpAcao, date:e.target.value})}/></div><div className="sm:col-span-12"><label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Observações Explicativas</label><textarea rows={2} placeholder="Notas detalhadas sobre o que aconteceu nesta ação..." className="w-full p-3 border rounded-lg text-sm bg-white font-bold italic outline-none focus:ring-2 focus:ring-amber-500/20" value={tmpAcao.obs} onChange={e=>setTmpAcao({...tmpAcao, obs:e.target.value})}/></div><div className="sm:col-span-12"><button onClick={()=>{if(tmpAcao.title){setCurrentMeeting({...currentMeeting, acoes:[...(currentMeeting.acoes || []), {...tmpAcao, id: Date.now()}]}); setTmpAcao({title:'', resp:'', date:'', status:'Pendente', obs:''});}}} className="w-full p-3 bg-emerald-600 text-white rounded-lg flex items-center justify-center shadow-md font-bold uppercase text-[10px] tracking-widest"><Plus size={18} className="mr-2"/> Adicionar Iniciativa</button></div></div>)}
+                        <div className="space-y-3">{(currentMeeting.acoes || []).map((a:any, i:any) => (<div key={a.id || i} className="p-4 bg-white rounded-lg border border-l-4 border-l-emerald-500 shadow-sm flex flex-col group font-bold italic"><div className="flex justify-between items-center w-full"><div><p className="text-sm text-slate-800">{a.title}</p><p className="text-[10px] text-slate-400 uppercase mt-1">{a.resp} • {a.date}</p></div>{canEdit && <button onClick={()=>setCurrentMeeting({...currentMeeting, acoes: (currentMeeting.acoes || []).filter((_:any, idx:any)=>idx!==i)})}><Trash2 size={18} className="text-slate-200 hover:text-red-500"/></button>}</div>{a.obs && <div className="mt-2 text-[10px] text-amber-700 bg-amber-50/50 p-2 rounded border border-amber-100/50 whitespace-pre-wrap">OBS: {a.obs}</div>}</div>))}</div>
+                        {canEdit && (<div className="p-5 bg-slate-50 border border-dashed border-slate-300 rounded-xl grid grid-cols-1 sm:grid-cols-12 gap-4 items-end">
+                          <div className="sm:col-span-5"><label className="text-[10px] font-bold text-slate-400 uppercase">Ação</label><input placeholder="Título" className="w-full p-3 border rounded-lg text-sm bg-white font-bold italic" value={tmpAcao.title} onChange={e=>setTmpAcao({...tmpAcao, title:e.target.value})}/></div>
+                          <div className="sm:col-span-3">
+                            <label className="text-[10px] font-bold text-slate-400 uppercase">Resp. (Trava Ativa)</label>
+                            {/* TRAVA: Select obrigatório dos participantes da reunião */}
+                            <select className="w-full p-3 border rounded-lg text-sm bg-white font-bold" value={tmpAcao.resp} onChange={e=>setTmpAcao({...tmpAcao, resp:e.target.value})}>
+                              <option value="">Selecione...</option>
+                              {(currentMeeting.participants || []).map((p:any, i:number) => <option key={i} value={p.name}>{p.name}</option>)}
+                            </select>
+                          </div>
+                          <div className="sm:col-span-3"><label className="text-[10px] font-bold text-slate-400 uppercase">Prazo</label><input type="date" className="w-full p-3 border rounded-lg text-sm bg-white font-bold" value={tmpAcao.date} onChange={e=>setTmpAcao({...tmpAcao, date:e.target.value})}/></div>
+                          <div className="sm:col-span-12"><label className="text-[10px] font-bold text-slate-400 uppercase">Observações Explicativas</label><textarea rows={2} placeholder="Notas detalhadas..." className="w-full p-3 border rounded-lg text-sm bg-white font-bold italic outline-none" value={tmpAcao.obs} onChange={e=>setTmpAcao({...tmpAcao, obs:e.target.value})}/></div>
+                          <div className="sm:col-span-12"><button onClick={()=>{if(tmpAcao.title && tmpAcao.resp){setCurrentMeeting({...currentMeeting, acoes:[...(currentMeeting.acoes || []), {...tmpAcao, id: Date.now()}]}); setTmpAcao({title:'', resp:'', date:'', status:'Pendente', obs:''});} else { alert("Defina o título e selecione um responsável."); }}} className="w-full p-3 bg-emerald-600 text-white rounded-lg flex items-center justify-center shadow-md font-bold uppercase text-[10px] tracking-widest"><Plus size={18} className="mr-2"/> Adicionar Iniciativa</button></div>
+                        </div>)}
                       </div>
                     )}
                     {tab === 'atas' && (
                       <div className="bg-white p-8 rounded-xl border border-slate-200 shadow-sm animate-in fade-in space-y-8"><div className="flex justify-between items-center border-b border-slate-50 pb-4"><h3 className="text-xs font-bold uppercase text-slate-500 tracking-widest">Atas Finais</h3>{canEdit && <button onClick={()=>ataRef.current?.click()} className="bg-slate-100 hover:bg-slate-200 text-slate-700 px-4 py-2 rounded-lg text-[10px] font-bold uppercase flex items-center gap-2 transition-all"><Upload size={14}/> Carregar</button>}</div><div className="grid grid-cols-1 sm:grid-cols-2 gap-4">{(currentMeeting.atas || []).map((ata:any, i:any) => (
-                        <div key={i} className="p-4 bg-white border border-slate-200 rounded-xl flex items-center gap-4 group italic font-bold">
+                        <div key={i} className="p-4 bg-white border border-slate-200 rounded-xl flex items-center gap-4 italic font-bold">
                           <div className="p-3 bg-amber-50 text-amber-600 rounded-lg"><FileCheck size={24}/></div>
                           <div className="flex-1 truncate text-sm">{ata.name}</div>
                           <a href={ata.url} target="_blank" rel="noreferrer" className="text-slate-300 hover:text-amber-600"><ExternalLink size={18}/></a>
@@ -770,12 +731,19 @@ const App = () => {
 
                   {canEdit && (
                     <div className="bg-white p-5 border border-amber-200 rounded-xl shadow-sm grid grid-cols-1 md:grid-cols-12 gap-4 items-end animate-in slide-in-from-top-2">
-                      <div className="md:col-span-3"><label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Iniciativa</label><input placeholder="Título" className="w-full p-3 border rounded-lg text-sm font-bold bg-slate-50 outline-none italic" value={tmpGlobalAcao.title} onChange={e=>setTmpGlobalAcao({...tmpGlobalAcao, title: e.target.value})} /></div>
-                      <div className="md:col-span-2"><label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Resp.</label><select className="w-full p-3 border rounded-lg text-sm font-bold bg-slate-50" value={tmpGlobalAcao.resp} onChange={e=>setTmpGlobalAcao({...tmpGlobalAcao, resp: e.target.value})}><option value="">Executor...</option>{users.map((u, i) => <option key={i} value={u.name}>{u.name}</option>)}</select></div>
-                      <div className="md:col-span-2"><label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Origem</label><select className="w-full p-3 border rounded-lg text-sm font-bold bg-slate-50" value={tmpGlobalAcao.meetingId} onChange={e=>setTmpGlobalAcao({...tmpGlobalAcao, meetingId: e.target.value})}><option value="">Vincular...</option>{meetings.map(m => <option key={m.id} value={m.id}>{m.title}</option>)}</select></div>
-                      <div className="md:col-span-2"><label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Prazo</label><input type="date" className="w-full p-3 border rounded-lg text-sm font-bold bg-slate-50" value={tmpGlobalAcao.date} onChange={e=>setTmpGlobalAcao({...tmpGlobalAcao, date: e.target.value})} /></div>
-                      <div className="md:col-span-3"><label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Observações Detalhadas</label><textarea rows={2} placeholder="Notas explicativas sobre o status..." className="w-full p-3 border rounded-lg text-sm font-bold bg-slate-50 outline-none italic focus:ring-2 focus:ring-amber-500/20" value={tmpGlobalAcao.obs} onChange={e=>setTmpGlobalAcao({...tmpGlobalAcao, obs: e.target.value})} /></div>
-                      <div className="md:col-span-12"><button onClick={saveGlobalAction} className="w-full py-3 bg-amber-600 text-white rounded-lg flex items-center justify-center shadow-md hover:bg-amber-700 transition-all font-bold uppercase text-[10px] tracking-widest"><Plus size={18} className="mr-2"/> Lançar Ação Global</button></div>
+                      <div className="md:col-span-3"><label className="text-[10px] font-bold text-slate-400 uppercase">Iniciativa</label><input placeholder="Título" className="w-full p-3 border rounded-lg text-sm font-bold bg-slate-50 outline-none italic" value={tmpGlobalAcao.title} onChange={e=>setTmpGlobalAcao({...tmpGlobalAcao, title: e.target.value})} /></div>
+                      <div className="md:col-span-2">
+                        <label className="text-[10px] font-bold text-slate-400 uppercase">Resp. (Vínculo Oficial)</label>
+                        {/* TRAVA: Select baseado na lista master de usuários do sistema */}
+                        <select className="w-full p-3 border rounded-lg text-sm font-bold bg-slate-50" value={tmpGlobalAcao.resp} onChange={e=>setTmpGlobalAcao({...tmpGlobalAcao, resp: e.target.value})}>
+                          <option value="">Selecione...</option>
+                          {users.map((u, i) => <option key={i} value={u.name}>{u.name}</option>)}
+                        </select>
+                      </div>
+                      <div className="md:col-span-2"><label className="text-[10px] font-bold text-slate-400 uppercase">Origem</label><select className="w-full p-3 border rounded-lg text-sm font-bold bg-slate-50" value={tmpGlobalAcao.meetingId} onChange={e=>setTmpGlobalAcao({...tmpGlobalAcao, meetingId: e.target.value})}><option value="">Vincular...</option>{meetings.map(m => <option key={m.id} value={m.id}>{m.title}</option>)}</select></div>
+                      <div className="md:col-span-2"><label className="text-[10px] font-bold text-slate-400 uppercase">Prazo</label><input type="date" className="w-full p-3 border rounded-lg text-sm font-bold bg-slate-50" value={tmpGlobalAcao.date} onChange={e=>setTmpGlobalAcao({...tmpGlobalAcao, date: e.target.value})} /></div>
+                      <div className="md:col-span-3"><label className="text-[10px] font-bold text-slate-400 uppercase">Observações Detalhadas</label><textarea rows={2} placeholder="Notas explicativas..." className="w-full p-3 border rounded-lg text-sm font-bold bg-slate-50 outline-none italic focus:ring-2 focus:ring-amber-500/20" value={tmpGlobalAcao.obs} onChange={e=>setTmpGlobalAcao({...tmpGlobalAcao, obs: e.target.value})} /></div>
+                      <div className="md:col-span-12"><button onClick={saveGlobalAction} className="w-full py-3 bg-amber-600 text-white rounded-lg flex items-center justify-center shadow-md hover:bg-amber-700 font-bold uppercase text-[10px] tracking-widest"><Plus size={18} className="mr-2"/> Lançar Ação Global</button></div>
                     </div>
                   )}
                   
@@ -804,7 +772,7 @@ const App = () => {
                             <td className="px-6 py-4 text-slate-400 text-[10px] uppercase tracking-widest">
                               {canEdit ? (
                                 <select 
-                                  className="bg-transparent border-none outline-none text-[10px] font-bold text-slate-400 uppercase cursor-pointer w-full"
+                                  className="bg-transparent border-none outline-none text-[10px] font-bold text-slate-400 cursor-pointer w-full"
                                   value={acao.mId} 
                                   onChange={(e) => updateActionOriginGlobal(acao.mId, acao.id, e.target.value)}
                                 >
@@ -819,7 +787,7 @@ const App = () => {
                                 rows={6} 
                                 defaultValue={acao.obs || ''} 
                                 onBlur={(e) => updateActionObsGlobal(acao.mId, acao.id, e.target.value)} 
-                                placeholder="Anote aqui os detalhes da evolução desta ação..." 
+                                placeholder="Notas..." 
                                 disabled={!canEdit}
                               />
                             </td>
@@ -835,65 +803,34 @@ const App = () => {
 
               {activeMenu === 'usuarios' && (
                 <div className="space-y-6 animate-in fade-in">
-                  <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm"><h1 className="text-2xl font-bold text-slate-800 tracking-tight italic">{isSuper ? 'Gestão Master de Contas' : 'Conselheiros'}</h1></div>
+                  <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm"><h1 className="text-2xl font-bold text-slate-800 tracking-tight italic">{isSuper ? 'Gestão Master' : 'Conselheiros'}</h1></div>
                   <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 items-start">
                     <div className="bg-slate-900 p-8 rounded-2xl shadow-xl space-y-4 h-fit sticky top-24 border border-white/5">
                       <h3 className="text-[10px] font-bold uppercase text-amber-500 border-b border-white/5 pb-3 tracking-widest">{isSuper ? 'Novo Cliente' : 'Novo Membro'}</h3>
-                      <div><label className="text-[10px] font-bold text-slate-500 uppercase">Nome</label><input className="w-full p-3 bg-slate-800 text-white rounded-lg outline-none font-bold" value={newUserForm.name} onChange={e=>setnewUserForm({...newUserForm, name: e.target.value})} /></div>
-                      <div><label className="text-[10px] font-bold text-slate-500 uppercase">E-mail</label><input className="w-full p-3 bg-slate-800 text-white rounded-lg outline-none font-bold" value={newUserForm.email} onChange={e=>setnewUserForm({...newUserForm, email: e.target.value})} /></div>
+                      <div><label className="text-[10px] font-bold text-slate-500 uppercase">Nome</label><input className="w-full p-3 bg-slate-800 text-white rounded-lg font-bold" value={newUserForm.name} onChange={e=>setnewUserForm({...newUserForm, name: e.target.value})} /></div>
+                      <div><label className="text-[10px] font-bold text-slate-500 uppercase">E-mail</label><input className="w-full p-3 bg-slate-800 text-white rounded-lg font-bold" value={newUserForm.email} onChange={e=>setnewUserForm({...newUserForm, email: e.target.value})} /></div>
                       <div><label className="text-[10px] font-bold text-slate-500 uppercase">Perfil</label><select className="w-full p-3 bg-slate-800 text-white rounded-lg font-bold" value={newUserForm.role} onChange={e=>setnewUserForm({...newUserForm, role: e.target.value})}><option value="Conselheiro">Conselheiro</option><option value="Secretário">Secretário</option><option value="Administrador">Administrador</option>{isSuper && <option value="SuperAdmin">SuperAdmin</option>}</select></div>
-                      <div><label className="text-[10px] font-bold text-slate-500 uppercase">Senha</label><input type="password" className="w-full p-3 bg-slate-800 text-white rounded-lg outline-none font-bold" value={newUserForm.password} onChange={e=>setnewUserForm({...newUserForm, password: e.target.value})} /></div>
-                      <div><label className="text-[10px] font-bold text-amber-500 uppercase flex items-center gap-2"><Building2 size={12}/> Identificador</label><input placeholder={isSuper ? "Ex: Empresa-A" : "Auto"} className="w-full p-3 bg-slate-800 text-white rounded-lg outline-none font-bold border border-amber-500/30" value={isSuper ? newUserForm.client_id : (newUserForm.client_id || currentUser.client_id)} onChange={e=>setnewUserForm({...newUserForm, client_id: e.target.value})} readOnly={!isSuper} /></div>
+                      <div><label className="text-[10px] font-bold text-slate-500 uppercase">Senha</label><input type="password" className="w-full p-3 bg-slate-800 text-white rounded-lg font-bold" value={newUserForm.password} onChange={e=>setnewUserForm({...newUserForm, password: e.target.value})} /></div>
+                      <div><label className="text-[10px] font-bold text-amber-500 uppercase flex items-center gap-2"><Building2 size={12}/> Identificador</label><input placeholder={isSuper ? "Ex: Empresa-A" : "Auto"} className="w-full p-3 bg-slate-800 text-white rounded-lg font-bold border border-amber-500/30" value={isSuper ? newUserForm.client_id : (newUserForm.client_id || currentUser.client_id)} onChange={e=>setnewUserForm({...newUserForm, client_id: e.target.value})} readOnly={!isSuper} /></div>
                     
                     <button 
                       disabled={loading}
                       onClick={async ()=>{ 
                         setLoading(true);
                         const payload = { ...newUserForm, client_id: isSuper ? newUserForm.client_id : currentUser.client_id }; 
-                        
-                        const authClient = createClient(supabaseUrl, supabaseKey, {
-                          auth: {
-                            persistSession: false,
-                            autoRefreshToken: false,
-                            detectSessionInUrl: false
-                          }
-                        });
-
+                        const authClient = createClient(supabaseUrl, supabaseKey, { auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false } });
                         const { data, error } = await authClient.auth.signUp({
-                          email: payload.email,
-                          password: payload.password,
-                          options: {
-                            data: {
-                              name: payload.name,
-                              role: payload.role,
-                              client_id: payload.client_id,
-                              email_verified: true
-                            }
-                          }
+                          email: payload.email, password: payload.password, options: { data: { name: payload.name, role: payload.role, client_id: payload.client_id, email_verified: true } }
                         });
-
-                        if(error) {
-                          alert("Erro ao habilitar acesso: " + error.message);
-                        } else if (data.user) {
-                          const { error: dbError } = await supabase.from('members').insert([{
-                            id: data.user.id,
-                            name: payload.name,
-                            email: payload.email,
-                            role: payload.role,
-                            client_id: payload.client_id
-                          }]);
-
-                          if (dbError) {
-                            alert("Erro ao registrar perfil.");
-                          } else {
-                            setnewUserForm({name:'', email:'', role:'Conselheiro', password:'', client_id:''}); 
-                            alert("Sucesso!"); 
-                            fetchInitialData();
-                          }
+                        if(error) alert("Erro ao habilitar acesso: " + error.message);
+                        else if (data.user) {
+                          const { error: dbError } = await supabase.from('members').insert([{ id: data.user.id, name: payload.name, email: payload.email, role: payload.role, client_id: payload.client_id }]);
+                          if (dbError) alert("Erro ao registrar perfil.");
+                          else { setnewUserForm({name:'', email:'', role:'Conselheiro', password:'', client_id:''}); alert("Sucesso!"); fetchInitialData(); }
                         }
                         setLoading(false);
                       }} 
-                      className="w-full py-3 bg-amber-600 text-white rounded-lg font-bold uppercase shadow-md hover:bg-amber-700 transition-all tracking-widest disabled:opacity-50"
+                      className="w-full py-3 bg-amber-600 text-white rounded-lg font-bold uppercase shadow-md hover:bg-amber-700 tracking-widest disabled:opacity-50"
                     >
                       {loading ? "Processando..." : "Habilitar Acesso Oficial"}
                     </button>
@@ -914,7 +851,7 @@ const App = () => {
               
               {activeMenu === 'auditoria' && (
                 <div className="space-y-6 animate-in fade-in">
-                  <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm"><h1 className="text-2xl font-bold text-slate-800 tracking-tight italic">Auditoria de {isSuper ? 'Sistema' : currentUser.client_id}</h1></div>
+                  <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm"><h1 className="text-2xl font-bold text-slate-800 tracking-tight italic">Auditoria</h1></div>
                   <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
                     <table className="w-full text-left text-sm font-bold italic">
                       <thead className="bg-slate-900 text-[10px] font-bold uppercase text-amber-500 tracking-widest">
