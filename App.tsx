@@ -183,25 +183,31 @@ const App = () => {
         const participants = currentMeeting.participants || [];
         const emails = participants.map((p: any) => p.email).filter((e: string) => e);
 
-        // --- VALIDAÇÃO DE GOVERNANÇA (CORREÇÃO VS CODE) ---
+        // --- VALIDAÇÃO DE USUÁRIOS ---
         const unregistered = participants.filter((p: any) => !users.find((u: any) => u.email === p.email));
         if (unregistered.length > 0) {
-          alert(`Aviso de Governança: Os participantes (${unregistered.map((u: any) => u.name).join(', ')}) não possuem cadastro. O relatório global de pendências não será consolidado para eles.`);
+          alert(`Aviso: Os participantes (${unregistered.map((u: any) => u.name).join(', ')}) não possuem cadastro. O relatório global não será completo para eles.`);
         }
 
-        // --- SCAN GLOBAL DE PENDÊNCIAS (GARANTINDO TODAS AS REUNIÕES) ---
-        const allPendingActions = meetings.flatMap((m: any) => 
+        // --- CORREÇÃO: SCAN GLOBAL DE PENDÊNCIAS (DB + UI) ---
+        // Pegamos todas as reuniões do estado, exceto a atual (para não duplicar) e adicionamos a versão "fresca" da tela
+        const allMeetingsSource = [...meetings.filter(m => m.id !== currentMeeting.id), currentMeeting];
+
+        const allPendingActions = allMeetingsSource.flatMap((m: any) => 
           (m.acoes || []).map((a: any) => ({ 
             ...a, 
             meetingTitle: m.title 
           }))
         ).filter((a: any) => a.status !== 'Concluída');
 
-        const usersToNotify = participants.map((p: any) => ({
-          email: p.email,
-          name: p.name,
-          pendingActions: allPendingActions.filter((a: any) => a.resp === p.name)
-        })).filter((u: any) => u.email);
+        const usersToNotify = participants.map((p: any) => {
+          const pName = p.name?.trim().toLowerCase();
+          return {
+            email: p.email,
+            name: p.name,
+            pendingActions: allPendingActions.filter((a: any) => a.resp?.trim().toLowerCase() === pName)
+          };
+        }).filter((u: any) => u.email);
 
         if (emails.length > 0) {
           try {
@@ -215,10 +221,10 @@ const App = () => {
                 pendingSummary: usersToNotify 
               }
             });
-            alert("Ata publicada e relatórios de pendências globais enviados!");
+            alert("Ata publicada e relatórios globais de pendências enviados!");
           } catch (notificationError) {
             console.error("Erro no disparo:", notificationError);
-            alert("Ata publicada, mas não conseguimos disparar os avisos de pendências.");
+            alert("Ata salva, mas houve erro no envio dos e-mails.");
           }
         }
       }
@@ -629,7 +635,7 @@ const App = () => {
                   </div>
                   <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden animate-in fade-in slide-in-from-bottom-2">
                     <div className="p-4 border-b border-slate-50 bg-slate-50/50 flex justify-between items-center"><h3 className="text-xs font-bold uppercase text-slate-500 tracking-widest italic flex items-center gap-2"><ListChecks size={16} className="text-amber-600"/> Resumo do Plano de Ação</h3></div>
-                    <div className="overflow-x-auto"><table className="w-full text-left text-sm font-bold italic"><thead className="bg-slate-900 text-[10px] font-bold uppercase text-amber-500 tracking-widest"><tr><th className="px-6 py-4">Iniciativa</th><th className="px-6 py-4">Responsável</th><th className="px-6 py-4">Origem</th><th className="px-6 py-4 text-center">Status</th></tr></thead><tbody className="divide-y divide-slate-100">{stats.allActions.length === 0 ? (<tr><td colSpan={4} className="px-6 py-8 text-center text-slate-400 uppercase text-[10px]">Nenhuma ação pendente</td></tr>) : (stats.allActions.slice(0, 5).map((acao: any, idx: any) => (<tr key={`${acao.mId}-${acao.id}`} className="hover:bg-slate-50 transition-all border-l-4 border-l-transparent hover:border-l-amber-500"><td className="px-6 py-4 text-slate-800">{acao.title}</td><td className="px-6 py-4 text-slate-600">{acao.resp || 'N/D'}</td><td className="px-6 py-4 text-slate-400 text-[10px] uppercase tracking-widest">{acao.mTitle}</td><td className="px-6 py-4 text-center"><span className={`px-3 py-1 rounded-full text-[9px] uppercase font-bold ${acao.status === 'Concluída' ? 'bg-emerald-100 text-emerald-700' : acao.status === 'Em andamento' ? 'bg-amber-100 text-amber-700' : 'bg-slate-100 text-slate-500'}`}>{acao.status}</span></td></tr>)))}</tbody></table></div>
+                    <div className="overflow-x-auto"><table className="w-full text-left text-sm font-bold italic"><thead className="bg-slate-900 text-[10px] font-bold uppercase text-amber-500 tracking-widest"><tr><th className="px-6 py-4">Iniciativa</th><th className="px-6 py-4">Responsável</th><th className="px-6 py-4">Origem</th><th className="px-6 py-4 text-center">Status</th></tr></thead><tbody className="divide-y divide-slate-100">{stats.allActions.length === 0 ? (<tr><td colSpan={4} className="px-6 py-8 text-center text-slate-400 uppercase text-[10px]">Nenhuma ação pendente</td></tr>) : (stats.allActions.slice(0, 5).map((acao: any, idx: any) => (<tr key={idx} className="hover:bg-slate-50 transition-all border-l-4 border-l-transparent hover:border-l-amber-500"><td className="px-6 py-4 text-slate-800">{acao.title}</td><td className="px-6 py-4 text-slate-600">{acao.resp || 'N/D'}</td><td className="px-6 py-4 text-slate-400 text-[10px] uppercase tracking-widest">{acao.mTitle}</td><td className="px-6 py-4 text-center"><span className={`px-3 py-1 rounded-full text-[9px] uppercase font-bold ${acao.status === 'Concluída' ? 'bg-emerald-100 text-emerald-700' : acao.status === 'Em andamento' ? 'bg-amber-100 text-amber-700' : 'bg-slate-100 text-slate-500'}`}>{acao.status}</span></td></tr>)))}</tbody></table></div>
                   </div>
                 </div>
               )}
@@ -638,7 +644,7 @@ const App = () => {
                 view === 'list' ? (
                   <div className="space-y-6 animate-in fade-in">
                     <div className="flex justify-between items-center gap-4 bg-white p-4 rounded-xl border border-slate-200 shadow-sm"><h1 className="text-2xl font-bold text-slate-800 tracking-tight italic">Conselho Deliberativo</h1>{canEdit && (<button onClick={()=>{setCurrentMeeting(blankMeeting); setView('details'); setTab('info');}} className="bg-amber-600 hover:bg-amber-700 text-white px-6 py-3 rounded-lg font-bold text-xs uppercase flex items-center justify-center gap-2 transition-all shadow-md tracking-widest">+ Nova Reunião</button>)}</div>
-                    <div className="grid gap-4">{meetings.map((m, idx) => (<div key={m.id} onClick={()=>{setCurrentMeeting(m); setView('details'); setTab('info');}} className="bg-white p-6 rounded-xl border border-slate-200 flex justify-between items-center group cursor-pointer hover:border-amber-500 hover:shadow-md transition-all shadow-sm"><div className="flex items-center gap-4"><div className="p-3 bg-slate-100 text-slate-500 rounded-lg group-hover:bg-amber-100 group-hover:text-amber-700 transition-all"><Calendar size={24}/></div><div><h3 className="font-bold text-lg text-slate-800 group-hover:text-amber-600 transition-all italic">{m.title}</h3><p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">{m.status} • {m.date || 'DATA N/D'}</p></div></div><div className="flex items-center gap-3">{canEdit && (<button onClick={(e) => { e.stopPropagation(); deleteMeeting(m.id, m.title); }} className="p-3 text-slate-200 hover:text-red-600 transition-all hover:bg-red-50 rounded-lg"><Trash2 size={20}/></button>)}<ChevronRight size={20} className="text-slate-300 group-hover:text-amber-500 transition-all"/></div></div>))}</div>
+                    <div className="grid gap-4">{meetings.map((m, idx) => (<div key={m.id} onClick={()=>{setCurrentMeeting(m); setView('details'); setTab('info');}} className="bg-white p-6 rounded-xl border border-slate-200 flex justify-between items-center group cursor-pointer hover:border-amber-500 hover:shadow-md transition-all shadow-sm"><div className="flex items-center gap-4"><div className="p-3 bg-slate-100 text-slate-500 rounded-lg group-hover:bg-amber-100 group-hover:text-amber-700 transition-all"><Calendar size={24}/></div><div><h3 className="font-bold text-lg text-slate-800 group-hover:text-amber-600 transition-all italic">{m.title}</h3><p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">{m.status} • {m.date || 'DATA N/D'}</p></div></div><div className="flex items-center gap-3">{canEdit && <button onClick={(e) => { e.stopPropagation(); deleteMeeting(m.id, m.title); }} className="p-3 text-slate-200 hover:text-red-600 transition-all hover:bg-red-50 rounded-lg"><Trash2 size={20}/></button>}<ChevronRight size={20} className="text-slate-300 group-hover:text-amber-500 transition-all"/></div></div>))}</div>
                   </div>
                 ) : (
                   <div className="animate-in fade-in duration-300 pb-20">
@@ -649,10 +655,7 @@ const App = () => {
                       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 animate-in fade-in">
                         <div className="lg:col-span-2 space-y-6">
                           {canEdit && currentMeeting.id && (
-                            <button 
-                              onClick={() => setIsConvocationOpen(true)}
-                              className="w-full py-4 bg-amber-50 border-2 border-amber-200 rounded-xl text-amber-700 font-bold uppercase text-[10px] tracking-widest flex items-center justify-center gap-3 hover:bg-amber-100 transition-all shadow-sm"
-                            >
+                            <button onClick={() => setIsConvocationOpen(true)} className="w-full py-4 bg-amber-50 border-2 border-amber-200 rounded-xl text-amber-700 font-bold uppercase text-[10px] tracking-widest flex items-center justify-center gap-3 hover:bg-amber-100 transition-all shadow-sm">
                               <Mail size={18}/> Gerar Convocação Oficial do Conselho
                             </button>
                           )}
@@ -749,8 +752,8 @@ const App = () => {
                         <tr><th className="px-6 py-4">Iniciativa</th><th className="px-6 py-4">Responsável</th><th className="px-6 py-4">Origem</th><th className="px-6 py-4" style={{width: '140px'}}>Prazo</th><th className="px-6 py-4" style={{width: '400px'}}>Observações Explicativas</th><th className="px-6 py-4 text-center">Status</th>{canEdit && <th className="px-6 py-4 text-center">Gestão</th>}</tr>
                       </thead>
                       <tbody className="divide-y divide-slate-100">
-                        {stats.allActions.map((acao:any) => (
-                          <tr key={`${acao.mId}-${acao.id}`} className="hover:bg-slate-50 transition-all">
+                        {stats.allActions.map((acao:any, idx: number) => (
+                          <tr key={idx} className="hover:bg-slate-50 transition-all">
                             <td className="px-6 py-4 text-slate-800">{acao.title}</td>
                             <td className="px-6 py-4 text-slate-600">
                               {canEdit ? (
@@ -886,7 +889,7 @@ const App = () => {
                       </thead>
                       <tbody className="divide-y divide-slate-100">
                         {auditLogs.map((log, i) => (
-                          <tr key={log.id || i} className="hover:bg-slate-50 transition-all text-slate-600">
+                          <tr key={i} className="hover:bg-slate-50 transition-all text-slate-600">
                             <td className="px-6 py-4 text-[10px]">{new Date(log.log_date).toLocaleString()}</td>
                             <td className="px-6 py-4">{log.username}</td>
                             <td className="px-6 py-4 text-amber-600 uppercase text-[10px]">{log.action}</td>
