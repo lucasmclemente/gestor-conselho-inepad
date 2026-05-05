@@ -990,3 +990,4 @@ const App = () => {
 };
 
 export default App;
+// Trigger para ativação do Supabase Branching - Lucas 2026
