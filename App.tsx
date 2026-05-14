@@ -92,7 +92,6 @@ const App = () => {
           const pautaAtual = pautas[activePautaIndex];
           const limiteSegundos = (parseInt(pautaAtual?.dur) || 0) * 60;
           
-          // Alerta no limite, mas o cronômetro continua para marcar o tempo real gasto
           if (newVal === limiteSegundos) {
             alert(`⚠️ TEMPO ESGOTADO: A pauta "${pautaAtual?.title}" ultrapassou o limite planejado.`);
           }
@@ -103,7 +102,6 @@ const App = () => {
     return () => clearInterval(timer);
   }, [isSessionActive, activePautaIndex, currentMeeting.pautas]);
 
-  // Função para mudar ordem das pautas
   const handleMovePauta = (index: number, direction: 'up' | 'down') => {
     if (!canEdit || isSessionActive) return;
     const newPautas = [...(currentMeeting.pautas || [])];
@@ -131,7 +129,6 @@ const App = () => {
     }
   };
 
-  // --- FUNÇÕES DE DADOS ORIGINAIS ---
   const fetchInitialData = async () => {
     setLoading(true);
     try {
@@ -332,7 +329,6 @@ const App = () => {
     };
   }, [meetings, dashboardFilter, filterResp, filterStatus, filterOrigin]);
 
-  // --- MODAL DE CONVOCAÇÃO ---
   const ConvocationModal = () => (
     <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-md z-[100] flex items-center justify-center p-4">
       <div className="bg-white w-full max-w-2xl rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh] animate-in zoom-in-95">
@@ -498,6 +494,51 @@ const App = () => {
                     <div className="bg-slate-900 p-6 rounded-xl shadow-xl flex flex-col h-full"><h3 className="text-xs font-bold uppercase text-amber-500 mb-4 tracking-widest italic">Status das Ações</h3><div className="flex-1 min-h-0"><ResponsiveContainer width="100%" height="100%"><PieChart><Pie chart-id="status-pie" data={stats.pieData} innerRadius={60} outerRadius={80} dataKey="value" paddingAngle={5}>{stats.pieData.map((e,i)=>(<Cell key={i} fill={e.color} stroke="none"/>))}</Pie><Tooltip/><Legend wrapperStyle={{fontSize:'10px', textTransform:'uppercase'}}/></PieChart></ResponsiveContainer></div></div>
                     <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm flex flex-col h-full"><h3 className="text-xs font-bold uppercase text-slate-500 mb-4 tracking-widest italic">Produtividade Recente</h3><div className="flex-1 min-h-0"><ResponsiveContainer width="100%" height="100%"><BarChart data={stats.barData}><CartesianGrid vertical={false} stroke="#f1f5f9"/><XAxis dataKey="name" tick={{fontSize:10, fontWeight:600}}/><YAxis hide/><Tooltip/><Bar dataKey="Pautas" fill="#cbd5e1" radius={[4,4,0,0]} barSize={20}/><Bar dataKey="Ações" fill="#d97706" radius={[4,4,0,0]} barSize={20}/></BarChart></ResponsiveContainer></div></div>
                   </div>
+
+                  {/* TABELA DE RESUMO RESTAURADA AQUI */}
+                  <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden animate-in fade-in slide-in-from-bottom-2">
+                    <div className="p-4 border-b border-slate-50 bg-slate-50/50 flex justify-between items-center">
+                      <h3 className="text-xs font-bold uppercase text-slate-500 tracking-widest italic flex items-center gap-2">
+                        <ListChecks size={16} className="text-amber-600"/> Resumo do Plano de Ação
+                      </h3>
+                    </div>
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-left text-sm font-bold italic">
+                        <thead className="bg-slate-900 text-[10px] font-bold uppercase text-amber-500 tracking-widest">
+                          <tr>
+                            <th className="px-6 py-4">Iniciativa</th>
+                            <th className="px-6 py-4">Responsável</th>
+                            <th className="px-6 py-4">Origem</th>
+                            <th className="px-6 py-4 text-center">Status</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-100">
+                          {stats.allActions.length === 0 ? (
+                            <tr>
+                              <td colSpan={4} className="px-6 py-8 text-center text-slate-400 uppercase text-[10px]">Nenhuma ação pendente</td>
+                            </tr>
+                          ) : (
+                            stats.allActions.slice(0, 5).map((acao: any) => (
+                              <tr key={`${acao.mId}-${acao.id}`} className="hover:bg-slate-50 transition-all border-l-4 border-l-transparent hover:border-l-amber-500">
+                                <td className="px-6 py-4 text-slate-800">{acao.title}</td>
+                                <td className="px-6 py-4 text-slate-600">{acao.resp || 'N/D'}</td>
+                                <td className="px-6 py-4 text-slate-400 text-[10px] uppercase tracking-widest">{acao.mTitle}</td>
+                                <td className="px-6 py-4 text-center">
+                                  <span className={`px-3 py-1 rounded-full text-[9px] uppercase font-bold ${
+                                    acao.status === 'Concluída' ? 'bg-emerald-100 text-emerald-700' : 
+                                    acao.status === 'Em andamento' ? 'bg-amber-100 text-amber-700' : 
+                                    'bg-slate-100 text-slate-500'
+                                  }`}>
+                                    {acao.status}
+                                  </span>
+                                </td>
+                              </tr>
+                            ))
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
                 </div>
               )}
 
@@ -550,7 +591,6 @@ const App = () => {
 
                     {tab === 'pauta' && (
                       <div className="bg-white p-8 rounded-xl border border-slate-200 shadow-sm animate-in fade-in space-y-6">
-                        {/* HEADER DO CRONÔMETRO */}
                         <div className="flex justify-between items-center bg-slate-900 p-6 rounded-xl border border-white/10 shadow-lg gap-4">
                           <div className="flex items-center gap-4">
                             <div className="p-3 bg-amber-600/20 text-amber-500 rounded-lg"><Timer size={24}/></div>
@@ -572,8 +612,6 @@ const App = () => {
                             {isSessionActive ? <><Square size={16}/> Encerrar Reunião</> : <><Play size={16}/> Iniciar Reunião</>}
                           </button>
                         </div>
-
-                        {/* LISTAGEM DE PAUTAS COM REORDENAÇÃO */}
                         <div className="space-y-3">
                           {(currentMeeting.pautas || []).map((p:any, i:any) => (
                             <div key={i} className={`flex justify-between items-center p-4 border rounded-lg transition-all group border-l-4 font-bold italic ${activePautaIndex === i ? 'bg-amber-50 border-amber-500 scale-[1.01] shadow-sm' : 'bg-white border-slate-200'}`}>
@@ -606,8 +644,6 @@ const App = () => {
                             </div>
                           ))}
                         </div>
-
-                        {/* ADICIONAR PAUTA */}
                         {canEdit && !isSessionActive && (
                           <div className="p-5 bg-slate-50 rounded-xl border border-dashed border-slate-300 grid grid-cols-1 sm:grid-cols-5 gap-4 items-end">
                             <div className="sm:col-span-2">
@@ -631,7 +667,6 @@ const App = () => {
                       </div>
                     )}
                     
-                    {/* MATERIAIS, DELIBERAÇÕES, AÇÕES E ATAS (PRESERVADOS EXATAMENTE COMO SOLICITADO) */}
                     {tab === 'materiais' && (
                       <div className="bg-white p-8 rounded-xl border border-slate-200 shadow-sm animate-in fade-in space-y-6">
                         <div className="flex justify-between items-center mb-4"><h3 className="text-xs font-bold uppercase text-slate-600 tracking-widest flex items-center gap-2">Documentos <span className="bg-red-50 text-red-500 text-[8px] px-2 py-0.5 rounded-full border border-red-100">Somente Internos</span></h3>{canEdit && <button onClick={()=>fileRef.current?.click()} className="bg-slate-100 hover:bg-slate-200 text-slate-700 px-4 py-2 rounded-lg text-[10px] font-bold uppercase flex items-center gap-2 transition-all"><Upload size={14}/> Upload</button>}</div>
@@ -677,7 +712,7 @@ const App = () => {
                             <td className="px-6 py-4 text-slate-400 text-[10px] uppercase tracking-widest">{acao.mTitle}</td>
                             <td className="px-6 py-4"><input type="date" className="bg-transparent border-none outline-none text-[10px] font-bold text-slate-600" value={acao.date || ''} onChange={(e) => updateActionDateGlobal(acao.mId, acao.id, e.target.value)} disabled={!canEdit}/></td>
                             <td className="px-6 py-4 text-center"><select value={acao.status} onChange={(e) => updateActionStatusGlobal(acao.mId, acao.id, e.target.value)} className="px-3 py-1.5 rounded-lg text-[10px] font-bold uppercase bg-amber-50 text-amber-700 cursor-pointer" disabled={!canEdit}><option value="Pendente">Aguardando</option><option value="Em andamento">Execução</option><option value="Concluída">Finalizado</option></select></td>
-                            {canEdit && <td className="px-6 py-4 text-center"><button onClick={() => deleteActionGlobal(acao.mId, acao.id)} className="text-slate-200 hover:text-red-600"><Trash2 size={16}/></button></td>}
+                            {canEdit && <td className="px-6 py-4 text-center"><button onClick={() => deleteActionGlobal(acao.mId, acao.id)} className="text-slate-200 hover:text-red-500"><Trash2 size={16}/></button></td>}
                           </tr>
                         ))}
                       </tbody>
