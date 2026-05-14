@@ -5,7 +5,7 @@ import {
   Clock, CheckCircle2, AlertCircle, FileText, Send, X, Trash2,
   Upload, Save, Lock, Target, FileCheck, BarChart3,
   PieChart as PieIcon, LogIn, User, Key, LogOut, UserCheck,
-  Mail, UserCog, Settings, Camera, UserCircle, History, Filter, MessageSquare, Download, ExternalLink, ListChecks, Plus, Edit2, Check, Menu, ChevronUp, ChevronDown, Play, Square, Timer, SkipForward, Building2, ChevronLeft, UserMinus
+  Mail, UserCog, Settings, Camera, UserCircle, History, Filter, MessageSquare, Download, ExternalLink, ListChecks, Plus, Edit2, Check, Menu, ChevronUp, ChevronDown, Play, Square, Timer, SkipForward, Building2, ChevronLeft, UserMinus, ThumbsUp, ThumbsDown, CircleSlash, MinusCircle
 } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend } from 'recharts';
 
@@ -50,7 +50,7 @@ const App = () => {
   const [tmpPauta, setTmpPauta] = useState({ title: '', resp: '', dur: '' });
   const [tmpAcao, setTmpAcao] = useState({ title: '', resp: '', date: '', status: 'Pendente', obs: '' });
   const [tmpGlobalAcao, setTmpGlobalAcao] = useState({ title: '', resp: '', date: '', meetingId: '', obs: '' });
-  const [tmpDelib, setTmpDelib] = useState({ title: '', voters: [] as string[] });
+  const [tmpDelib, setTmpDelib] = useState({ title: '', voters: [] as string[], votes: {} as any });
   const [newUserForm, setnewUserForm] = useState({ name: '', email: '', role: 'Conselheiro', password: '', client_id: '' });
 
   const [activePautaIndex, setActivePautaIndex] = useState<number | null>(null);
@@ -295,6 +295,26 @@ const App = () => {
     if (!error) setMeetings(prev => prev.map(m => m.id === meetingId ? { ...m, acoes: newAcoes } : m));
   };
 
+  // --- LÓGICA DE VOTAÇÃO ---
+  const handleRegisterVote = (delibIndex: number, voteType: 'Favor' | 'Contra' | 'Abstenção') => {
+    const newDelibs = [...(currentMeeting.deliberacoes || [])];
+    const delib = newDelibs[delibIndex];
+    const votes = { ...(delib.votes || {}) };
+    
+    votes[currentUser.name] = voteType;
+    newDelibs[delibIndex] = { ...delib, votes };
+    
+    setCurrentMeeting({ ...currentMeeting, deliberacoes: newDelibs });
+    addLog('Votação', `Voto ${voteType} em: ${delib.title}`);
+  };
+
+  const handleDeleteDelib = (index: number) => {
+    if(!window.confirm("Deseja excluir esta deliberação?")) return;
+    const newDelibs = (currentMeeting.deliberacoes || []).filter((_: any, i: number) => i !== index);
+    setCurrentMeeting({ ...currentMeeting, deliberacoes: newDelibs });
+    addLog('Exclusão', `Deliberação removida.`);
+  };
+
   const formatTime = (seconds: number) => {
     const m = Math.floor(seconds / 60);
     const s = seconds % 60;
@@ -495,7 +515,6 @@ const App = () => {
                     <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm flex flex-col h-full"><h3 className="text-xs font-bold uppercase text-slate-500 mb-4 tracking-widest italic">Produtividade Recente</h3><div className="flex-1 min-h-0"><ResponsiveContainer width="100%" height="100%"><BarChart data={stats.barData}><CartesianGrid vertical={false} stroke="#f1f5f9"/><XAxis dataKey="name" tick={{fontSize:10, fontWeight:600}}/><YAxis hide/><Tooltip/><Bar dataKey="Pautas" fill="#cbd5e1" radius={[4,4,0,0]} barSize={20}/><Bar dataKey="Ações" fill="#d97706" radius={[4,4,0,0]} barSize={20}/></BarChart></ResponsiveContainer></div></div>
                   </div>
 
-                  {/* TABELA DE RESUMO RESTAURADA AQUI */}
                   <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden animate-in fade-in slide-in-from-bottom-2">
                     <div className="p-4 border-b border-slate-50 bg-slate-50/50 flex justify-between items-center">
                       <h3 className="text-xs font-bold uppercase text-slate-500 tracking-widest italic flex items-center gap-2">
@@ -673,9 +692,87 @@ const App = () => {
                         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">{(currentMeeting.materiais || []).map((m:any, i:any) => (<div key={i} className="p-4 bg-white border border-slate-200 rounded-xl flex items-center gap-3 relative group"><FileText size={20} className="text-amber-600"/><div className="flex-1 truncate text-xs font-bold italic">{m.name}</div><a href={m.url} target="_blank" rel="noreferrer" className="text-slate-400 hover:text-amber-600"><ExternalLink size={14}/></a></div>))}</div>
                       </div>
                     )}
+
                     {tab === 'delib' && (
-                      <div className="bg-white p-8 rounded-xl border border-slate-200 shadow-sm animate-in fade-in space-y-8"><div className="space-y-4">{(currentMeeting.deliberacoes || []).map((d:any, i:any) => (<div key={i} className="p-6 bg-slate-50 rounded-xl border border-slate-200 shadow-sm group font-bold italic"><p className="text-sm text-slate-800">"{d.title}"</p><div className="flex flex-wrap gap-2 pt-4 border-t border-slate-200 mt-4"><span className="text-[10px] font-bold uppercase text-slate-400">Votantes:</span> {d.voters.map((v:any, vi:any) => <span key={vi} className="bg-white px-3 py-1 rounded-full text-[9px] uppercase border">{v}</span>)}</div></div>))}</div>{canEdit && (<div className="p-6 bg-amber-50 rounded-xl border border-amber-200 space-y-4"><textarea placeholder="Texto da Deliberação..." className="w-full p-4 border rounded-lg text-sm h-24 font-bold italic outline-none" value={tmpDelib.title} onChange={e=>setTmpDelib({...tmpDelib, title:e.target.value})} /><div className="flex flex-wrap gap-3 p-4 bg-white rounded-lg border max-h-40 overflow-y-auto">{(currentMeeting.participants || []).filter((p:any) => !p.isExternal).map((p:any, i:number) => (<label key={i} className="flex items-center gap-2 text-[10px] font-bold uppercase text-slate-500 cursor-pointer"><input type="checkbox" checked={tmpDelib.voters.includes(p.name)} onChange={(e) => { if(e.target.checked) setTmpDelib({...tmpDelib, voters: [...tmpDelib.voters, p.name]}); else setTmpDelib({...tmpDelib, voters: tmpDelib.voters.filter(v => v !== p.name)}); }} /> {p.name}</label>))}</div><button onClick={()=>{if(tmpDelib.title){setCurrentMeeting({...currentMeeting, deliberacoes:[...(currentMeeting.deliberacoes || []), tmpDelib]}); setTmpDelib({title:'', voters:[]});}}} className="w-full py-3 bg-amber-600 text-white rounded-lg font-bold uppercase shadow-sm">Oficializar</button></div>)}</div>
+                      <div className="bg-white p-8 rounded-xl border border-slate-200 shadow-sm animate-in fade-in space-y-8">
+                        <div className="space-y-6">
+                          {(currentMeeting.deliberacoes || []).map((d:any, i:any) => {
+                            const userVote = d.votes?.[currentUser.name];
+                            const canUserVote = d.voters.includes(currentUser.name);
+                            const favorCount = Object.values(d.votes || {}).filter(v => v === 'Favor').length;
+                            const contraCount = Object.values(d.votes || {}).filter(v => v === 'Contra').length;
+                            const abstCount = Object.values(d.votes || {}).filter(v => v === 'Abstenção').length;
+
+                            return (
+                              <div key={i} className="p-6 bg-slate-50 rounded-xl border border-slate-200 shadow-sm group font-bold italic flex flex-col gap-4">
+                                <div className="flex justify-between items-start">
+                                  <p className="text-sm text-slate-800 flex-1 leading-relaxed">"{d.title}"</p>
+                                  {canEdit && (
+                                    <button onClick={() => handleDeleteDelib(i)} className="p-2 text-slate-300 hover:text-red-500 transition-all">
+                                      <Trash2 size={18}/>
+                                    </button>
+                                  )}
+                                </div>
+
+                                {canUserVote && (
+                                  <div className="bg-white p-4 rounded-lg border border-amber-100 flex items-center justify-between shadow-sm">
+                                    <span className="text-[10px] uppercase text-amber-600 tracking-tighter">Sua Decisão:</span>
+                                    <div className="flex gap-2">
+                                      <button onClick={() => handleRegisterVote(i, 'Favor')} className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[9px] uppercase transition-all ${userVote === 'Favor' ? 'bg-emerald-600 text-white' : 'bg-slate-100 text-slate-400 hover:bg-emerald-50'}`}>
+                                        <ThumbsUp size={12}/> Favor
+                                      </button>
+                                      <button onClick={() => handleRegisterVote(i, 'Contra')} className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[9px] uppercase transition-all ${userVote === 'Contra' ? 'bg-red-600 text-white' : 'bg-slate-100 text-slate-400 hover:bg-red-50'}`}>
+                                        <ThumbsDown size={12}/> Contra
+                                      </button>
+                                      <button onClick={() => handleRegisterVote(i, 'Abstenção')} className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[9px] uppercase transition-all ${userVote === 'Abstenção' ? 'bg-slate-600 text-white' : 'bg-slate-100 text-slate-400 hover:bg-slate-200'}`}>
+                                        <CircleSlash size={12}/> Abster
+                                      </button>
+                                    </div>
+                                  </div>
+                                )}
+
+                                <div className="flex flex-col sm:flex-row sm:items-center gap-4 pt-4 border-t border-slate-200 mt-2">
+                                  <div className="flex-1 flex flex-wrap gap-2">
+                                    <span className="text-[10px] font-bold uppercase text-slate-400 w-full mb-1">Painel de Votantes:</span>
+                                    {d.voters.map((v:any, vi:any) => (
+                                      <div key={vi} className={`px-3 py-1 rounded-full text-[9px] uppercase border flex items-center gap-2 ${d.votes?.[v] ? 'bg-white border-amber-200 text-slate-800' : 'bg-slate-100 border-transparent text-slate-400'}`}>
+                                        {v} {d.votes?.[v] === 'Favor' && <Check className="text-emerald-500" size={10}/>}
+                                        {d.votes?.[v] === 'Contra' && <X className="text-red-500" size={10}/>}
+                                        {d.votes?.[v] === 'Abstenção' && <MinusCircle className="text-slate-400" size={10}/>}
+                                      </div>
+                                    ))}
+                                  </div>
+                                  <div className="flex gap-4 bg-white px-4 py-2 rounded-lg border border-slate-100 text-[10px] font-black uppercase italic">
+                                    <div className="text-emerald-600">Favor: {favorCount}</div>
+                                    <div className="text-red-600">Contra: {contraCount}</div>
+                                    <div className="text-slate-400">Abst: {abstCount}</div>
+                                  </div>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+
+                        {canEdit && (
+                          <div className="p-6 bg-amber-50 rounded-xl border border-amber-200 space-y-4">
+                            <h4 className="text-[10px] font-black uppercase text-amber-600 italic">Nova Proposição</h4>
+                            <textarea placeholder="Texto da Deliberação..." className="w-full p-4 border rounded-lg text-sm h-24 font-bold italic outline-none shadow-inner" value={tmpDelib.title} onChange={e=>setTmpDelib({...tmpDelib, title:e.target.value})} />
+                            <div className="space-y-2">
+                              <label className="text-[10px] font-bold text-slate-400 uppercase">Conceder Direito a Voto:</label>
+                              <div className="flex flex-wrap gap-3 p-4 bg-white rounded-lg border max-h-40 overflow-y-auto">
+                                {(currentMeeting.participants || []).filter((p:any) => !p.isExternal).map((p:any, i:number) => (
+                                  <label key={i} className="flex items-center gap-2 text-[10px] font-bold uppercase text-slate-500 cursor-pointer hover:text-amber-600 transition-colors">
+                                    <input type="checkbox" checked={tmpDelib.voters.includes(p.name)} className="accent-amber-600" onChange={(e) => { if(e.target.checked) setTmpDelib({...tmpDelib, voters: [...tmpDelib.voters, p.name]}); else setTmpDelib({...tmpDelib, voters: tmpDelib.voters.filter(v => v !== p.name)}); }} /> {p.name}
+                                  </label>
+                                ))}
+                              </div>
+                            </div>
+                            <button onClick={()=>{if(tmpDelib.title){setCurrentMeeting({...currentMeeting, deliberacoes:[...(currentMeeting.deliberacoes || []), { ...tmpDelib, votes: {} }]}); setTmpDelib({title:'', voters:[], votes: {}});}}} className="w-full py-4 bg-slate-900 text-amber-500 rounded-lg font-bold uppercase text-[10px] tracking-widest shadow-xl hover:bg-slate-800 transition-all">Oficializar Deliberação</button>
+                          </div>
+                        )}
+                      </div>
                     )}
+
                     {tab === 'acoes' && (
                       <div className="bg-white p-8 rounded-xl border border-slate-200 shadow-sm animate-in fade-in space-y-6">
                         <div className="space-y-3">{(currentMeeting.acoes || []).map((a:any, i:any) => (<div key={a.id || i} className="p-4 bg-white rounded-lg border border-l-4 border-l-emerald-500 shadow-sm flex flex-col group font-bold italic"><div className="flex justify-between items-center w-full"><div><p className="text-sm text-slate-800">{a.title}</p><p className="text-[10px] text-slate-400 uppercase mt-1 tracking-widest">{a.resp} • {a.date}</p></div>{canEdit && <button onClick={()=>setCurrentMeeting({...currentMeeting, acoes: (currentMeeting.acoes || []).filter((_:any, idx:any)=>idx!==i)})}><Trash2 size={18} className="text-slate-200 hover:text-red-500"/></button>}</div>{a.obs && <div className="mt-2 text-[10px] text-amber-700 bg-amber-50/50 p-2 rounded border border-amber-100/50 whitespace-pre-wrap">OBS: {a.obs}</div>}</div>))}</div>
@@ -712,7 +809,7 @@ const App = () => {
                             <td className="px-6 py-4 text-slate-400 text-[10px] uppercase tracking-widest">{acao.mTitle}</td>
                             <td className="px-6 py-4"><input type="date" className="bg-transparent border-none outline-none text-[10px] font-bold text-slate-600" value={acao.date || ''} onChange={(e) => updateActionDateGlobal(acao.mId, acao.id, e.target.value)} disabled={!canEdit}/></td>
                             <td className="px-6 py-4 text-center"><select value={acao.status} onChange={(e) => updateActionStatusGlobal(acao.mId, acao.id, e.target.value)} className="px-3 py-1.5 rounded-lg text-[10px] font-bold uppercase bg-amber-50 text-amber-700 cursor-pointer" disabled={!canEdit}><option value="Pendente">Aguardando</option><option value="Em andamento">Execução</option><option value="Concluída">Finalizado</option></select></td>
-                            {canEdit && <td className="px-6 py-4 text-center"><button onClick={() => deleteActionGlobal(acao.mId, acao.id)} className="text-slate-200 hover:text-red-500"><Trash2 size={16}/></button></td>}
+                            {canEdit && <td className="px-6 py-4 text-center"><button onClick={() => deleteActionGlobal(acao.mId, acao.id)} className="text-slate-200 hover:text-red-600"><Trash2 size={16}/></button></td>}
                           </tr>
                         ))}
                       </tbody>
