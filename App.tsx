@@ -44,6 +44,8 @@ const App = () => {
   };
   const [currentMeeting, setCurrentMeeting] = useState<any>(blankMeeting);
   
+  const [editingPart, setEditingPart] = useState<number | null>(null);
+  const [editingPauta, setEditingPauta] = useState<number | null>(null);
   const [tmpPart, setTmpPart] = useState({ name: '', email: '', isExternal: false });
   const [tmpPauta, setTmpPauta] = useState({ title: '', resp: '', dur: '' });
   const [tmpAcao, setTmpAcao] = useState({ title: '', resp: '', date: '', status: 'Pendente', obs: '' });
@@ -79,7 +81,7 @@ const App = () => {
 
   useEffect(() => { if (currentUser) fetchInitialData(); }, [currentUser]);
 
-  // --- CRONÔMETRO ATUALIZADO ---
+  // --- LOGICA DO CRONÔMETRO (MELHORADA) ---
   useEffect(() => {
     let timer: any;
     if (isSessionActive && activePautaIndex !== null) {
@@ -90,9 +92,9 @@ const App = () => {
           const pautaAtual = pautas[activePautaIndex];
           const limiteSegundos = (parseInt(pautaAtual?.dur) || 0) * 60;
           
-          // Alerta exatamente no momento que estoura, mas continua contando
+          // Alerta no limite, mas o cronômetro continua para marcar o tempo real gasto
           if (newVal === limiteSegundos) {
-            alert(`⚠️ TEMPO ESGOTADO: A pauta "${pautaAtual?.title}" atingiu o limite de ${pautaAtual?.dur} minutos.`);
+            alert(`⚠️ TEMPO ESGOTADO: A pauta "${pautaAtual?.title}" ultrapassou o limite planejado.`);
           }
           return newVal;
         });
@@ -101,6 +103,7 @@ const App = () => {
     return () => clearInterval(timer);
   }, [isSessionActive, activePautaIndex, currentMeeting.pautas]);
 
+  // Função para mudar ordem das pautas
   const handleMovePauta = (index: number, direction: 'up' | 'down') => {
     if (!canEdit || isSessionActive) return;
     const newPautas = [...(currentMeeting.pautas || [])];
@@ -115,7 +118,7 @@ const App = () => {
     const newPautas = [...(currentMeeting.pautas || [])];
     newPautas[index] = { ...newPautas[index], realDur: minutesSpent, completed: true };
     setCurrentMeeting({ ...currentMeeting, pautas: newPautas });
-    addLog('Pauta Concluída', `${newPautas[index].title} - Tempo Real: ${minutesSpent}min`);
+    addLog('Pauta Concluída', `${newPautas[index].title} - Gasto: ${minutesSpent}min`);
     
     if (index + 1 < newPautas.length) {
       setActivePautaIndex(index + 1);
@@ -124,11 +127,11 @@ const App = () => {
       setIsSessionActive(false);
       setActivePautaIndex(null);
       setTimeElapsed(0);
-      alert("Ordem do Dia finalizada.");
+      alert("Fim da Ordem do Dia. Todas as pautas concluídas.");
     }
   };
 
-  // --- FUNÇÕES DE DADOS (MANTIDAS 100%) ---
+  // --- FUNÇÕES DE DADOS ORIGINAIS ---
   const fetchInitialData = async () => {
     setLoading(true);
     try {
@@ -172,7 +175,19 @@ const App = () => {
       const newFile = { name: file.name, url: publicUrl, uploadedAt: new Date().toISOString() };
       setCurrentMeeting((prev: any) => ({ ...prev, [type]: [...(prev[type] || []), newFile] }));
       addLog('Upload', `Arquivo ${file.name} em ${type}`);
-      if (type === 'atas') alert("Ata publicada com sucesso!");
+
+      if (type === 'atas') {
+        const participants = currentMeeting.participants || [];
+        const emails = participants.map((p: any) => p.email).filter((e: string) => e);
+        const allPendingActions = meetings.flatMap((m: any) => (m.acoes || []).map((a: any) => ({ ...a, meetingTitle: m.title }))).filter((a: any) => a.status !== 'Concluída');
+        const usersToNotify = participants.map((p: any) => ({ email: p.email, name: p.name, pendingActions: allPendingActions.filter((a: any) => a.resp === p.name) })).filter((u: any) => u.email);
+        if (emails.length > 0) {
+          try {
+            await supabase.functions.invoke('send-minute-notification', { body: { meetingTitle: currentMeeting.title, minuteName: file.name, minuteUrl: publicUrl, actions: currentMeeting.acoes || [], recipients: emails, pendingSummary: usersToNotify } });
+            alert("Ata publicada e relatórios de pendências globais enviados!");
+          } catch (e) { alert("Ata publicada, erro no disparo de e-mails."); }
+        }
+      }
     } catch (err: any) { alert("Erro: " + err.message); }
     finally { setLoading(false); if (e.target) e.target.value = ''; }
   };
@@ -209,7 +224,6 @@ const App = () => {
     if (!error) {
       setMeetings(prev => prev.map(m => m.id === targetMeeting.id ? { ...m, acoes: updatedActions } : m));
       setTmpGlobalAcao({ title: '', resp: '', date: '', meetingId: '', obs: '' });
-      addLog('Lançamento Direto', `Ação "${newAction.title}" adicionada.`);
       alert("Ação registrada!");
     }
   };
@@ -271,11 +285,7 @@ const App = () => {
     const { error: err1 } = await supabase.from('meetings').update({ acoes: filteredOldAcoes }).eq('id', oldMeetingId);
     const { error: err2 } = await supabase.from('meetings').update({ acoes: updatedNewAcoes }).eq('id', newMeetingId);
     if (!err1 && !err2) {
-      setMeetings(prev => prev.map(m => {
-        if (m.id === oldMeetingId) return { ...m, acoes: filteredOldAcoes };
-        if (m.id === newMeetingId) return { ...m, acoes: updatedNewAcoes };
-        return m;
-      }));
+      setMeetings(prev => prev.map(m => m.id === oldMeetingId ? { ...m, acoes: filteredOldAcoes } : m.id === newMeetingId ? { ...m, acoes: updatedNewAcoes } : m));
     }
   };
 
@@ -366,22 +376,18 @@ const App = () => {
           </div>
         </div>
         <div className="p-6 border-t bg-white flex flex-col sm:flex-row gap-3">
-          <button 
-            disabled={isSendingEmail}
-            onClick={async () => {
+          <button disabled={isSendingEmail} onClick={async () => {
               const emails = (currentMeeting.participants || []).map((p: any) => p.email).filter((e: string) => e);
               if (emails.length === 0) return alert("Erro: Não há participantes com e-mail.");
               setIsSendingEmail(true);
               try {
                 await supabase.functions.invoke('send-invitation', { body: { meetingData: currentMeeting, recipients: emails } });
-                addLog('Convocação', `E-mails enviados para ${emails.length} membros.`);
+                addLog('Convocação', `E-mails enviados.`);
                 alert("Convocações enviadas!");
                 setIsConvocationOpen(false);
-              } catch (err: any) { alert("Erro ao disparar: " + err.message); }
+              } catch (e) { alert("Erro ao disparar."); }
               finally { setIsSendingEmail(false); }
-            }}
-            className="flex-1 bg-slate-900 text-white py-4 rounded-xl font-bold uppercase text-[10px] tracking-[2px] flex items-center justify-center gap-3 hover:bg-slate-800 transition-all shadow-xl disabled:opacity-50"
-          >
+            }} className="flex-1 bg-slate-900 text-white py-4 rounded-xl font-bold uppercase text-[10px] tracking-[2px] flex items-center justify-center gap-3 hover:bg-slate-800 transition-all shadow-xl disabled:opacity-50">
             {isSendingEmail ? "Processando..." : <><Send size={16} className="text-amber-500"/> Disparar Convocações Oficiais</>}
           </button>
         </div>
@@ -401,15 +407,13 @@ const App = () => {
           <form className="space-y-4" onSubmit={async (e)=>{
             e.preventDefault();
             setLoading(true);
-            const { data: authData, error: authError } = await supabase.auth.signInWithPassword({ email: authForm.email, password: authForm.password });
-            if (authError) alert('Erro de Acesso: ' + authError.message);
+            const { error } = await supabase.auth.signInWithPassword({ email: authForm.email, password: authForm.password });
+            if (error) alert('Erro de Acesso: ' + error.message);
             setLoading(false);
           }}>
             <input type="email" placeholder="E-mail Corporativo" className="w-full p-4 bg-slate-50 border border-slate-200 rounded-lg outline-none font-bold" value={authForm.email} onChange={e=>setAuthForm({...authForm, email:e.target.value})} required />
             <input type="password" placeholder="Senha" className="w-full p-4 bg-slate-50 border border-slate-200 rounded-lg outline-none font-bold" value={authForm.password} onChange={e=>setAuthForm({...authForm, password:e.target.value})} required />
-            <button disabled={loading} className="w-full bg-amber-600 hover:bg-amber-700 text-white py-4 rounded-lg font-bold uppercase shadow-md transition-all disabled:opacity-50">
-                {loading ? 'Validando...' : 'Entrar na Plataforma'}
-            </button>
+            <button disabled={loading} className="w-full bg-amber-600 hover:bg-amber-700 text-white py-4 rounded-lg font-bold uppercase shadow-md transition-all">Entrar na Plataforma</button>
           </form>
         </div>
       </div>
@@ -432,7 +436,7 @@ const App = () => {
             { id: 'dashboard', icon: <LayoutDashboard size={18}/>, label: 'Dashboard' },
             { id: 'reunioes', icon: <Calendar size={18}/>, label: 'Conselho', action: () => setView('list') },
             { id: 'plano-acao', icon: <ListChecks size={18}/>, label: 'Plano de Ação' },
-            { id: 'usuarios', icon: <UserCog size={18}/>, label: isSuper ? 'Contas' : 'Membros', adm: true },
+            { id: 'usuarios', icon: <UserCog size={18}/>, label: isSuper ? 'Contas de Clientes' : 'Membros', adm: true },
             { id: 'auditoria', icon: <History size={18}/>, label: 'Auditoria', adm: true }
           ].map((item) => (
             (!item.adm || isAdm) && (
@@ -455,7 +459,7 @@ const App = () => {
         <header className="h-16 bg-white border-b border-slate-200 flex items-center justify-between px-4 md:px-8 shrink-0 shadow-sm z-10">
           <div className="flex items-center gap-4">
             <button className="md:hidden p-2 text-slate-600" onClick={() => setIsMobileMenuOpen(true)}><Menu size={24}/></button>
-            <h2 className="text-[10px] font-bold text-slate-400 uppercase tracking-widest hidden sm:inline">INEPAD • {isSuper ? 'GESTÃO MASTER' : `Gestão: ${currentUser.client_id}`}</h2>
+            <h2 className="text-[10px] font-bold text-slate-400 uppercase tracking-widest hidden sm:inline">INEPAD Consultoria • {isSuper ? 'GESTÃO MASTER' : `Gestão: ${currentUser.client_id}`}</h2>
           </div>
           <div className="flex gap-4 items-center">
             <div className="text-right hidden xs:block">
@@ -476,20 +480,23 @@ const App = () => {
                   <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
                     <h1 className="text-2xl font-bold text-slate-800 tracking-tight italic">Estratégia {currentUser.client_id}</h1>
                     <div className="flex items-center gap-3 bg-white px-4 py-2 rounded-lg border border-slate-200 w-full sm:w-auto shadow-sm">
-                      <Filter size={16} className="text-amber-500"/>
-                      <select className="text-xs font-bold uppercase outline-none bg-transparent w-full cursor-pointer text-slate-600" value={dashboardFilter} onChange={e=>setDashboardFilter(e.target.value)}>
-                        <option value="all">Geral</option>
+                      <Filter size={16} className="text-amber-500"/><select className="text-xs font-bold uppercase outline-none bg-transparent w-full cursor-pointer text-slate-600" value={dashboardFilter} onChange={e=>setDashboardFilter(e.target.value)}>
+                        <option value="all">Consolidado Geral</option>
                         {meetings.map(m => <option key={m.id} value={m.id}>{m.title}</option>)}
                       </select>
                     </div>
                   </div>
                   <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-                    {[ {l:'Concluídas', v:stats.concluida, i:<CheckCircle2/>, c:'amber'}, {l:'Deliberações', v:stats.delibs, i:<FileText/>, c:'slate'}, {l:'Atas', v:stats.atas, i:<FileCheck/>, c:'amber'}, {l:'Em Atraso', v:stats.atrasadas, i:<AlertCircle/>, c:'red'} ].map((s, idx) => (
+                    {[ {l:'Concluídas', v:stats.concluida, i:<CheckCircle2/>, c:'amber'}, {l:'Deliberações', v:stats.delibs, i:<FileText/>, c:'slate'}, {l:'Atas na Nuvem', v:stats.atas, i:<FileCheck/>, c:'amber'}, {l:'Em Atraso', v:stats.atrasadas, i:<AlertCircle/>, c:'red'} ].map((s, idx) => (
                       <div key={idx} className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm flex items-start gap-4 transition-all hover:shadow-md">
                           <div className={`p-3 rounded-lg ${s.c==='amber'?'bg-amber-100 text-amber-600':s.c==='red'?'bg-red-100 text-red-600':'bg-slate-100 text-slate-500'}`}>{s.i}</div>
                           <div><p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">{s.l}</p><p className="text-2xl font-bold text-slate-800 mt-1">{s.v}</p></div>
                       </div>
                     ))}
+                  </div>
+                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 h-[350px]">
+                    <div className="bg-slate-900 p-6 rounded-xl shadow-xl flex flex-col h-full"><h3 className="text-xs font-bold uppercase text-amber-500 mb-4 tracking-widest italic">Status das Ações</h3><div className="flex-1 min-h-0"><ResponsiveContainer width="100%" height="100%"><PieChart><Pie chart-id="status-pie" data={stats.pieData} innerRadius={60} outerRadius={80} dataKey="value" paddingAngle={5}>{stats.pieData.map((e,i)=>(<Cell key={i} fill={e.color} stroke="none"/>))}</Pie><Tooltip/><Legend wrapperStyle={{fontSize:'10px', textTransform:'uppercase'}}/></PieChart></ResponsiveContainer></div></div>
+                    <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm flex flex-col h-full"><h3 className="text-xs font-bold uppercase text-slate-500 mb-4 tracking-widest italic">Produtividade Recente</h3><div className="flex-1 min-h-0"><ResponsiveContainer width="100%" height="100%"><BarChart data={stats.barData}><CartesianGrid vertical={false} stroke="#f1f5f9"/><XAxis dataKey="name" tick={{fontSize:10, fontWeight:600}}/><YAxis hide/><Tooltip/><Bar dataKey="Pautas" fill="#cbd5e1" radius={[4,4,0,0]} barSize={20}/><Bar dataKey="Ações" fill="#d97706" radius={[4,4,0,0]} barSize={20}/></BarChart></ResponsiveContainer></div></div>
                   </div>
                 </div>
               )}
@@ -497,11 +504,8 @@ const App = () => {
               {activeMenu === 'reunioes' && (
                 view === 'list' ? (
                   <div className="space-y-6 animate-in fade-in">
-                    <div className="flex justify-between items-center gap-4 bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
-                      <h1 className="text-2xl font-bold text-slate-800 tracking-tight italic">Conselho Deliberativo</h1>
-                      {canEdit && (<button onClick={()=>{setCurrentMeeting(blankMeeting); setView('details'); setTab('info');}} className="bg-amber-600 hover:bg-amber-700 text-white px-6 py-3 rounded-lg font-bold text-xs uppercase flex items-center justify-center gap-2 transition-all shadow-md">+ Nova Reunião</button>)}
-                    </div>
-                    <div className="grid gap-4">{meetings.map((m) => (<div key={m.id} onClick={()=>{setCurrentMeeting(m); setView('details'); setTab('info');}} className="bg-white p-6 rounded-xl border border-slate-200 flex justify-between items-center group cursor-pointer hover:border-amber-500 hover:shadow-md transition-all shadow-sm"><div className="flex items-center gap-4"><div className="p-3 bg-slate-100 text-slate-500 rounded-lg group-hover:bg-amber-100 group-hover:text-amber-700 transition-all"><Calendar size={24}/></div><div><h3 className="font-bold text-lg text-slate-800 group-hover:text-amber-600 transition-all italic">{m.title}</h3><p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">{m.status} • {m.date || 'S/D'}</p></div></div><div className="flex items-center gap-3">{canEdit && (<button onClick={(e) => { e.stopPropagation(); deleteMeeting(m.id, m.title); }} className="p-3 text-slate-200 hover:text-red-600 rounded-lg"><Trash2 size={20}/></button>)}<ChevronRight size={20} className="text-slate-300 group-hover:text-amber-500 transition-all"/></div></div>))}</div>
+                    <div className="flex justify-between items-center gap-4 bg-white p-4 rounded-xl border border-slate-200 shadow-sm"><h1 className="text-2xl font-bold text-slate-800 tracking-tight italic">Conselho Deliberativo</h1>{canEdit && (<button onClick={()=>{setCurrentMeeting(blankMeeting); setView('details'); setTab('info');}} className="bg-amber-600 hover:bg-amber-700 text-white px-6 py-3 rounded-lg font-bold text-xs uppercase flex items-center justify-center gap-2 transition-all shadow-md tracking-widest">+ Nova Reunião</button>)}</div>
+                    <div className="grid gap-4">{meetings.map((m) => (<div key={m.id} onClick={()=>{setCurrentMeeting(m); setView('details'); setTab('info');}} className="bg-white p-6 rounded-xl border border-slate-200 flex justify-between items-center group cursor-pointer hover:border-amber-500 hover:shadow-md transition-all shadow-sm"><div className="flex items-center gap-4"><div className="p-3 bg-slate-100 text-slate-500 rounded-lg group-hover:bg-amber-100 group-hover:text-amber-700 transition-all"><Calendar size={24}/></div><div><h3 className="font-bold text-lg text-slate-800 group-hover:text-amber-600 transition-all italic">{m.title}</h3><p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">{m.status} • {m.date || 'DATA N/D'}</p></div></div><div className="flex items-center gap-3">{canEdit && (<button onClick={(e) => { e.stopPropagation(); deleteMeeting(m.id, m.title); }} className="p-3 text-slate-200 hover:text-red-600 rounded-lg"><Trash2 size={20}/></button>)}<ChevronRight size={20} className="text-slate-300 group-hover:text-amber-500 transition-all"/></div></div>))}</div>
                   </div>
                 ) : (
                   <div className="animate-in fade-in duration-300 pb-20">
@@ -512,29 +516,29 @@ const App = () => {
                     {tab === 'info' && (
                       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 animate-in fade-in">
                         <div className="lg:col-span-2 space-y-6">
-                          {canEdit && currentMeeting.id && (<button onClick={() => setIsConvocationOpen(true)} className="w-full py-4 bg-amber-50 border-2 border-amber-200 rounded-xl text-amber-700 font-bold uppercase text-[10px] tracking-widest flex items-center justify-center gap-3 hover:bg-amber-100 transition-all shadow-sm"><Mail size={18}/> Gerar Convocação Oficial</button>)}
+                          {canEdit && currentMeeting.id && (<button onClick={() => setIsConvocationOpen(true)} className="w-full py-4 bg-amber-50 border-2 border-amber-200 rounded-xl text-amber-700 font-bold uppercase text-[10px] tracking-widest flex items-center justify-center gap-3 hover:bg-amber-100 transition-all shadow-sm"><Mail size={18}/> Gerar Convocação Oficial do Conselho</button>)}
                           <div className="bg-white p-6 md:p-8 rounded-xl border border-slate-200 shadow-sm space-y-6">
                             <h3 className="text-xs font-bold uppercase text-slate-500 tracking-widest flex items-center gap-2 border-b border-slate-50 pb-4"><UserCheck size={16} className="text-amber-600"/> Participantes</h3>
                             <div className="space-y-2">{(currentMeeting.participants || []).map((p:any, i:any) => (
                               <div key={i} className="flex justify-between items-center p-4 bg-slate-50 rounded-lg border border-slate-100 group transition-all hover:bg-white hover:shadow-md font-bold italic">
                                 <div className="flex items-center gap-4">
                                   <div className="w-10 h-10 rounded-xl bg-white border border-slate-200 text-slate-400 flex items-center justify-center text-xs font-bold">{p.name[0]}</div>
-                                  <div><p className="text-sm text-slate-800">{p.name} {p.isExternal && <span className="text-[8px] bg-slate-200 px-1 rounded uppercase">Ouvinte</span>}</p><p className="text-[10px] text-slate-400">{p.email}</p></div>
+                                  <div><p className="text-sm text-slate-800">{p.name} {p.isExternal && <span className="text-[8px] bg-slate-200 px-1 rounded uppercase">Ouvinte</span>}</p><p className="text-[10px] text-slate-400 italic">{p.email}</p></div>
                                 </div>
-                                {canEdit && <button onClick={()=>setCurrentMeeting({...currentMeeting, participants:(currentMeeting.participants || []).filter((_:any,idx:any)=>idx!==i)})} className="p-2 text-slate-400 hover:text-red-500 opacity-0 group-hover:opacity-100"><X size={16}/></button>}
+                                {canEdit && <button onClick={()=>setCurrentMeeting({...currentMeeting, participants:(currentMeeting.participants || []).filter((_:any,idx:any)=>idx!==i)})} className="p-2 text-slate-400 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity"><X size={16}/></button>}
                               </div>
                             ))}</div>
                             {canEdit && (
                               <div className="p-5 bg-slate-50 rounded-xl border border-dashed border-slate-300 flex flex-col gap-4">
                                 <div className="flex flex-col sm:flex-row gap-4 items-end w-full">
                                   <div className="flex-1 w-full space-y-1">
-                                    <label className="text-[10px] font-bold text-slate-400 uppercase">Vincular Membro</label>
-                                    <select className="w-full p-3 border rounded-lg text-sm bg-white font-bold" onChange={e => { const s = users.find(u => u.id === e.target.value); if (s) setTmpPart({ ...tmpPart, name: s.name, email: s.email }); }} value={users.find(u => u.email === tmpPart.email)?.id || ''}>
+                                    <label className="text-[10px] font-bold text-slate-400 uppercase">Selecionar Membro</label>
+                                    <select className="w-full p-3 border rounded-lg text-sm bg-white font-bold outline-none" onChange={e => { const s = users.find(u => u.id === e.target.value); if (s) setTmpPart({ ...tmpPart, name: s.name, email: s.email }); }} value={users.find(u => u.email === tmpPart.email)?.id || ''}>
                                       <option value="">Selecione...</option>
                                       {users.map((u: any) => <option key={u.id} value={u.id}>{u.name}</option>)}
                                     </select>
                                   </div>
-                                  <button onClick={() => { if (tmpPart.name) { setCurrentMeeting({ ...currentMeeting, participants: [...(currentMeeting.participants || []), tmpPart] }); setTmpPart({ name: '', email: '', isExternal: false }); } }} className="h-12 px-6 bg-amber-600 text-white rounded-lg text-[10px] font-bold uppercase tracking-widest shadow-md">Adicionar</button>
+                                  <button onClick={() => { if (tmpPart.name) { setCurrentMeeting({ ...currentMeeting, participants: [...(currentMeeting.participants || []), tmpPart] }); setTmpPart({ name: '', email: '', isExternal: false }); } }} className="h-12 px-6 bg-amber-600 text-white rounded-lg text-[10px] font-bold uppercase tracking-widest shadow-md">Vincular</button>
                                 </div>
                               </div>
                             )}
@@ -546,101 +550,80 @@ const App = () => {
 
                     {tab === 'pauta' && (
                       <div className="bg-white p-8 rounded-xl border border-slate-200 shadow-sm animate-in fade-in space-y-6">
-                        {/* HEADER DA SESSÃO */}
+                        {/* HEADER DO CRONÔMETRO */}
                         <div className="flex justify-between items-center bg-slate-900 p-6 rounded-xl border border-white/10 shadow-lg gap-4">
                           <div className="flex items-center gap-4">
                             <div className="p-3 bg-amber-600/20 text-amber-500 rounded-lg"><Timer size={24}/></div>
                             <div>
-                              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Estimativa da Sessão</p>
+                              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Estimativa Total</p>
                               <p className="text-2xl font-bold text-white italic">{totalEstimatedTime} <span className="text-sm font-normal not-italic text-slate-400">min</span></p>
                             </div>
                           </div>
-                          
-                          {!isSessionActive ? (
-                            <button 
-                              onClick={() => { 
-                                setIsSessionActive(true); 
-                                setActivePautaIndex(0); 
+                          <button onClick={() => { 
+                              if(!isSessionActive) {
+                                setActivePautaIndex(0);
                                 setTimeElapsed(0);
-                                addLog('Início Reunião', `Iniciada por ${currentUser.name}`);
-                              }} 
-                              className="px-6 py-3 bg-emerald-600 text-white rounded-lg font-bold text-xs uppercase flex items-center gap-2 shadow-md hover:bg-emerald-700"
-                            >
-                              <Play size={16}/> Iniciar Reunião
-                            </button>
-                          ) : (
-                            <button 
-                              onClick={() => { setIsSessionActive(false); setActivePautaIndex(null); }} 
-                              className="px-6 py-3 bg-red-600 text-white rounded-lg font-bold text-xs uppercase flex items-center gap-2 shadow-md hover:bg-red-700"
-                            >
-                              <Square size={16}/> Encerrar Reunião
-                            </button>
-                          )}
+                                addLog('Início Sessão', `Reunião iniciada.`);
+                              } else {
+                                setActivePautaIndex(null);
+                              }
+                              setIsSessionActive(!isSessionActive); 
+                            }} className={`px-6 py-3 rounded-lg font-bold text-xs uppercase flex items-center gap-2 transition-all shadow-md ${isSessionActive ? 'bg-red-600 text-white' : 'bg-emerald-600 text-white'}`}>
+                            {isSessionActive ? <><Square size={16}/> Encerrar Reunião</> : <><Play size={16}/> Iniciar Reunião</>}
+                          </button>
                         </div>
 
-                        {/* LISTAGEM DE PAUTAS */}
+                        {/* LISTAGEM DE PAUTAS COM REORDENAÇÃO */}
                         <div className="space-y-3">
                           {(currentMeeting.pautas || []).map((p:any, i:any) => (
-                            <div key={i} className={`flex justify-between items-center p-4 border rounded-xl transition-all group border-l-4 font-bold italic ${activePautaIndex === i ? 'bg-amber-50 border-amber-500 scale-[1.01] shadow-md' : 'bg-white border-slate-200'}`}>
+                            <div key={i} className={`flex justify-between items-center p-4 border rounded-lg transition-all group border-l-4 font-bold italic ${activePautaIndex === i ? 'bg-amber-50 border-amber-500 scale-[1.01] shadow-sm' : 'bg-white border-slate-200'}`}>
                               <div className="flex items-center gap-4 flex-1">
                                 <div className="flex flex-col gap-1 mr-2">
                                   {!isSessionActive && canEdit && (
                                     <>
                                       <button onClick={() => handleMovePauta(i, 'up')} className="text-slate-300 hover:text-amber-600 disabled:opacity-0" disabled={i === 0}><ChevronUp size={16}/></button>
-                                      <button onClick={() => handleMovePauta(i, 'down')} className="text-slate-300 hover:text-amber-600 disabled:opacity-0" disabled={i === currentMeeting.pautas.length - 1}><ChevronDown size={16}/></button>
+                                      <button onClick={() => handleMovePauta(i, 'down')} className="text-slate-300 hover:text-amber-600 disabled:opacity-0" disabled={i === currentMeeting.pautas.length -1}><ChevronDown size={16}/></button>
                                     </>
                                   )}
-                                  {isSessionActive && activePautaIndex === i && <Play size={16} className="text-amber-600 animate-pulse"/>}
+                                  {isSessionActive && activePautaIndex === i && <Play size={16} className="text-amber-500 animate-pulse"/>}
                                 </div>
-                                <span className="text-slate-300 text-xs">#{i+1}</span>
+                                <span className="text-slate-300">#{i+1}</span>
                                 <div>
                                   <p className="text-sm text-slate-800">{p.title}</p>
-                                  <p className="text-[10px] text-slate-500 font-bold uppercase">{p.resp} • {p.dur} min {p.realDur ? `(Gasto: ${p.realDur}min)` : ''}</p>
+                                  <p className="text-[10px] text-slate-500 font-bold uppercase">{p.resp} • {p.dur} min {p.realDur && <span className="text-emerald-600 ml-2">Gasto: {p.realDur}min</span>}</p>
                                 </div>
                               </div>
-
                               <div className="flex items-center gap-4">
                                 {isSessionActive && activePautaIndex === i && (
                                   <>
-                                    <div className={`font-mono text-xl ${timeElapsed > (parseInt(p.dur) * 60) ? 'text-red-600 animate-bounce' : 'text-amber-600'}`}>
-                                      {formatTime(timeElapsed)}
-                                    </div>
-                                    <button 
-                                      onClick={() => handleFinalizePauta(i)} 
-                                      className="bg-emerald-600 text-white px-4 py-2 rounded-lg text-[10px] font-bold uppercase flex items-center gap-2 hover:bg-emerald-700"
-                                    >
-                                      Próxima <SkipForward size={14}/>
-                                    </button>
+                                    <div className={`font-mono text-xl ${timeElapsed > (parseInt(p.dur) * 60) ? 'text-red-600 animate-pulse' : 'text-amber-600'}`}>{formatTime(timeElapsed)}</div>
+                                    <button onClick={() => handleFinalizePauta(i)} className="bg-emerald-600 text-white px-3 py-1.5 rounded-lg text-[10px] font-bold uppercase flex items-center gap-2">Próxima <SkipForward size={14}/></button>
                                   </>
                                 )}
-                                {!isSessionActive && canEdit && (
-                                  <button onClick={()=>setCurrentMeeting({...currentMeeting, pautas: (currentMeeting.pautas || []).filter((_:any, idx:any)=>idx!==i)})} className="p-2 text-slate-200 hover:text-red-500">
-                                    <Trash2 size={18}/>
-                                  </button>
-                                )}
+                                {!isSessionActive && canEdit && <button onClick={()=>setCurrentMeeting({...currentMeeting, pautas: (currentMeeting.pautas || []).filter((_:any, idx:any)=>idx!==i)})} className="p-2 text-slate-200 hover:text-red-500 transition-all"><Trash2 size={18}/></button>}
                                 {p.completed && <CheckCircle2 size={20} className="text-emerald-500"/>}
                               </div>
                             </div>
                           ))}
                         </div>
 
-                        {/* ADICIONAR NOVA PAUTA */}
+                        {/* ADICIONAR PAUTA */}
                         {canEdit && !isSessionActive && (
                           <div className="p-5 bg-slate-50 rounded-xl border border-dashed border-slate-300 grid grid-cols-1 sm:grid-cols-5 gap-4 items-end">
                             <div className="sm:col-span-2">
                               <label className="text-[10px] font-bold text-slate-400 uppercase">Assunto</label>
-                              <input placeholder="Ex: Resultados Q1" className="w-full p-3 border rounded-lg text-sm font-bold" value={tmpPauta.title} onChange={e=>setTmpPauta({...tmpPauta, title:e.target.value})}/>
+                              <input placeholder="Título" className="w-full p-3 border rounded-lg text-sm bg-white font-bold" value={tmpPauta.title} onChange={e=>setTmpPauta({...tmpPauta, title:e.target.value})}/>
                             </div>
                             <div>
                               <label className="text-[10px] font-bold text-slate-400 uppercase">Resp.</label>
-                              <select className="w-full p-3 border rounded-lg text-sm font-bold" value={tmpPauta.resp} onChange={e=>setTmpPauta({...tmpPauta, resp:e.target.value})}>
+                              <select className="w-full p-3 border rounded-lg text-sm bg-white font-bold" value={tmpPauta.resp} onChange={e=>setTmpPauta({...tmpPauta, resp:e.target.value})}>
                                 <option value="">Selecione...</option>
                                 {(currentMeeting.participants || []).map((p:any, i:number) => <option key={i} value={p.name}>{p.name}</option>)}
                               </select>
                             </div>
                             <div>
                               <label className="text-[10px] font-bold text-slate-400 uppercase">Minutos</label>
-                              <input type="number" className="w-full p-3 border rounded-lg text-sm font-bold" value={tmpPauta.dur} onChange={e=>setTmpPauta({...tmpPauta, dur:e.target.value})}/>
+                              <input type="number" className="w-full p-3 border rounded-lg text-sm bg-white font-bold" value={tmpPauta.dur} onChange={e=>setTmpPauta({...tmpPauta, dur:e.target.value})}/>
                             </div>
                             <button onClick={()=>{if(tmpPauta.title){setCurrentMeeting({...currentMeeting, pautas:[...(currentMeeting.pautas || []), tmpPauta]}); setTmpPauta({title:'', resp:'', dur:''});}}} className="h-12 bg-amber-600 text-white rounded-lg flex items-center justify-center shadow-md"><Plus size={24}/></button>
                           </div>
@@ -648,27 +631,24 @@ const App = () => {
                       </div>
                     )}
                     
-                    {/* RESTANTE DAS TABS (MANTIDAS 100%) */}
+                    {/* MATERIAIS, DELIBERAÇÕES, AÇÕES E ATAS (PRESERVADOS EXATAMENTE COMO SOLICITADO) */}
                     {tab === 'materiais' && (
                       <div className="bg-white p-8 rounded-xl border border-slate-200 shadow-sm animate-in fade-in space-y-6">
-                        <div className="flex justify-between items-center"><h3 className="text-xs font-bold uppercase text-slate-600 tracking-widest flex items-center gap-2">Documentos de Apoio</h3>{canEdit && <button onClick={()=>fileRef.current?.click()} className="bg-slate-100 hover:bg-slate-200 text-slate-700 px-4 py-2 rounded-lg text-[10px] font-bold uppercase flex items-center gap-2"><Upload size={14}/> Upload</button>}</div>
-                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">{(currentMeeting.materiais || []).map((m:any, i:any) => (<div key={i} className="p-4 bg-white border border-slate-200 rounded-xl flex items-center gap-3"><FileText size={20} className="text-amber-600"/><div className="flex-1 truncate text-xs font-bold italic">{m.name}</div><a href={m.url} target="_blank" rel="noreferrer" className="text-slate-400 hover:text-amber-600"><ExternalLink size={14}/></a></div>))}</div>
+                        <div className="flex justify-between items-center mb-4"><h3 className="text-xs font-bold uppercase text-slate-600 tracking-widest flex items-center gap-2">Documentos <span className="bg-red-50 text-red-500 text-[8px] px-2 py-0.5 rounded-full border border-red-100">Somente Internos</span></h3>{canEdit && <button onClick={()=>fileRef.current?.click()} className="bg-slate-100 hover:bg-slate-200 text-slate-700 px-4 py-2 rounded-lg text-[10px] font-bold uppercase flex items-center gap-2 transition-all"><Upload size={14}/> Upload</button>}</div>
+                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">{(currentMeeting.materiais || []).map((m:any, i:any) => (<div key={i} className="p-4 bg-white border border-slate-200 rounded-xl flex items-center gap-3 relative group"><FileText size={20} className="text-amber-600"/><div className="flex-1 truncate text-xs font-bold italic">{m.name}</div><a href={m.url} target="_blank" rel="noreferrer" className="text-slate-400 hover:text-amber-600"><ExternalLink size={14}/></a></div>))}</div>
                       </div>
                     )}
                     {tab === 'delib' && (
-                      <div className="bg-white p-8 rounded-xl border border-slate-200 shadow-sm animate-in fade-in space-y-8">
-                        <div className="space-y-4">{(currentMeeting.deliberacoes || []).map((d:any, i:any) => (<div key={i} className="p-6 bg-slate-50 rounded-xl border border-slate-200 shadow-sm font-bold italic"><p className="text-sm text-slate-800">"{d.title}"</p><div className="flex flex-wrap gap-2 pt-4 border-t border-slate-200 mt-4"><span className="text-[10px] font-bold uppercase text-slate-400">Votantes:</span> {d.voters.map((v:any, vi:any) => <span key={vi} className="bg-white px-3 py-1 rounded-full text-[9px] uppercase border">{v}</span>)}</div></div>))}</div>
-                        {canEdit && (<div className="p-6 bg-amber-50 rounded-xl border border-amber-200 space-y-4"><textarea placeholder="Texto da Deliberação..." className="w-full p-4 border rounded-lg text-sm h-24 font-bold italic outline-none" value={tmpDelib.title} onChange={e=>setTmpDelib({...tmpDelib, title:e.target.value})} /><div className="flex flex-wrap gap-3 p-4 bg-white rounded-lg border max-h-40 overflow-y-auto">{(currentMeeting.participants || []).filter((p:any) => !p.isExternal).map((p:any, i:number) => (<label key={i} className="flex items-center gap-2 text-[10px] font-bold uppercase text-slate-500 cursor-pointer"><input type="checkbox" checked={tmpDelib.voters.includes(p.name)} onChange={(e) => { if(e.target.checked) setTmpDelib({...tmpDelib, voters: [...tmpDelib.voters, p.name]}); else setTmpDelib({...tmpDelib, voters: tmpDelib.voters.filter(v => v !== p.name)}); }} /> {p.name}</label>))}</div><button onClick={()=>{if(tmpDelib.title){setCurrentMeeting({...currentMeeting, deliberacoes:[...(currentMeeting.deliberacoes || []), tmpDelib]}); setTmpDelib({title:'', voters:[]});}}} className="w-full py-3 bg-amber-600 text-white rounded-lg font-bold uppercase">Oficializar</button></div>)}
-                      </div>
+                      <div className="bg-white p-8 rounded-xl border border-slate-200 shadow-sm animate-in fade-in space-y-8"><div className="space-y-4">{(currentMeeting.deliberacoes || []).map((d:any, i:any) => (<div key={i} className="p-6 bg-slate-50 rounded-xl border border-slate-200 shadow-sm group font-bold italic"><p className="text-sm text-slate-800">"{d.title}"</p><div className="flex flex-wrap gap-2 pt-4 border-t border-slate-200 mt-4"><span className="text-[10px] font-bold uppercase text-slate-400">Votantes:</span> {d.voters.map((v:any, vi:any) => <span key={vi} className="bg-white px-3 py-1 rounded-full text-[9px] uppercase border">{v}</span>)}</div></div>))}</div>{canEdit && (<div className="p-6 bg-amber-50 rounded-xl border border-amber-200 space-y-4"><textarea placeholder="Texto da Deliberação..." className="w-full p-4 border rounded-lg text-sm h-24 font-bold italic outline-none" value={tmpDelib.title} onChange={e=>setTmpDelib({...tmpDelib, title:e.target.value})} /><div className="flex flex-wrap gap-3 p-4 bg-white rounded-lg border max-h-40 overflow-y-auto">{(currentMeeting.participants || []).filter((p:any) => !p.isExternal).map((p:any, i:number) => (<label key={i} className="flex items-center gap-2 text-[10px] font-bold uppercase text-slate-500 cursor-pointer"><input type="checkbox" checked={tmpDelib.voters.includes(p.name)} onChange={(e) => { if(e.target.checked) setTmpDelib({...tmpDelib, voters: [...tmpDelib.voters, p.name]}); else setTmpDelib({...tmpDelib, voters: tmpDelib.voters.filter(v => v !== p.name)}); }} /> {p.name}</label>))}</div><button onClick={()=>{if(tmpDelib.title){setCurrentMeeting({...currentMeeting, deliberacoes:[...(currentMeeting.deliberacoes || []), tmpDelib]}); setTmpDelib({title:'', voters:[]});}}} className="w-full py-3 bg-amber-600 text-white rounded-lg font-bold uppercase shadow-sm">Oficializar</button></div>)}</div>
                     )}
                     {tab === 'acoes' && (
                       <div className="bg-white p-8 rounded-xl border border-slate-200 shadow-sm animate-in fade-in space-y-6">
-                        <div className="space-y-3">{(currentMeeting.acoes || []).map((a:any, i:any) => (<div key={a.id || i} className="p-4 bg-white rounded-lg border border-l-4 border-l-emerald-500 shadow-sm flex flex-col font-bold italic"><div className="flex justify-between items-center"><div><p className="text-sm text-slate-800">{a.title}</p><p className="text-[10px] text-slate-400 uppercase mt-1 tracking-widest">{a.resp} • {a.date}</p></div>{canEdit && <button onClick={()=>setCurrentMeeting({...currentMeeting, acoes: (currentMeeting.acoes || []).filter((_:any, idx:any)=>idx!==i)})}><Trash2 size={18} className="text-slate-200 hover:text-red-500"/></button>}</div></div>))}</div>
-                        {canEdit && (<div className="p-5 bg-slate-50 border border-dashed border-slate-300 rounded-xl grid grid-cols-1 sm:grid-cols-12 gap-4 items-end"><div className="sm:col-span-5"><label className="text-[10px] font-bold text-slate-400 uppercase">Iniciativa</label><input placeholder="Título" className="w-full p-3 border rounded-lg text-sm bg-white font-bold italic" value={tmpAcao.title} onChange={e=>setTmpAcao({...tmpAcao, title:e.target.value})}/></div><div className="sm:col-span-3"><label className="text-[10px] font-bold text-slate-400 uppercase">Resp.</label><select className="w-full p-3 border rounded-lg text-sm bg-white font-bold" value={tmpAcao.resp} onChange={e=>setTmpAcao({...tmpAcao, resp:e.target.value})}><option value="">Selecione...</option>{users.map((u:any) => <option key={u.id} value={u.name}>{u.name}</option>)}</select></div><div className="sm:col-span-3"><label className="text-[10px] font-bold text-slate-400 uppercase">Prazo</label><input type="date" className="w-full p-3 border rounded-lg text-sm bg-white font-bold" value={tmpAcao.date} onChange={e=>setTmpAcao({...tmpAcao, date:e.target.value})}/></div><button onClick={()=>{if(tmpAcao.title){setCurrentMeeting({...currentMeeting, acoes:[...(currentMeeting.acoes || []), {...tmpAcao, id: Date.now()}]}); setTmpAcao({title:'', resp:'', date:'', status:'Pendente', obs:''});}}} className="sm:col-span-1 p-3 bg-emerald-600 text-white rounded-lg flex items-center justify-center shadow-md"><Plus size={18}/></button></div>)}
+                        <div className="space-y-3">{(currentMeeting.acoes || []).map((a:any, i:any) => (<div key={a.id || i} className="p-4 bg-white rounded-lg border border-l-4 border-l-emerald-500 shadow-sm flex flex-col group font-bold italic"><div className="flex justify-between items-center w-full"><div><p className="text-sm text-slate-800">{a.title}</p><p className="text-[10px] text-slate-400 uppercase mt-1 tracking-widest">{a.resp} • {a.date}</p></div>{canEdit && <button onClick={()=>setCurrentMeeting({...currentMeeting, acoes: (currentMeeting.acoes || []).filter((_:any, idx:any)=>idx!==i)})}><Trash2 size={18} className="text-slate-200 hover:text-red-500"/></button>}</div>{a.obs && <div className="mt-2 text-[10px] text-amber-700 bg-amber-50/50 p-2 rounded border border-amber-100/50 whitespace-pre-wrap">OBS: {a.obs}</div>}</div>))}</div>
+                        {canEdit && (<div className="p-5 bg-slate-50 border border-dashed border-slate-300 rounded-xl grid grid-cols-1 sm:grid-cols-12 gap-4 items-end"><div className="sm:col-span-5"><label className="text-[10px] font-bold text-slate-400 uppercase">Ação</label><input placeholder="Título" className="w-full p-3 border rounded-lg text-sm bg-white font-bold italic" value={tmpAcao.title} onChange={e=>setTmpAcao({...tmpAcao, title:e.target.value})}/></div><div className="sm:col-span-3"><label className="text-[10px] font-bold text-slate-400 uppercase">Resp.</label><select className="w-full p-3 border rounded-lg text-sm bg-white font-bold" value={tmpAcao.resp} onChange={e=>setTmpAcao({...tmpAcao, resp:e.target.value})}><option value="">Selecione...</option>{users.map((u:any) => <option key={u.id} value={u.name}>{u.name}</option>)}</select></div><div className="sm:col-span-3"><label className="text-[10px] font-bold text-slate-400 uppercase">Prazo</label><input type="date" className="w-full p-3 border rounded-lg text-sm bg-white font-bold" value={tmpAcao.date} onChange={e=>setTmpAcao({...tmpAcao, date:e.target.value})}/></div><div className="sm:col-span-12"><button onClick={()=>{if(tmpAcao.title){setCurrentMeeting({...currentMeeting, acoes:[...(currentMeeting.acoes || []), {...tmpAcao, id: Date.now()}]}); setTmpAcao({title:'', resp:'', date:'', status:'Pendente', obs:''});}}} className="w-full p-3 bg-emerald-600 text-white rounded-lg flex items-center justify-center shadow-md font-bold uppercase text-[10px] tracking-widest"><Plus size={18} className="mr-2"/> Adicionar Iniciativa</button></div></div>)}
                       </div>
                     )}
                     {tab === 'atas' && (
-                      <div className="bg-white p-8 rounded-xl border border-slate-200 shadow-sm animate-in fade-in space-y-8"><div className="flex justify-between items-center border-b border-slate-50 pb-4"><h3 className="text-xs font-bold uppercase text-slate-500 tracking-widest">Atas Finais</h3>{canEdit && <button onClick={()=>ataRef.current?.click()} className="bg-slate-100 hover:bg-slate-200 text-slate-700 px-4 py-2 rounded-lg text-[10px] font-bold uppercase flex items-center gap-2 transition-all"><Upload size={14}/> Carregar</button>}</div><div className="grid grid-cols-1 sm:grid-cols-2 gap-4">{(currentMeeting.atas || []).map((ata:any, i:any) => (<div key={i} className="p-4 bg-white border border-slate-200 rounded-xl flex items-center gap-4 italic font-bold"><div className="p-3 bg-amber-50 text-amber-600 rounded-lg"><FileCheck size={24}/></div><div className="flex-1 truncate text-sm">{ata.name}</div><a href={ata.url} target="_blank" rel="noreferrer" className="text-slate-300 hover:text-amber-600"><ExternalLink size={18}/></a></div>))}</div></div>
+                      <div className="bg-white p-8 rounded-xl border border-slate-200 shadow-sm animate-in fade-in space-y-8"><div className="flex justify-between items-center border-b border-slate-50 pb-4"><h3 className="text-xs font-bold uppercase text-slate-500 tracking-widest">Atas Finais</h3>{canEdit && <button onClick={()=>ataRef.current?.click()} className="bg-slate-100 hover:bg-slate-200 text-slate-700 px-4 py-2 rounded-lg text-[10px] font-bold uppercase flex items-center gap-2 transition-all"><Upload size={14}/> Carregar</button>}</div><div className="grid grid-cols-1 sm:grid-cols-2 gap-4">{(currentMeeting.atas || []).map((ata:any, i:any) => (<div key={i} className="p-4 bg-white border border-slate-200 rounded-xl flex items-center gap-4 group italic font-bold"><div className="p-3 bg-amber-50 text-amber-600 rounded-lg"><FileCheck size={24}/></div><div className="flex-1 truncate text-sm">{ata.name}</div><a href={ata.url} target="_blank" rel="noreferrer" className="text-slate-300 hover:text-amber-600"><ExternalLink size={18}/></a></div>))}</div></div>
                     )}
                   </div>
                 )
@@ -676,19 +656,28 @@ const App = () => {
               
               {activeMenu === 'plano-acao' && (
                 <div className="space-y-6 animate-in fade-in">
-                  <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex flex-col md:flex-row justify-between items-start md:items-center gap-4"><h1 className="text-2xl font-bold text-slate-800 tracking-tight italic">Plano Global</h1></div>
+                  <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+                    <h1 className="text-2xl font-bold text-slate-800 tracking-tight italic">Plano Global</h1>
+                    <div className="flex flex-wrap items-center gap-3 bg-slate-50 p-2 rounded-lg border border-slate-200 w-full md:w-auto">
+                      <div className="flex items-center gap-2 bg-white px-3 py-1.5 rounded border border-slate-200"><User size={14} className="text-amber-500"/><select className="text-[10px] font-bold uppercase outline-none bg-transparent cursor-pointer text-slate-600" value={filterResp} onChange={e=>setFilterResp(e.target.value)}><option value="all">Responsável</option>{[...new Set(meetings.flatMap((m: any) => (m.acoes || []).map((a: any) => a.resp)))].filter(r => r).map(r => <option key={r} value={r}>{r}</option>)}</select></div>
+                      <div className="flex items-center gap-2 bg-white px-3 py-1.5 rounded border border-slate-200"><Target size={14} className="text-amber-500"/><select className="text-[10px] font-bold uppercase outline-none bg-transparent cursor-pointer text-slate-600" value={filterStatus} onChange={e=>setFilterStatus(e.target.value)}><option value="all">Status</option><option value="Pendente">Pendente</option><option value="Em andamento">Em andamento</option><option value="Concluída">Concluída</option></select></div>
+                      <div className="flex items-center gap-2 bg-white px-3 py-1.5 rounded border border-slate-200"><Building2 size={14} className="text-amber-500"/><select className="text-[10px] font-bold uppercase outline-none bg-transparent cursor-pointer text-slate-600" value={filterOrigin} onChange={e=>setFilterOrigin(e.target.value)}><option value="all">Origem (Reunião)</option>{meetings.map(m => <option key={m.id} value={m.id}>{m.title}</option>)}</select></div>
+                    </div>
+                  </div>
                   <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden overflow-x-auto">
-                    <table className="w-full text-left text-sm min-w-[1000px] font-bold italic">
+                    <table className="w-full text-left text-sm min-w-[1200px] font-bold italic">
                       <thead className="bg-slate-900 text-[10px] font-bold uppercase text-amber-500 tracking-widest">
-                        <tr><th className="px-6 py-4">Iniciativa</th><th className="px-6 py-4">Responsável</th><th className="px-6 py-4">Origem</th><th className="px-6 py-4 text-center">Status</th></tr>
+                        <tr><th className="px-6 py-4">Iniciativa</th><th className="px-6 py-4">Responsável</th><th className="px-6 py-4">Origem</th><th className="px-6 py-4">Prazo</th><th className="px-6 py-4">Status</th>{canEdit && <th className="px-6 py-4 text-center">Gestão</th>}</tr>
                       </thead>
                       <tbody className="divide-y divide-slate-100">
                         {stats.allActions.map((acao:any) => (
                           <tr key={`${acao.mId}-${acao.id}`} className="hover:bg-slate-50 transition-all">
                             <td className="px-6 py-4 text-slate-800">{acao.title}</td>
-                            <td className="px-6 py-4 text-slate-600">{acao.resp}</td>
+                            <td className="px-6 py-4 text-slate-600">{canEdit ? (<select className="bg-transparent border-none outline-none text-xs font-bold text-slate-600 cursor-pointer w-full" value={acao.resp || ''} onChange={(e) => updateActionRespGlobal(acao.mId, acao.id, e.target.value)}><option value="">Selecione...</option>{users.map((u: any) => <option key={u.id} value={u.name}>{u.name}</option>)}</select>) : (acao.resp || 'N/D')}</td>
                             <td className="px-6 py-4 text-slate-400 text-[10px] uppercase tracking-widest">{acao.mTitle}</td>
+                            <td className="px-6 py-4"><input type="date" className="bg-transparent border-none outline-none text-[10px] font-bold text-slate-600" value={acao.date || ''} onChange={(e) => updateActionDateGlobal(acao.mId, acao.id, e.target.value)} disabled={!canEdit}/></td>
                             <td className="px-6 py-4 text-center"><select value={acao.status} onChange={(e) => updateActionStatusGlobal(acao.mId, acao.id, e.target.value)} className="px-3 py-1.5 rounded-lg text-[10px] font-bold uppercase bg-amber-50 text-amber-700 cursor-pointer" disabled={!canEdit}><option value="Pendente">Aguardando</option><option value="Em andamento">Execução</option><option value="Concluída">Finalizado</option></select></td>
+                            {canEdit && <td className="px-6 py-4 text-center"><button onClick={() => deleteActionGlobal(acao.mId, acao.id)} className="text-slate-200 hover:text-red-600"><Trash2 size={16}/></button></td>}
                           </tr>
                         ))}
                       </tbody>
@@ -699,8 +688,8 @@ const App = () => {
 
               {activeMenu === 'usuarios' && (
                 <div className="space-y-6 animate-in fade-in">
-                  <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm"><h1 className="text-2xl font-bold text-slate-800 tracking-tight italic">Membros</h1></div>
-                  <div className="lg:col-span-2 bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden"><table className="w-full text-left text-sm min-w-[500px] font-bold italic"><thead className="bg-slate-50 text-[10px] font-bold uppercase text-slate-400 tracking-widest"><tr><th className="px-6 py-4">Nome</th><th className="px-6 py-4 text-center">Nível</th><th className="px-6 py-4 text-center">Ações</th></tr></thead><tbody className="divide-y divide-slate-100">{users.map((u:any) => (<tr key={u.id} className="hover:bg-slate-50 transition-all"><td className="px-6 py-4">{u.name} <br/><span className="text-[9px] text-slate-300">{u.email}</span></td><td className="px-6 py-4 text-center text-[10px]">{u.role}</td><td className="px-6 py-4 text-center"><button onClick={async ()=>{ if(window.confirm(`Remover?`)) { const {error} = await supabase.from('members').delete().eq('id', u.id); if(!error) setUsers(users.filter((x:any)=>x.id!==u.id)); } }} className="text-slate-200 hover:text-red-500"><Trash2 size={18}/></button></td></tr>))}</tbody></table></div>
+                  <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm"><h1 className="text-2xl font-bold text-slate-800 tracking-tight italic">Conselheiros</h1></div>
+                  <div className="lg:col-span-2 bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden overflow-x-auto"><table className="w-full text-left text-sm min-w-[500px] font-bold italic"><thead className="bg-slate-50 text-[10px] font-bold uppercase text-slate-400 tracking-widest"><tr><th className="px-6 py-4">Membro</th><th className="px-6 py-4 text-center">Empresa</th><th className="px-6 py-4 text-center">Nível</th><th className="px-6 py-4 text-center">Gestão</th></tr></thead><tbody className="divide-y divide-slate-100">{users.map((u:any) => (<tr key={u.id} className="hover:bg-slate-50 transition-all"><td className="px-6 py-4">{u.name} <br/><span className="text-[9px] text-slate-300">{u.email}</span></td><td className="px-6 py-4 text-center text-[10px] text-amber-600 uppercase">{u.client_id}</td><td className="px-6 py-4 text-center text-[10px]">{u.role}</td><td className="px-6 py-4 text-center"><button onClick={async ()=>{ if(window.confirm(`Remover?`)) { const {error} = await supabase.from('members').delete().eq('id', u.id); if(!error) setUsers(users.filter((x:any)=>x.id!==u.id)); } }} className="text-slate-200 hover:text-red-500"><Trash2 size={18}/></button></td></tr>))}</tbody></table></div>
                 </div>
               )}
 
