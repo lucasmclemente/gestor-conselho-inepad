@@ -167,9 +167,18 @@ const App = () => {
       const fileExt = file.name.split('.').pop();
       const fileName = `${currentUser.client_id}/${Date.now()}_${Math.floor(Math.random() * 1000)}.${fileExt}`;
       const filePath = `${type}/${fileName}`;
+      
       await supabase.storage.from('meeting-files').upload(filePath, file);
-      const { data: { publicUrl } } = supabase.storage.from('meeting-files').getPublicUrl(filePath);
-      const newFile = { name: file.name, url: publicUrl, uploadedAt: new Date().toISOString() };
+
+      // Link assinado por 7 dias
+      const { data: signedData, error: signedError } = await supabase.storage
+        .from('meeting-files')
+        .createSignedUrl(filePath, 60 * 60 * 24 * 7);
+
+      if (signedError) throw signedError;
+      const secureUrl = signedData.signedUrl;
+
+      const newFile = { name: file.name, url: secureUrl, uploadedAt: new Date().toISOString() };
       setCurrentMeeting((prev: any) => ({ ...prev, [type]: [...(prev[type] || []), newFile] }));
       addLog('Upload', `Arquivo ${file.name} em ${type}`);
 
@@ -180,7 +189,16 @@ const App = () => {
         const usersToNotify = participants.map((p: any) => ({ email: p.email, name: p.name, pendingActions: allPendingActions.filter((a: any) => a.resp === p.name) })).filter((u: any) => u.email);
         if (emails.length > 0) {
           try {
-            await supabase.functions.invoke('send-minute-notification', { body: { meetingTitle: currentMeeting.title, minuteName: file.name, minuteUrl: publicUrl, actions: currentMeeting.acoes || [], recipients: emails, pendingSummary: usersToNotify } });
+            await supabase.functions.invoke('send-minute-notification', { 
+              body: { 
+                meetingTitle: currentMeeting.title, 
+                minuteName: file.name, 
+                minuteUrl: secureUrl, 
+                actions: currentMeeting.acoes || [], 
+                recipients: emails, 
+                pendingSummary: usersToNotify 
+              } 
+            });
             alert("Ata publicada e relatórios de pendências globais enviados!");
           } catch (e) { alert("Ata publicada, erro no disparo de e-mails."); }
         }
@@ -249,6 +267,8 @@ const App = () => {
     const meeting = meetings.find(m => m.id === meetingId);
     if (!meeting) return;
     const newAcoes = (meeting.acoes || []).map((a: any) => a.id === actionId ? { ...a, status: newStatus } : a);
+    
+    // Corrigido aqui para usar newAcoes
     const { error } = await supabase.from('meetings').update({ acoes: newAcoes }).eq('id', meetingId);
     if (!error) setMeetings(prev => prev.map(m => m.id === meetingId ? { ...m, acoes: newAcoes } : m));
   };
