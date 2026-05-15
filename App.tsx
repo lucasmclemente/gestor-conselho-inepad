@@ -1,3 +1,4 @@
+// Reset manual para sincronia total com a Main - 15/05/2026
 import React, { useState, useRef, useMemo, useEffect } from 'react';
 import { createClient } from '@supabase/supabase-js';
 import {
