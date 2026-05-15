@@ -1,4 +1,3 @@
-// Reset manual para sincronia total com a Main - 15/05/2026
 import React, { useState, useRef, useMemo, useEffect } from 'react';
 import { createClient } from '@supabase/supabase-js';
 import {
@@ -184,8 +183,10 @@ const App = () => {
       addLog('Upload', `Arquivo ${file.name} em ${type}`);
 
       if (type === 'atas') {
-        const participants = currentMeeting.participants || [];
+        // ALTERAÇÃO: Filtra para que apenas participantes internos (membros do sistema) recebam a Ata
+        const participants = (currentMeeting.participants || []).filter((p: any) => !p.isExternal);
         const emails = participants.map((p: any) => p.email).filter((e: string) => e);
+        
         const allPendingActions = meetings.flatMap((m: any) => (m.acoes || []).map((a: any) => ({ ...a, meetingTitle: m.title }))).filter((a: any) => a.status !== 'Concluída');
         const usersToNotify = participants.map((p: any) => ({ email: p.email, name: p.name, pendingActions: allPendingActions.filter((a: any) => a.resp === p.name) })).filter((u: any) => u.email);
         if (emails.length > 0) {
@@ -604,22 +605,49 @@ const App = () => {
                               <div key={i} className="flex justify-between items-center p-4 bg-slate-50 rounded-lg border border-slate-100 group transition-all hover:bg-white hover:shadow-md font-bold italic">
                                 <div className="flex items-center gap-4">
                                   <div className="w-10 h-10 rounded-xl bg-white border border-slate-200 text-slate-400 flex items-center justify-center text-xs font-bold">{p.name[0]}</div>
-                                  <div><p className="text-sm text-slate-800">{p.name} {p.isExternal && <span className="text-[8px] bg-slate-200 px-1 rounded uppercase">Ouvinte</span>}</p><p className="text-[10px] text-slate-400 italic">{p.email}</p></div>
+                                  <div><p className="text-sm text-slate-800">{p.name} {p.isExternal && <span className="text-[8px] bg-amber-100 text-amber-700 px-1 rounded uppercase ml-2 border border-amber-200">Convidado</span>}</p><p className="text-[10px] text-slate-400 italic">{p.email}</p></div>
                                 </div>
                                 {canEdit && <button onClick={()=>setCurrentMeeting({...currentMeeting, participants:(currentMeeting.participants || []).filter((_:any,idx:any)=>idx!==i)})} className="p-2 text-slate-400 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity"><X size={16}/></button>}
                               </div>
                             ))}</div>
                             {canEdit && (
                               <div className="p-5 bg-slate-50 rounded-xl border border-dashed border-slate-300 flex flex-col gap-4">
-                                <div className="flex flex-col sm:flex-row gap-4 items-end w-full">
-                                  <div className="flex-1 w-full space-y-1">
-                                    <label className="text-[10px] font-bold text-slate-400 uppercase">Selecionar Membro</label>
-                                    <select className="w-full p-3 border rounded-lg text-sm bg-white font-bold outline-none" onChange={e => { const s = users.find(u => u.id === e.target.value); if (s) setTmpPart({ ...tmpPart, name: s.name, email: s.email }); }} value={users.find(u => u.email === tmpPart.email)?.id || ''}>
-                                      <option value="">Selecione...</option>
+                                {/* ALTERAÇÃO: Adicionado campos para convidados externos */}
+                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                                  <div className="space-y-1">
+                                    <label className="text-[10px] font-bold text-slate-400 uppercase">Membro do Sistema</label>
+                                    <select className="w-full p-3 border rounded-lg text-sm bg-white font-bold outline-none" 
+                                      onChange={e => { 
+                                        const s = users.find(u => u.id === e.target.value); 
+                                        if (s) setTmpPart({ name: s.name, email: s.email, isExternal: false }); 
+                                      }} 
+                                      value={users.find(u => u.email === tmpPart.email && !tmpPart.isExternal)?.id || ''}>
+                                      <option value="">Selecione um membro...</option>
                                       {users.map((u: any) => <option key={u.id} value={u.id}>{u.name}</option>)}
                                     </select>
                                   </div>
-                                  <button onClick={() => { if (tmpPart.name) { setCurrentMeeting({ ...currentMeeting, participants: [...(currentMeeting.participants || []), tmpPart] }); setTmpPart({ name: '', email: '', isExternal: false }); } }} className="h-12 px-6 bg-amber-600 text-white rounded-lg text-[10px] font-bold uppercase tracking-widest shadow-md">Vincular</button>
+                                  <div className="space-y-1">
+                                    <label className="text-[10px] font-bold text-slate-400 uppercase">Convidado Externo (Nome)</label>
+                                    <input type="text" placeholder="Digite o nome..." className="w-full p-3 border rounded-lg text-sm bg-white font-bold outline-none" 
+                                      value={tmpPart.isExternal ? tmpPart.name : ''}
+                                      onChange={e => setTmpPart({ ...tmpPart, name: e.target.value, isExternal: true })} />
+                                  </div>
+                                </div>
+                                <div className="flex flex-col sm:flex-row gap-4 items-end">
+                                  <div className="flex-1 space-y-1">
+                                    <label className="text-[10px] font-bold text-slate-400 uppercase">E-mail {tmpPart.isExternal && "(Convidado)"}</label>
+                                    <input type="email" placeholder="email@exemplo.com" className="w-full p-3 border rounded-lg text-sm bg-white font-bold outline-none"
+                                      value={tmpPart.email}
+                                      onChange={e => setTmpPart({ ...tmpPart, email: e.target.value })} />
+                                  </div>
+                                  <button onClick={() => { 
+                                    if (tmpPart.name && tmpPart.email) { 
+                                      setCurrentMeeting({ ...currentMeeting, participants: [...(currentMeeting.participants || []), tmpPart] }); 
+                                      setTmpPart({ name: '', email: '', isExternal: false }); 
+                                    } else {
+                                      alert("Nome e E-mail são obrigatórios.");
+                                    }
+                                  }} className="h-12 px-6 bg-amber-600 text-white rounded-lg text-[10px] font-bold uppercase tracking-widest shadow-md">Adicionar</button>
                                 </div>
                               </div>
                             )}
@@ -797,7 +825,31 @@ const App = () => {
                     {tab === 'acoes' && (
                       <div className="bg-white p-8 rounded-xl border border-slate-200 shadow-sm animate-in fade-in space-y-6">
                         <div className="space-y-3">{(currentMeeting.acoes || []).map((a:any, i:any) => (<div key={a.id || i} className="p-4 bg-white rounded-lg border border-l-4 border-l-emerald-500 shadow-sm flex flex-col group font-bold italic"><div className="flex justify-between items-center w-full"><div><p className="text-sm text-slate-800">{a.title}</p><p className="text-[10px] text-slate-400 uppercase mt-1 tracking-widest">{a.resp} • {a.date}</p></div>{canEdit && <button onClick={()=>setCurrentMeeting({...currentMeeting, acoes: (currentMeeting.acoes || []).filter((_:any, idx:any)=>idx!==i)})}><Trash2 size={18} className="text-slate-200 hover:text-red-500"/></button>}</div>{a.obs && <div className="mt-2 text-[10px] text-amber-700 bg-amber-50/50 p-2 rounded border border-amber-100/50 whitespace-pre-wrap">OBS: {a.obs}</div>}</div>))}</div>
-                        {canEdit && (<div className="p-5 bg-slate-50 border border-dashed border-slate-300 rounded-xl grid grid-cols-1 sm:grid-cols-12 gap-4 items-end"><div className="sm:col-span-5"><label className="text-[10px] font-bold text-slate-400 uppercase">Ação</label><input placeholder="Título" className="w-full p-3 border rounded-lg text-sm bg-white font-bold italic" value={tmpAcao.title} onChange={e=>setTmpAcao({...tmpAcao, title:e.target.value})}/></div><div className="sm:col-span-3"><label className="text-[10px] font-bold text-slate-400 uppercase">Resp.</label><select className="w-full p-3 border rounded-lg text-sm bg-white font-bold" value={tmpAcao.resp} onChange={e=>setTmpAcao({...tmpAcao, resp:e.target.value})}><option value="">Selecione...</option>{users.map((u:any) => <option key={u.id} value={u.name}>{u.name}</option>)}</select></div><div className="sm:col-span-3"><label className="text-[10px] font-bold text-slate-400 uppercase">Prazo</label><input type="date" className="w-full p-3 border rounded-lg text-sm bg-white font-bold" value={tmpAcao.date} onChange={e=>setTmpAcao({...tmpAcao, date:e.target.value})}/></div><div className="sm:col-span-12"><button onClick={()=>{if(tmpAcao.title){setCurrentMeeting({...currentMeeting, acoes:[...(currentMeeting.acoes || []), {...tmpAcao, id: Date.now()}]}); setTmpAcao({title:'', resp:'', date:'', status:'Pendente', obs:''});}}} className="w-full p-3 bg-emerald-600 text-white rounded-lg flex items-center justify-center shadow-md font-bold uppercase text-[10px] tracking-widest"><Plus size={18} className="mr-2"/> Adicionar Iniciativa</button></div></div>)}
+                        {canEdit && (
+                          <div className="p-5 bg-slate-50 border border-dashed border-slate-300 rounded-xl grid grid-cols-1 sm:grid-cols-12 gap-4 items-end">
+                            <div className="sm:col-span-5">
+                              <label className="text-[10px] font-bold text-slate-400 uppercase">Ação</label>
+                              <input placeholder="Título" className="w-full p-3 border rounded-lg text-sm bg-white font-bold italic" value={tmpAcao.title} onChange={e=>setTmpAcao({...tmpAcao, title:e.target.value})}/>
+                            </div>
+                            <div className="sm:col-span-3">
+                              <label className="text-[10px] font-bold text-slate-400 uppercase">Resp.</label>
+                              {/* ALTERAÇÃO: Filtra para que apenas membros internos sejam responsáveis por ações */}
+                              <select className="w-full p-3 border rounded-lg text-sm bg-white font-bold" value={tmpAcao.resp} onChange={e=>setTmpAcao({...tmpAcao, resp:e.target.value})}>
+                                <option value="">Selecione...</option>
+                                {(currentMeeting.participants || []).filter((p: any) => !p.isExternal).map((p: any, i: number) => (
+                                  <option key={i} value={p.name}>{p.name}</option>
+                                ))}
+                              </select>
+                            </div>
+                            <div className="sm:col-span-3">
+                              <label className="text-[10px] font-bold text-slate-400 uppercase">Prazo</label>
+                              <input type="date" className="w-full p-3 border rounded-lg text-sm bg-white font-bold" value={tmpAcao.date} onChange={e=>setTmpAcao({...tmpAcao, date:e.target.value})}/>
+                            </div>
+                            <div className="sm:col-span-12">
+                              <button onClick={()=>{if(tmpAcao.title){setCurrentMeeting({...currentMeeting, acoes:[...(currentMeeting.acoes || []), {...tmpAcao, id: Date.now()}]}); setTmpAcao({title:'', resp:'', date:'', status:'Pendente', obs:''});}}} className="w-full p-3 bg-emerald-600 text-white rounded-lg flex items-center justify-center shadow-md font-bold uppercase text-[10px] tracking-widest"><Plus size={18} className="mr-2"/> Adicionar Iniciativa</button>
+                            </div>
+                          </div>
+                        )}
                       </div>
                     )}
                     {tab === 'atas' && (
