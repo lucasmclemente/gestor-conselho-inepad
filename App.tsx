@@ -302,7 +302,8 @@ const App = () => {
   };
 
   // --- CADASTRO DE NOVO MEMBRO (via Edge Function segura) ---
-  // CORREÇÃO: envia o token JWT do usuário logado no cabeçalho Authorization
+  // CORREÇÃO FINAL: verifica diretamente no banco se o membro foi criado,
+  // ignorando o código de retorno HTTP da Edge Function
   const handleCreateUser = async () => {
     const clientId = isSuper ? newUserForm.client_id : currentUser.client_id;
     if (!newUserForm.name || !newUserForm.email || !newUserForm.password || !clientId) {
@@ -313,11 +314,12 @@ const App = () => {
     }
     setLoading(true);
     try {
-      // Busca o token da sessão atual para autenticar a chamada
       const { data: sessionData } = await supabase.auth.getSession();
       const accessToken = sessionData?.session?.access_token;
 
-      const { data, error } = await supabase.functions.invoke('create-user', {
+      // Chama a Edge Function — não valida o retorno HTTP pois pode retornar 500
+      // mesmo quando o cadastro foi realizado com sucesso
+      await supabase.functions.invoke('create-user', {
         body: {
           name: newUserForm.name,
           email: newUserForm.email,
@@ -326,27 +328,24 @@ const App = () => {
           client_id: clientId,
           created_by: currentUser.name
         },
-        headers: {
-          Authorization: `Bearer ${accessToken}`
-        }
+        headers: { Authorization: `Bearer ${accessToken}` }
       });
 
-      // Considera sucesso se o user_id foi retornado, mesmo com erro HTTP
-      if (error && !data?.user_id) throw error;
-      if (data?.error && !data?.user_id) throw new Error(data.error);
+      // Verifica diretamente no banco se o membro foi criado com sucesso
+      const { data: membroVerificado } = await supabase
+        .from('members')
+        .select('id, name, email, role, client_id, created_at')
+        .eq('email', newUserForm.email)
+        .single();
 
-      const novoMembro = {
-        id: data.user_id,
-        name: newUserForm.name,
-        email: newUserForm.email,
-        role: newUserForm.role,
-        client_id: clientId,
-        created_at: new Date().toISOString()
-      };
-      setUsers(prev => [...prev, novoMembro].sort((a, b) => a.name.localeCompare(b.name)));
-      addLog('Cadastro', `Novo membro: ${newUserForm.name} (${newUserForm.role}) — ${clientId}`);
+      if (!membroVerificado) {
+        throw new Error("Não foi possível confirmar o cadastro. Tente novamente.");
+      }
+
+      setUsers(prev => [...prev, membroVerificado].sort((a, b) => a.name.localeCompare(b.name)));
+      addLog('Cadastro', `Novo membro: ${membroVerificado.name} (${membroVerificado.role}) — ${clientId}`);
       setnewUserForm({ name: '', email: '', role: 'Conselheiro', password: '', client_id: '' });
-      alert(`✅ Membro ${newUserForm.name} cadastrado com sucesso!`);
+      alert(`✅ Membro ${membroVerificado.name} cadastrado com sucesso!`);
     } catch (err: any) {
       alert("Erro ao cadastrar: " + (err.message || "Verifique se a Edge Function 'create-user' está publicada."));
     } finally {
