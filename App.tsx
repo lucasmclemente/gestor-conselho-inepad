@@ -75,8 +75,23 @@ const App = () => {
   }, []);
 
   const fetchMemberProfile = async (userId: string) => {
-    const { data } = await supabase.from('members').select('id, name, email, role, client_id').eq('id', userId).single();
-    if (data) setCurrentUser(data);
+    // Tenta ler role e client_id do user_metadata do Auth (mais seguro)
+    const { data: authData } = await supabase.auth.getUser();
+    const user = authData?.user;
+    const meta = user?.user_metadata;
+    if (meta?.role && meta?.client_id) {
+      setCurrentUser({
+        id: userId,
+        name: meta.name || user?.email || '',
+        email: user?.email ?? '',
+        role: meta.role,
+        client_id: meta.client_id
+      });
+    } else {
+      // Fallback para tabela members (compatibilidade com usuários sem metadata)
+      const { data } = await supabase.from('members').select('id, name, email, role, client_id').eq('id', userId).single();
+      if (data) setCurrentUser(data);
+    }
   };
 
   useEffect(() => { if (currentUser) fetchInitialData(); }, [currentUser]);
