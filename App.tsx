@@ -302,6 +302,7 @@ const App = () => {
   };
 
   // --- CADASTRO DE NOVO MEMBRO (via Edge Function segura) ---
+  // CORREÇÃO: envia o token JWT do usuário logado no cabeçalho Authorization
   const handleCreateUser = async () => {
     const clientId = isSuper ? newUserForm.client_id : currentUser.client_id;
     if (!newUserForm.name || !newUserForm.email || !newUserForm.password || !clientId) {
@@ -312,6 +313,10 @@ const App = () => {
     }
     setLoading(true);
     try {
+      // Busca o token da sessão atual para autenticar a chamada
+      const { data: sessionData } = await supabase.auth.getSession();
+      const accessToken = sessionData?.session?.access_token;
+
       const { data, error } = await supabase.functions.invoke('create-user', {
         body: {
           name: newUserForm.name,
@@ -320,12 +325,15 @@ const App = () => {
           role: newUserForm.role,
           client_id: clientId,
           created_by: currentUser.name
+        },
+        headers: {
+          Authorization: `Bearer ${accessToken}`
         }
       });
+
       if (error) throw error;
       if (data?.error) throw new Error(data.error);
 
-      // Atualiza a lista local com o novo membro
       const novoMembro = {
         id: data.user_id,
         name: newUserForm.name,
@@ -798,7 +806,7 @@ const App = () => {
                       </div>
                     )}
 
-                    {tab === 'atas' && (
+                                        {tab === 'atas' && (
                       <div className="bg-white p-8 rounded-xl border border-slate-200 shadow-sm animate-in fade-in space-y-8"><div className="flex justify-between items-center border-b border-slate-50 pb-4"><h3 className="text-xs font-bold uppercase text-slate-500 tracking-widest">Atas Finais</h3>{canEdit && <button onClick={() => ataRef.current?.click()} className="bg-slate-100 hover:bg-slate-200 text-slate-700 px-4 py-2 rounded-lg text-[10px] font-bold uppercase flex items-center gap-2 transition-all"><Upload size={14} /> Carregar</button>}</div><div className="grid grid-cols-1 sm:grid-cols-2 gap-4">{(currentMeeting.atas || []).map((ata: any, i: any) => (<div key={i} className="p-4 bg-white border border-slate-200 rounded-xl flex items-center gap-4 group italic font-bold"><div className="p-3 bg-amber-50 text-amber-600 rounded-lg"><FileCheck size={24} /></div><div className="flex-1 truncate text-sm">{ata.name}</div><a href={ata.url} target="_blank" rel="noreferrer" className="text-slate-300 hover:text-amber-600"><ExternalLink size={18} /></a></div>))}</div></div>
                     )}
                   </div>
@@ -855,41 +863,19 @@ const App = () => {
                       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
                         <div className="space-y-1">
                           <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Nome Completo</label>
-                          <input
-                            type="text"
-                            placeholder="Nome do conselheiro"
-                            className="w-full p-3 border border-slate-200 rounded-lg text-sm font-bold outline-none focus:border-amber-500 transition-colors"
-                            value={newUserForm.name}
-                            onChange={e => setnewUserForm({ ...newUserForm, name: e.target.value })}
-                          />
+                          <input type="text" placeholder="Nome do conselheiro" className="w-full p-3 border border-slate-200 rounded-lg text-sm font-bold outline-none focus:border-amber-500 transition-colors" value={newUserForm.name} onChange={e => setnewUserForm({ ...newUserForm, name: e.target.value })} />
                         </div>
                         <div className="space-y-1">
                           <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">E-mail Corporativo</label>
-                          <input
-                            type="email"
-                            placeholder="email@empresa.com.br"
-                            className="w-full p-3 border border-slate-200 rounded-lg text-sm font-bold outline-none focus:border-amber-500 transition-colors"
-                            value={newUserForm.email}
-                            onChange={e => setnewUserForm({ ...newUserForm, email: e.target.value })}
-                          />
+                          <input type="email" placeholder="email@empresa.com.br" className="w-full p-3 border border-slate-200 rounded-lg text-sm font-bold outline-none focus:border-amber-500 transition-colors" value={newUserForm.email} onChange={e => setnewUserForm({ ...newUserForm, email: e.target.value })} />
                         </div>
                         <div className="space-y-1">
                           <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Senha Provisória</label>
-                          <input
-                            type="password"
-                            placeholder="Mínimo 6 caracteres"
-                            className="w-full p-3 border border-slate-200 rounded-lg text-sm font-bold outline-none focus:border-amber-500 transition-colors"
-                            value={newUserForm.password}
-                            onChange={e => setnewUserForm({ ...newUserForm, password: e.target.value })}
-                          />
+                          <input type="password" placeholder="Mínimo 6 caracteres" className="w-full p-3 border border-slate-200 rounded-lg text-sm font-bold outline-none focus:border-amber-500 transition-colors" value={newUserForm.password} onChange={e => setnewUserForm({ ...newUserForm, password: e.target.value })} />
                         </div>
                         <div className="space-y-1">
                           <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Papel (Role)</label>
-                          <select
-                            className="w-full p-3 border border-slate-200 rounded-lg text-sm font-bold outline-none focus:border-amber-500 transition-colors bg-white"
-                            value={newUserForm.role}
-                            onChange={e => setnewUserForm({ ...newUserForm, role: e.target.value })}
-                          >
+                          <select className="w-full p-3 border border-slate-200 rounded-lg text-sm font-bold outline-none focus:border-amber-500 transition-colors bg-white" value={newUserForm.role} onChange={e => setnewUserForm({ ...newUserForm, role: e.target.value })}>
                             <option value="Conselheiro">Conselheiro</option>
                             <option value="Secretário">Secretário</option>
                             <option value="Administrador">Administrador</option>
@@ -899,28 +885,13 @@ const App = () => {
                         <div className="space-y-1">
                           <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Empresa (Client ID)</label>
                           {isSuper ? (
-                            <input
-                              type="text"
-                              placeholder="Ex: EMPRESA_XYZ"
-                              className="w-full p-3 border border-slate-200 rounded-lg text-sm font-bold outline-none focus:border-amber-500 transition-colors"
-                              value={newUserForm.client_id}
-                              onChange={e => setnewUserForm({ ...newUserForm, client_id: e.target.value.toUpperCase() })}
-                            />
+                            <input type="text" placeholder="Ex: EMPRESA_XYZ" className="w-full p-3 border border-slate-200 rounded-lg text-sm font-bold outline-none focus:border-amber-500 transition-colors" value={newUserForm.client_id} onChange={e => setnewUserForm({ ...newUserForm, client_id: e.target.value.toUpperCase() })} />
                           ) : (
-                            <input
-                              type="text"
-                              className="w-full p-3 border border-slate-100 rounded-lg text-sm font-bold outline-none bg-slate-50 text-slate-400 cursor-not-allowed"
-                              value={currentUser.client_id}
-                              readOnly
-                            />
+                            <input type="text" className="w-full p-3 border border-slate-100 rounded-lg text-sm font-bold outline-none bg-slate-50 text-slate-400 cursor-not-allowed" value={currentUser.client_id} readOnly />
                           )}
                         </div>
                       </div>
-                      <button
-                        disabled={loading}
-                        onClick={handleCreateUser}
-                        className="w-full sm:w-auto px-8 py-3 bg-amber-600 hover:bg-amber-700 text-white rounded-lg font-bold text-[10px] uppercase tracking-widest flex items-center justify-center gap-2 transition-all shadow-md disabled:opacity-50"
-                      >
+                      <button disabled={loading} onClick={handleCreateUser} className="w-full sm:w-auto px-8 py-3 bg-amber-600 hover:bg-amber-700 text-white rounded-lg font-bold text-[10px] uppercase tracking-widest flex items-center justify-center gap-2 transition-all shadow-md disabled:opacity-50">
                         <UserPlus size={16} /> {loading ? 'Cadastrando...' : 'Cadastrar Membro'}
                       </button>
                     </div>
@@ -940,28 +911,16 @@ const App = () => {
                       <tbody className="divide-y divide-slate-100">
                         {users.map((u: any) => (
                           <tr key={u.id} className="hover:bg-slate-50 transition-all">
-                            <td className="px-6 py-4">
-                              {u.name}
-                              <br />
-                              <span className="text-[9px] text-slate-300">{u.email}</span>
-                            </td>
+                            <td className="px-6 py-4">{u.name}<br /><span className="text-[9px] text-slate-300">{u.email}</span></td>
                             <td className="px-6 py-4 text-center text-[10px] text-amber-600 uppercase">{u.client_id}</td>
                             <td className="px-6 py-4 text-center text-[10px]">{u.role}</td>
                             <td className="px-6 py-4 text-center">
-                              <button
-                                onClick={async () => {
-                                  if (window.confirm(`Remover ${u.name}?`)) {
-                                    const { error } = await supabase.from('members').delete().eq('id', u.id);
-                                    if (!error) {
-                                      setUsers(users.filter((x: any) => x.id !== u.id));
-                                      addLog('Remoção', `Membro removido: ${u.name}`);
-                                    }
-                                  }
-                                }}
-                                className="text-slate-200 hover:text-red-500 transition-colors"
-                              >
-                                <Trash2 size={18} />
-                              </button>
+                              <button onClick={async () => {
+                                if (window.confirm(`Remover ${u.name}?`)) {
+                                  const { error } = await supabase.from('members').delete().eq('id', u.id);
+                                  if (!error) { setUsers(users.filter((x: any) => x.id !== u.id)); addLog('Remoção', `Membro removido: ${u.name}`); }
+                                }
+                              }} className="text-slate-200 hover:text-red-500 transition-colors"><Trash2 size={18} /></button>
                             </td>
                           </tr>
                         ))}
