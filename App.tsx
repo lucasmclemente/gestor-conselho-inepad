@@ -331,8 +331,9 @@ const App = () => {
         }
       });
 
-      if (error) throw error;
-      if (data?.error) throw new Error(data.error);
+      // Considera sucesso se o user_id foi retornado, mesmo com erro HTTP
+      if (error && !data?.user_id) throw error;
+      if (data?.error && !data?.user_id) throw new Error(data.error);
 
       const novoMembro = {
         id: data.user_id,
