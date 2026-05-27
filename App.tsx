@@ -324,8 +324,11 @@ const App = () => {
     if (!newUserForm.name || !newUserForm.email || !newUserForm.password || !clientId) {
       return alert("Todos os campos são obrigatórios.");
     }
-    if (newUserForm.password.length < 6) {
-      return alert("A senha deve ter no mínimo 6 caracteres.");
+    if (newUserForm.password.length < 8) {
+      return alert("A senha deve ter no mínimo 8 caracteres.");
+    }
+    if (!/[a-zA-Z]/.test(newUserForm.password) || !/[0-9]/.test(newUserForm.password)) {
+      return alert("A senha deve conter letras e números.");
     }
     setLoading(true);
     try {
@@ -886,7 +889,7 @@ const App = () => {
                         </div>
                         <div className="space-y-1">
                           <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Senha Provisória</label>
-                          <input type="password" placeholder="Mínimo 6 caracteres" className="w-full p-3 border border-slate-200 rounded-lg text-sm font-bold outline-none focus:border-amber-500 transition-colors" value={newUserForm.password} onChange={e => setnewUserForm({ ...newUserForm, password: e.target.value })} />
+                          <input type="password" placeholder="Mínimo 8 caracteres com letras e números" className="w-full p-3 border border-slate-200 rounded-lg text-sm font-bold outline-none focus:border-amber-500 transition-colors" value={newUserForm.password} onChange={e => setnewUserForm({ ...newUserForm, password: e.target.value })} />
                         </div>
                         <div className="space-y-1">
                           <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Papel (Role)</label>
