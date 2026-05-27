@@ -1,6 +1,6 @@
 # CLAUDE.md — GovCorp | INEPAD Consultoria
 > Arquivo de contexto do projeto. Cole nas Project Instructions do Claude.
-> Última atualização: 26/05/2026
+> Última atualização: 27/05/2026
 
 ---
 
@@ -123,7 +123,7 @@ GESTOR-CONSELHO-INEPAD/
 
 ---
 
-## 5. SEGURANÇA — STATUS ATUAL (26/05/2026)
+## 5. SEGURANÇA — STATUS ATUAL (27/05/2026)
 
 ### ✅ Implementado e validado
 
@@ -141,6 +141,9 @@ GESTOR-CONSELHO-INEPAD/
 | Dados sujos removidos | Registros órfãos e usuários de teste deletados |
 | RLS meetings consolidada | Políticas redundantes removidas |
 | `process_audit_log` — SECURITY INVOKER | Warning do linter resolvido (pendente confirm) |
+| JWT obrigatório em Edge Functions de email | `send-invitation` e `send-minute-notification` verificam autenticação |
+| Chave Gemini removida do bundle JS | Movida para Edge Function `analyze-minutes` como Supabase secret |
+| HTML injection eliminado nos e-mails | `escapeHtml()` e `safeUrl()` em todos os campos de usuário |
 
 ### RLS Policies ativas — `meetings`
 | Policy | Comando | Descrição |
