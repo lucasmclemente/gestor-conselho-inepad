@@ -1,48 +1,20 @@
+import { createClient } from '@supabase/supabase-js';
 
-import { GoogleGenAI, Type } from "@google/genai";
-
-const ai = new GoogleGenAI({ apiKey: process.env.API_KEY || '' });
+const supabase = createClient(
+  import.meta.env.VITE_SUPABASE_URL,
+  import.meta.env.VITE_SUPABASE_ANON_KEY
+);
 
 export const analyzeMinutes = async (minutesText: string) => {
   if (!minutesText || minutesText.length < 20) return null;
 
   try {
-    const response = await ai.models.generateContent({
-      model: "gemini-3-flash-preview",
-      contents: `Analise a seguinte ata de reunião de governança corporativa e extraia os principais planos de ação e decisões tomadas.
-      
-      ATA:
-      ${minutesText}`,
-      config: {
-        responseMimeType: "application/json",
-        responseSchema: {
-          type: Type.OBJECT,
-          properties: {
-            summary: { type: Type.STRING, description: "Resumo executivo da ata" },
-            extractedActions: {
-              type: Type.ARRAY,
-              items: {
-                type: Type.OBJECT,
-                properties: {
-                  description: { type: Type.STRING },
-                  responsible: { type: Type.STRING },
-                  deadline: { type: Type.STRING, description: "Data no formato YYYY-MM-DD" }
-                }
-              }
-            },
-            keyDeliberations: {
-              type: Type.ARRAY,
-              items: {
-                type: Type.STRING
-              }
-            }
-          },
-          required: ["summary", "extractedActions", "keyDeliberations"]
-        }
-      }
+    const { data, error } = await supabase.functions.invoke('analyze-minutes', {
+      body: { minutesText },
     });
 
-    return JSON.parse(response.text);
+    if (error) throw error;
+    return data;
   } catch (error) {
     console.error("Erro ao analisar ata com Gemini:", error);
     return null;

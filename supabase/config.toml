@@ -395,6 +395,12 @@ s3_secret_key = "env(S3_SECRET_KEY)"
 # JSON string passed through to pg-delta SQL formatting.
 # format_options = "{\"keywordCase\":\"upper\",\"indent\":2,\"maxWidth\":80,\"commaStyle\":\"trailing\"}"
 
+[functions.analyze-minutes]
+enabled = true
+verify_jwt = true
+import_map = "./functions/analyze-minutes/deno.json"
+entrypoint = "./functions/analyze-minutes/index.ts"
+
 [functions.send-invitation]
 enabled = true
 verify_jwt = true
