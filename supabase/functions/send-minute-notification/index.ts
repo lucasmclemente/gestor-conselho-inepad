@@ -6,6 +6,17 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 }
 
+const escapeHtml = (str: string): string =>
+  String(str ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;')
+
+const safeUrl = (url: string): string =>
+  /^https?:\/\//i.test(url ?? '') ? url : '#'
+
 serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders })
 
@@ -42,8 +53,8 @@ serve(async (req) => {
       const currentActionsHtml = actions.length > 0
         ? actions.map((a: any) => `
             <li style="margin-bottom: 8px;">
-              <strong>${a.title}</strong><br/>
-              <small>Prazo: ${a.date || 'N/D'}</small>
+              <strong>${escapeHtml(a.title)}</strong><br/>
+              <small>Prazo: ${escapeHtml(a.date || 'N/D')}</small>
             </li>`).join('')
         : '<li>Nenhuma nova ação registrada nesta reunião.</li>'
 
@@ -51,11 +62,11 @@ serve(async (req) => {
       const totalPendingHtml = (user.pendingActions && user.pendingActions.length > 0)
         ? user.pendingActions.map((pa: any) => `
             <div style="background: #fff; border-left: 4px solid #b45309; padding: 12px; margin-bottom: 10px; border-radius: 6px; border: 1px solid #fed7aa; box-shadow: 0 1px 2px rgba(0,0,0,0.05);">
-              <p style="margin: 0; font-size: 13px; font-weight: bold; color: #1e293b;">${pa.title}</p>
+              <p style="margin: 0; font-size: 13px; font-weight: bold; color: #1e293b;">${escapeHtml(pa.title)}</p>
               <p style="margin: 4px 0 0; font-size: 11px; color: #64748b;">
-                <strong>Origem:</strong> ${pa.meetingTitle} | <strong>Prazo:</strong> ${pa.date || 'S/D'}
+                <strong>Origem:</strong> ${escapeHtml(pa.meetingTitle)} | <strong>Prazo:</strong> ${escapeHtml(pa.date || 'S/D')}
               </p>
-              ${pa.obs ? `<p style="margin: 4px 0 0; font-size: 10px; color: #94a3b8; font-style: italic;">Obs: ${pa.obs}</p>` : ''}
+              ${pa.obs ? `<p style="margin: 4px 0 0; font-size: 10px; color: #94a3b8; font-style: italic;">Obs: ${escapeHtml(pa.obs)}</p>` : ''}
             </div>
           `).join('')
         : '<div style="padding: 15px; background: #ecfdf5; border-radius: 8px; border: 1px solid #d1fae5; text-align: center;"><p style="margin: 0; font-size: 13px; color: #059669; font-weight: bold;">✅ Você não possui pendências em aberto no plano global.</p></div>'
@@ -77,12 +88,12 @@ serve(async (req) => {
               </div>
 
               <div style="padding: 30px; color: #1e293b;">
-                <p style="font-size: 16px;">Olá, <strong>${user.name}</strong>,</p>
-                <p style="font-size: 14px; line-height: 1.5;">A ata da reunião <strong>${meetingTitle}</strong> foi publicada e as pendências globais foram atualizadas.</p>
+                <p style="font-size: 16px;">Olá, <strong>${escapeHtml(user.name)}</strong>,</p>
+                <p style="font-size: 14px; line-height: 1.5;">A ata da reunião <strong>${escapeHtml(meetingTitle)}</strong> foi publicada e as pendências globais foram atualizadas.</p>
 
                 <div style="background: #f8fafc; padding: 15px; border-radius: 8px; margin: 20px 0; border: 1px dashed #cbd5e1; text-align: center;">
-                  <p style="margin: 0; font-weight: bold; font-size: 14px; color: #1e293b;">${minuteName}</p>
-                  <a href="${minuteUrl}" style="color: #b45309; font-size: 13px; font-weight: bold; text-decoration: none;">⬇ Baixar Ata em PDF</a>
+                  <p style="margin: 0; font-weight: bold; font-size: 14px; color: #1e293b;">${escapeHtml(minuteName)}</p>
+                  <a href="${safeUrl(minuteUrl)}" style="color: #b45309; font-size: 13px; font-weight: bold; text-decoration: none;">⬇ Baixar Ata em PDF</a>
                 </div>
 
                 <h4 style="text-transform: uppercase; font-size: 11px; color: #64748b; border-bottom: 1px solid #f1f5f9; padding-bottom: 5px; letter-spacing: 1px; margin-top: 25px;">Plano de Ação (Desta Reunião)</h4>

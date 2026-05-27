@@ -6,6 +6,17 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 }
 
+const escapeHtml = (str: string): string =>
+  String(str ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;')
+
+const safeUrl = (url: string): string =>
+  /^https?:\/\//i.test(url ?? '') ? url : '#'
+
 serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders })
 
@@ -41,8 +52,8 @@ serve(async (req) => {
       ? meetingData.pautas.map((p: any, i: number) => `
           <div style="padding: 10px 0; border-bottom: 1px solid #f1f5f9; font-size: 14px;">
             <span style="color: #64748b; font-weight: bold;">${i + 1}.</span>
-            <strong style="color: #1e293b;">${p.title}</strong>
-            <br/><small style="color: #94a3b8;">Responsável: ${p.resp || 'N/D'} | Duração: ${p.dur}min</small>
+            <strong style="color: #1e293b;">${escapeHtml(p.title)}</strong>
+            <br/><small style="color: #94a3b8;">Responsável: ${escapeHtml(p.resp || 'N/D')} | Duração: ${escapeHtml(String(p.dur))}min</small>
           </div>
         `).join('')
       : '<p style="color: #94a3b8; font-style: italic;">Nenhuma pauta definida para esta sessão.</p>'
@@ -54,7 +65,7 @@ serve(async (req) => {
           <h4 style="margin: 0 0 10px 0; font-size: 12px; color: #64748b; text-transform: uppercase;">Documentação de Apoio</h4>
           ${meetingData.materiais.map((m: any) => `
             <div style="margin-bottom: 5px;">
-              <a href="${m.url}" style="color: #b45309; text-decoration: underline; font-size: 13px;">${m.name}</a>
+              <a href="${safeUrl(m.url)}" style="color: #b45309; text-decoration: underline; font-size: 13px;">${escapeHtml(m.name)}</a>
             </div>
           `).join('')}
         </div>
@@ -77,16 +88,16 @@ serve(async (req) => {
             </div>
             <div style="padding: 40px; color: #1e293b;">
               <h2 style="color: #b45309; font-style: italic; margin-bottom: 5px;">Convocação de Conselho</h2>
-              <p style="font-size: 16px; font-weight: bold; margin-top: 0;">${meetingData.title}</p>
+              <p style="font-size: 16px; font-weight: bold; margin-top: 0;">${escapeHtml(meetingData.title)}</p>
 
               <div style="display: flex; margin: 25px 0; gap: 20px;">
                 <div style="flex: 1; background: #f8fafc; padding: 15px; border-radius: 8px;">
                   <small style="color: #64748b; text-transform: uppercase; font-size: 10px; font-weight: bold;">Data e Hora</small>
-                  <p style="margin: 5px 0 0 0; font-weight: bold; font-size: 14px;">${meetingData.date || 'S/D'} às ${meetingData.time || 'S/H'}</p>
+                  <p style="margin: 5px 0 0 0; font-weight: bold; font-size: 14px;">${escapeHtml(meetingData.date || 'S/D')} às ${escapeHtml(meetingData.time || 'S/H')}</p>
                 </div>
                 <div style="flex: 1; background: #f8fafc; padding: 15px; border-radius: 8px;">
                   <small style="color: #64748b; text-transform: uppercase; font-size: 10px; font-weight: bold;">Local/Tipo</small>
-                  <p style="margin: 5px 0 0 0; font-weight: bold; font-size: 14px;">${meetingData.type}</p>
+                  <p style="margin: 5px 0 0 0; font-weight: bold; font-size: 14px;">${escapeHtml(meetingData.type)}</p>
                 </div>
               </div>
 
