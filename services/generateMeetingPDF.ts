@@ -304,18 +304,22 @@ function buildFirstPageHeader(
 }
 
 function addSectionHeader(doc: jsPDF, title: string, y: number, W: number, ML: number): number {
-  // Barra lateral esquerda
-  doc.setFillColor(...C.primary);
-  doc.rect(ML, y, 3, 8, 'F');
-  // Linha horizontal fina amber
+  const ROW_H = 10;
+  // Fundo cinza claro
+  doc.setFillColor(...C.light);
+  doc.rect(ML, y, W - ML * 2, ROW_H, 'F');
+  // Barra de destaque amber na esquerda
   doc.setFillColor(...C.accent);
-  doc.rect(ML + 3, y + 3.5, W - ML * 2 - 3, 0.6, 'F');
-  // Texto
+  doc.rect(ML, y, 3.5, ROW_H, 'F');
+  // Texto do título
   doc.setFont('helvetica', 'bold');
-  doc.setFontSize(8.5);
+  doc.setFontSize(9);
   doc.setTextColor(...C.primary);
-  doc.text(title, ML + 8, y + 5.8);
-  return y + 14;
+  doc.text(title, ML + 8, y + 6.8);
+  // Linha amber fina NO RODAPÉ da barra (abaixo do texto)
+  doc.setFillColor(...C.accent);
+  doc.rect(ML, y + ROW_H, W - ML * 2, 0.7, 'F');
+  return y + ROW_H + 7;
 }
 
 function drawStatusBadge(doc: jsPDF, status: string, x: number, y: number): number {
