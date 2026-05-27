@@ -259,31 +259,48 @@ function buildFirstPageHeader(
   doc: jsPDF, W: number, ML: number,
   clientName: string, dateStr: string, timeStr: string
 ): number {
-  // Barra principal
+  const H_BAR = 38; // altura da barra de cabeçalho
+
+  // Barra principal escura
   doc.setFillColor(...C.primary);
-  doc.rect(0, 0, W, 26, 'F');
-  // Linha de destaque amber
+  doc.rect(0, 0, W, H_BAR, 'F');
+
+  // Faixa amber lateral esquerda (detalhe visual)
   doc.setFillColor(...C.accent);
-  doc.rect(0, 24, W, 2, 'F');
+  doc.rect(0, 0, 4, H_BAR, 'F');
 
-  // Título
-  doc.setTextColor(...C.white);
-  doc.setFont('helvetica', 'bold');
-  doc.setFontSize(15);
-  doc.text('RELATÓRIO DE REUNIÃO', ML, 11);
+  // Linha amber inferior
+  doc.setFillColor(...C.accent);
+  doc.rect(0, H_BAR, W, 2.5, 'F');
 
-  // Nome do cliente
-  doc.setFontSize(7.5);
+  // Texto: sistema
   doc.setFont('helvetica', 'normal');
-  doc.setTextColor(...C.accentLight);
-  doc.text(clientName.toUpperCase(), ML, 19);
-
-  // Data de geração (direita)
-  doc.setTextColor(...C.medium);
   doc.setFontSize(7);
-  doc.text(`Gerado em ${dateStr} às ${timeStr}`, W - ML, 19, { align: 'right' });
+  doc.setTextColor(...C.medium);
+  doc.text('GovCorp — Plataforma de Gestão de Conselhos', ML + 4, 9);
 
-  return 34;
+  // Texto: título principal
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(20);
+  doc.setTextColor(...C.white);
+  doc.text('RELATÓRIO DE REUNIÃO', ML + 4, 21);
+
+  // Texto: nome do cliente
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(9);
+  doc.setTextColor(...C.accentLight);
+  doc.text(clientName.toUpperCase(), ML + 4, 30);
+
+  // Texto: data de geração (canto direito)
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(7);
+  doc.setTextColor(...C.medium);
+  doc.text('Gerado em', W - ML, 20, { align: 'right' });
+  doc.setFontSize(8.5);
+  doc.setTextColor(...C.white);
+  doc.text(`${dateStr}  ${timeStr}`, W - ML, 27, { align: 'right' });
+
+  return H_BAR + 8; // margem após o cabeçalho
 }
 
 function addSectionHeader(doc: jsPDF, title: string, y: number, W: number, ML: number): number {
