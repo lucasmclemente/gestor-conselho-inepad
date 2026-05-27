@@ -1,6 +1,6 @@
 # CLAUDE.md — GovCorp | INEPAD Consultoria
 > Arquivo de contexto do projeto. Cole nas Project Instructions do Claude.
-> Última atualização: 27/05/2026
+> Última atualização: 28/05/2026
 
 ---
 
@@ -150,6 +150,9 @@ GESTOR-CONSELHO-INEPAD/
 | RLS members auditada e corrigida | Policies `public` corrigidas para `authenticated`; isolamento por client_id reforçado |
 | RLS meetings reescrita (JWT) | `Apenas Adm e Sec` lê role do JWT — elimina escalada via tabela members |
 | RLS audit_logs imutável | Policies ALL removidas — apenas SELECT (admins) e INSERT (autenticados) |
+| RLS server_audit_logs configurada | SELECT para admins; INSERT via trigger SECURITY DEFINER (não exposto via API) |
+| `process_audit_log` SECURITY DEFINER segura | `SET search_path = ''` + EXECUTE revogado de PUBLIC/anon/authenticated — zero warnings no linter |
+| Plano de Ações (global e reuniões) | Múltiplos responsáveis (chips) + campo de observação inline — ambos os contextos |
 
 ### RLS Policies ativas — `meetings` (ambos os projetos)
 | Policy | Comando | Descrição |
@@ -172,6 +175,17 @@ GESTOR-CONSELHO-INEPAD/
 | Audit logs isolation by client_id | SELECT | Isolamento por client_id via JWT |
 | Logs imutáveis | INSERT | Qualquer autenticado pode inserir logs |
 | Ver logs da própria empresa | SELECT | Membros veem logs do próprio client |
+
+### RLS Policies ativas — `server_audit_logs` (ambos os projetos)
+| Policy | Comando | Descrição |
+|---|---|---|
+| Admins can view server audit logs | SELECT | Admins veem logs do próprio client via JWT |
+| (INSERT via trigger) | — | Inserção feita pelo trigger `process_audit_log` (SECURITY DEFINER) — não há policy INSERT exposta |
+
+### Função `process_audit_log` — configuração final
+- `SECURITY DEFINER` com `SET search_path = ''`
+- `EXECUTE` revogado de `PUBLIC`, `anon` e `authenticated`
+- Chamada exclusivamente por triggers internos do banco — não acessível via `/rest/v1/rpc/`
 
 ---
 
@@ -298,7 +312,7 @@ git checkout develop
 ## 12. PENDÊNCIAS — PRÓXIMA SPRINT
 
 ### 🟡 Segurança
-- Confirmar resolução dos warnings do linter (`process_audit_log` SECURITY INVOKER)
+- ✅ Todos os warnings do linter Supabase resolvidos — zero warnings em produção e develop
 
 ### 🟢 Funcionalidades
 - Módulo de relatórios em PDF (Dashboard)
@@ -329,4 +343,4 @@ git checkout main && git merge develop && git push origin main && git checkout d
 
 ---
 
-*Atualizado em 26/05/2026 após sessão completa de segurança e homologação.*
+*Atualizado em 28/05/2026 — zero warnings no linter Supabase; plano de ações com multi-responsável e observações.*
