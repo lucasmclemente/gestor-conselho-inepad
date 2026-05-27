@@ -135,22 +135,43 @@ GESTOR-CONSELHO-INEPAD/
 | `fetchMemberProfile` lê do Auth | Elimina escalada de privilégios via tabela members |
 | RLS ativa em todas as tabelas | Isolamento por client_id no banco |
 | Storage protegido | Signed URLs de 7 dias |
-| Logs imutáveis | Apenas INSERT permitido em audit_logs |
+| Logs imutáveis | Apenas INSERT permitido em audit_logs — policies ALL removidas |
 | Edge Function `create-user` segura | Cria no Auth + upsert em members |
 | Constraint UNIQUE em email | Ativa em ambos os projetos |
 | Dados sujos removidos | Registros órfãos e usuários de teste deletados |
-| RLS meetings consolidada | Políticas redundantes removidas |
+| RLS meetings consolidada | Policies reescritas — leitura do JWT, isolamento correto |
 | `process_audit_log` — SECURITY INVOKER | Warning do linter resolvido (pendente confirm) |
 | JWT obrigatório em Edge Functions de email | `send-invitation` e `send-minute-notification` verificam autenticação |
 | Chave Gemini removida do bundle JS | Movida para Edge Function `analyze-minutes` como Supabase secret |
 | HTML injection eliminado nos e-mails | `escapeHtml()` e `safeUrl()` em todos os campos de usuário |
+| CORS restrito em todas as Edge Functions | Whitelist de origens — sem wildcard `*` |
+| Autorização em `create-user` | Apenas Administrador/SuperAdmin podem criar usuários |
+| Cadastro público desabilitado | "Allow new users to sign up" OFF em ambos os projetos |
+| RLS members auditada e corrigida | Policies `public` corrigidas para `authenticated`; isolamento por client_id reforçado |
+| RLS meetings reescrita (JWT) | `Apenas Adm e Sec` lê role do JWT — elimina escalada via tabela members |
+| RLS audit_logs imutável | Policies ALL removidas — apenas SELECT (admins) e INSERT (autenticados) |
 
-### RLS Policies ativas — `meetings`
+### RLS Policies ativas — `meetings` (ambos os projetos)
 | Policy | Comando | Descrição |
 |---|---|---|
-| SuperAdmin acessa tudo | ALL | SuperAdmin vê todos os clientes |
-| Users can view own client meetings | ALL | Isolamento por client_id |
-| Apenas Adm e Sec gerem reuniões | ALL | Restringe criação/edição por papel |
+| Meetings isolation | SELECT | Qualquer autenticado vê reuniões do próprio client; SuperAdmin vê tudo |
+| Apenas Adm e Sec gerem reuniões | ALL | Administrador/Secretário/SuperAdmin gerenciam — role lido do JWT |
+
+### RLS Policies ativas — `members` (main)
+| Policy | Comando | Descrição |
+|---|---|---|
+| Admins can manage their own client members | ALL | Administrador/SuperAdmin gerenciam membros do próprio client |
+| Members isolation by client_id | ALL | Isolamento por client_id com WITH CHECK |
+| Privacidade de membros | SELECT | Isolamento via `internal.get_my_client_id()` (lê JWT) |
+| Users can view colleagues | SELECT | Membros veem colegas do mesmo client |
+
+### RLS Policies ativas — `audit_logs` (main)
+| Policy | Comando | Descrição |
+|---|---|---|
+| Admins can view their logs | SELECT | Admins veem logs do próprio client |
+| Audit logs isolation by client_id | SELECT | Isolamento por client_id via JWT |
+| Logs imutáveis | INSERT | Qualquer autenticado pode inserir logs |
+| Ver logs da própria empresa | SELECT | Membros veem logs do próprio client |
 
 ---
 
