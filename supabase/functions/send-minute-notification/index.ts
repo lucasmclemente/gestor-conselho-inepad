@@ -1,4 +1,5 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2"
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -8,14 +9,37 @@ const corsHeaders = {
 serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders })
 
+  // Verifica autenticação — rejeita requisições sem JWT válido
+  const authHeader = req.headers.get('Authorization')
+  if (!authHeader) {
+    return new Response(JSON.stringify({ error: 'Unauthorized' }), {
+      status: 401,
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    })
+  }
+
+  const supabaseClient = createClient(
+    Deno.env.get('SUPABASE_URL') ?? '',
+    Deno.env.get('SUPABASE_ANON_KEY') ?? '',
+    { global: { headers: { Authorization: authHeader } } }
+  )
+
+  const { data: { user }, error: authError } = await supabaseClient.auth.getUser()
+  if (authError || !user) {
+    return new Response(JSON.stringify({ error: 'Unauthorized' }), {
+      status: 401,
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    })
+  }
+
   try {
     const { meetingTitle, minuteName, minuteUrl, actions, pendingSummary } = await req.json()
     const RESEND_API_KEY = Deno.env.get('RESEND_API_KEY')
 
     const emailPromises = pendingSummary.map(async (user: any) => {
-      
+
       // Lista de ações específicas desta ata
-      const currentActionsHtml = actions.length > 0 
+      const currentActionsHtml = actions.length > 0
         ? actions.map((a: any) => `
             <li style="margin-bottom: 8px;">
               <strong>${a.title}</strong><br/>
@@ -51,11 +75,11 @@ serve(async (req) => {
               <div style="background: #0f172a; padding: 20px; text-align: center;">
                 <img src="https://jrtrrubtjbinnddqdbta.supabase.co/storage/v1/object/public/meeting-files/logo-sidebar.jpg" style="height: 35px;" />
               </div>
-              
+
               <div style="padding: 30px; color: #1e293b;">
                 <p style="font-size: 16px;">Olá, <strong>${user.name}</strong>,</p>
                 <p style="font-size: 14px; line-height: 1.5;">A ata da reunião <strong>${meetingTitle}</strong> foi publicada e as pendências globais foram atualizadas.</p>
-                
+
                 <div style="background: #f8fafc; padding: 15px; border-radius: 8px; margin: 20px 0; border: 1px dashed #cbd5e1; text-align: center;">
                   <p style="margin: 0; font-weight: bold; font-size: 14px; color: #1e293b;">${minuteName}</p>
                   <a href="${minuteUrl}" style="color: #b45309; font-size: 13px; font-weight: bold; text-decoration: none;">⬇ Baixar Ata em PDF</a>

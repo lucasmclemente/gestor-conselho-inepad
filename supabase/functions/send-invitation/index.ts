@@ -1,4 +1,5 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2"
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -6,8 +7,30 @@ const corsHeaders = {
 }
 
 serve(async (req) => {
-  // Resposta para o navegador (CORS)
   if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders })
+
+  // Verifica autenticação — rejeita requisições sem JWT válido
+  const authHeader = req.headers.get('Authorization')
+  if (!authHeader) {
+    return new Response(JSON.stringify({ error: 'Unauthorized' }), {
+      status: 401,
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    })
+  }
+
+  const supabaseClient = createClient(
+    Deno.env.get('SUPABASE_URL') ?? '',
+    Deno.env.get('SUPABASE_ANON_KEY') ?? '',
+    { global: { headers: { Authorization: authHeader } } }
+  )
+
+  const { data: { user }, error: authError } = await supabaseClient.auth.getUser()
+  if (authError || !user) {
+    return new Response(JSON.stringify({ error: 'Unauthorized' }), {
+      status: 401,
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    })
+  }
 
   try {
     const { meetingData, recipients } = await req.json()
@@ -17,7 +40,7 @@ serve(async (req) => {
     const pautasHtml = meetingData.pautas && meetingData.pautas.length > 0
       ? meetingData.pautas.map((p: any, i: number) => `
           <div style="padding: 10px 0; border-bottom: 1px solid #f1f5f9; font-size: 14px;">
-            <span style="color: #64748b; font-weight: bold;">${i + 1}.</span> 
+            <span style="color: #64748b; font-weight: bold;">${i + 1}.</span>
             <strong style="color: #1e293b;">${p.title}</strong>
             <br/><small style="color: #94a3b8;">Responsável: ${p.resp || 'N/D'} | Duração: ${p.dur}min</small>
           </div>
@@ -45,7 +68,7 @@ serve(async (req) => {
       },
       body: JSON.stringify({
         from: 'Governança INEPAD <conselho@inepadconsulting.com>',
-        to: recipients, // Envia para a lista de e-mails dos participantes
+        to: recipients,
         subject: `CONVOCAÇÃO OFICIAL: ${meetingData.title}`,
         html: `
           <div style="font-family: sans-serif; max-width: 600px; margin: auto; border: 1px solid #e2e8f0; border-radius: 12px; overflow: hidden;">
@@ -55,7 +78,7 @@ serve(async (req) => {
             <div style="padding: 40px; color: #1e293b;">
               <h2 style="color: #b45309; font-style: italic; margin-bottom: 5px;">Convocação de Conselho</h2>
               <p style="font-size: 16px; font-weight: bold; margin-top: 0;">${meetingData.title}</p>
-              
+
               <div style="display: flex; margin: 25px 0; gap: 20px;">
                 <div style="flex: 1; background: #f8fafc; padding: 15px; border-radius: 8px;">
                   <small style="color: #64748b; text-transform: uppercase; font-size: 10px; font-weight: bold;">Data e Hora</small>
@@ -71,7 +94,7 @@ serve(async (req) => {
               ${pautasHtml}
 
               ${materiaisHtml}
-              
+
               <div style="text-align: center; margin-top: 35px;">
                 <a href="https://conselho.inepadconsulting.com" style="background: #b45309; color: white; padding: 12px 24px; text-decoration: none; border-radius: 8px; font-weight: bold; font-size: 14px; display: inline-block;">Acessar Portal de Governança</a>
               </div>

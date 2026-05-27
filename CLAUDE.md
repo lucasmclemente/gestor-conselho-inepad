@@ -155,9 +155,9 @@ GESTOR-CONSELHO-INEPAD/
 
 | Função | Descrição | JWT Verify |
 |---|---|---|
-| `create-user` | Cria usuário no Auth + upsert em members + log | OFF |
-| `send-invitation` | Convocação oficial por e-mail | OFF |
-| `send-minute-notification` | Ata + relatório de pendências por responsável | OFF |
+| `create-user` | Cria usuário no Auth + upsert em members + log | OFF (verifica Bearer token manualmente) |
+| `send-invitation` | Convocação oficial por e-mail | ON (verificação em código + config.toml) |
+| `send-minute-notification` | Ata + relatório de pendências por responsável | ON (verificação em código + config.toml) |
 | `clicksign-flow` | Integração ClickSign (em desenvolvimento) | OFF |
 
 ### Código atual da `create-user` (versão com upsert)
