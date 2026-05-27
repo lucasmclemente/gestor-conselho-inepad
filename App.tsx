@@ -49,8 +49,11 @@ const App = () => {
   const [tmpPart, setTmpPart] = useState({ name: '', email: '', isExternal: false });
   const [tmpPauta, setTmpPauta] = useState({ title: '', resp: '', dur: '' });
   const [tmpAcao, setTmpAcao] = useState({ title: '', resp: '', date: '', status: 'Pendente', obs: '' });
-  const [tmpGlobalAcao, setTmpGlobalAcao] = useState({ title: '', resp: '', date: '', meetingId: '', obs: '' });
+  const [tmpGlobalAcao, setTmpGlobalAcao] = useState({ title: '', resps: [] as string[], date: '', meetingId: '', obs: '' });
   const [tmpDelib, setTmpDelib] = useState({ title: '', voters: [] as string[], votes: {} as any });
+  const [editingObsKey, setEditingObsKey] = useState<string | null>(null);
+  const [obsInputValue, setObsInputValue] = useState('');
+  const [editingRespsKey, setEditingRespsKey] = useState<string | null>(null);
   const [newUserForm, setnewUserForm] = useState({ name: '', email: '', role: 'Conselheiro', password: '', client_id: '' });
 
   const [activePautaIndex, setActivePautaIndex] = useState<number | null>(null);
@@ -236,12 +239,12 @@ const App = () => {
     if (!tmpGlobalAcao.title || !tmpGlobalAcao.meetingId) return alert("Título e Reunião de Origem são obrigatórios.");
     const targetMeeting = meetings.find(m => m.id === tmpGlobalAcao.meetingId);
     if (!targetMeeting) return;
-    const newAction = { id: Date.now(), title: tmpGlobalAcao.title, resp: tmpGlobalAcao.resp, date: tmpGlobalAcao.date, obs: tmpGlobalAcao.obs, status: 'Pendente' };
+    const newAction = { id: Date.now(), title: tmpGlobalAcao.title, resps: tmpGlobalAcao.resps, resp: tmpGlobalAcao.resps[0] || '', date: tmpGlobalAcao.date, obs: tmpGlobalAcao.obs, status: 'Pendente' };
     const updatedActions = [...(targetMeeting.acoes || []), newAction];
     const { error } = await supabase.from('meetings').update({ acoes: updatedActions }).eq('id', targetMeeting.id);
     if (!error) {
       setMeetings(prev => prev.map(m => m.id === targetMeeting.id ? { ...m, acoes: updatedActions } : m));
-      setTmpGlobalAcao({ title: '', resp: '', date: '', meetingId: '', obs: '' });
+      setTmpGlobalAcao({ title: '', resps: [], date: '', meetingId: '', obs: '' });
       alert("Ação registrada!");
     }
   };
@@ -288,6 +291,15 @@ const App = () => {
     const meeting = meetings.find(m => m.id === meetingId);
     if (!meeting) return;
     const newAcoes = (meeting.acoes || []).map((a: any) => a.id === actionId ? { ...a, resp: newResp } : a);
+    const { error } = await supabase.from('meetings').update({ acoes: newAcoes }).eq('id', meetingId);
+    if (!error) setMeetings(prev => prev.map(m => m.id === meetingId ? { ...m, acoes: newAcoes } : m));
+  };
+
+  const updateActionRespsGlobal = async (meetingId: string, actionId: string | number, newResps: string[]) => {
+    if (!canEdit) return;
+    const meeting = meetings.find(m => m.id === meetingId);
+    if (!meeting) return;
+    const newAcoes = (meeting.acoes || []).map((a: any) => a.id === actionId ? { ...a, resps: newResps, resp: newResps[0] || a.resp || '' } : a);
     const { error } = await supabase.from('meetings').update({ acoes: newAcoes }).eq('id', meetingId);
     if (!error) setMeetings(prev => prev.map(m => m.id === meetingId ? { ...m, acoes: newAcoes } : m));
   };
@@ -403,7 +415,7 @@ const App = () => {
     const today = new Date(); today.setHours(0, 0, 0, 0);
     const filteredM = dashboardFilter === 'all' ? meetings : meetings.filter(m => m.id === dashboardFilter);
     const allA = filteredM.flatMap(m => (m.acoes || []).map((a: any) => ({ ...a, mTitle: m.title, mId: m.id })))
-      .filter(a => (filterResp === 'all' || a.resp === filterResp))
+      .filter(a => filterResp === 'all' || (a.resps?.length > 0 ? a.resps.includes(filterResp) : a.resp === filterResp))
       .filter(a => (filterStatus === 'all' || a.status === filterStatus))
       .filter(a => (filterOrigin === 'all' || a.mId === filterOrigin));
     const count = (st: string) => allA.filter(a => a.status === st).length;
@@ -832,34 +844,163 @@ const App = () => {
               )}
 
               {activeMenu === 'plano-acao' && (
-                <div className="space-y-6 animate-in fade-in">
+                <div className="space-y-6 animate-in fade-in" onClick={() => { if (editingRespsKey) setEditingRespsKey(null); }}>
                   <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
                     <h1 className="text-2xl font-bold text-slate-800 tracking-tight italic">Plano Global</h1>
                     <div className="flex flex-wrap items-center gap-3 bg-slate-50 p-2 rounded-lg border border-slate-200 w-full md:w-auto">
-                      <div className="flex items-center gap-2 bg-white px-3 py-1.5 rounded border border-slate-200"><User size={14} className="text-amber-500" /><select className="text-[10px] font-bold uppercase outline-none bg-transparent cursor-pointer text-slate-600" value={filterResp} onChange={e => setFilterResp(e.target.value)}><option value="all">Responsável</option>{[...new Set(meetings.flatMap((m: any) => (m.acoes || []).map((a: any) => a.resp)))].filter(r => r).map(r => <option key={r} value={r}>{r}</option>)}</select></div>
+                      <div className="flex items-center gap-2 bg-white px-3 py-1.5 rounded border border-slate-200"><User size={14} className="text-amber-500" /><select className="text-[10px] font-bold uppercase outline-none bg-transparent cursor-pointer text-slate-600" value={filterResp} onChange={e => setFilterResp(e.target.value)}><option value="all">Responsável</option>{[...new Set(meetings.flatMap((m: any) => (m.acoes || []).flatMap((a: any) => a.resps?.length > 0 ? a.resps : (a.resp ? [a.resp] : []))))].filter(Boolean).map((r: any) => <option key={r} value={r}>{r}</option>)}</select></div>
                       <div className="flex items-center gap-2 bg-white px-3 py-1.5 rounded border border-slate-200"><Target size={14} className="text-amber-500" /><select className="text-[10px] font-bold uppercase outline-none bg-transparent cursor-pointer text-slate-600" value={filterStatus} onChange={e => setFilterStatus(e.target.value)}><option value="all">Status</option><option value="Pendente">Pendente</option><option value="Em andamento">Em andamento</option><option value="Concluída">Concluída</option></select></div>
                       <div className="flex items-center gap-2 bg-white px-3 py-1.5 rounded border border-slate-200"><Building2 size={14} className="text-amber-500" /><select className="text-[10px] font-bold uppercase outline-none bg-transparent cursor-pointer text-slate-600" value={filterOrigin} onChange={e => setFilterOrigin(e.target.value)}><option value="all">Origem (Reunião)</option>{meetings.map(m => <option key={m.id} value={m.id}>{m.title}</option>)}</select></div>
                     </div>
                   </div>
+
                   <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden overflow-x-auto">
-                    <table className="w-full text-left text-sm min-w-[1200px] font-bold italic">
+                    <table className="w-full text-left text-sm min-w-[1100px] font-bold italic">
                       <thead className="bg-slate-900 text-[10px] font-bold uppercase text-amber-500 tracking-widest">
-                        <tr><th className="px-6 py-4">Iniciativa</th><th className="px-6 py-4">Responsável</th><th className="px-6 py-4">Origem</th><th className="px-6 py-4">Prazo</th><th className="px-6 py-4">Status</th>{canEdit && <th className="px-6 py-4 text-center">Gestão</th>}</tr>
+                        <tr><th className="px-6 py-4">Iniciativa</th><th className="px-5 py-4">Responsável(is)</th><th className="px-6 py-4">Origem</th><th className="px-6 py-4">Prazo</th><th className="px-6 py-4">Status</th>{canEdit && <th className="px-6 py-4 text-center">Ação</th>}</tr>
                       </thead>
                       <tbody className="divide-y divide-slate-100">
-                        {stats.allActions.map((acao: any) => (
-                          <tr key={`${acao.mId}-${acao.id}`} className="hover:bg-slate-50 transition-all">
-                            <td className="px-6 py-4 text-slate-800">{acao.title}</td>
-                            <td className="px-6 py-4 text-slate-600">{canEdit ? (<select className="bg-transparent border-none outline-none text-xs font-bold text-slate-600 cursor-pointer w-full" value={acao.resp || ''} onChange={(e) => updateActionRespGlobal(acao.mId, acao.id, e.target.value)}><option value="">Selecione...</option>{users.map((u: any) => <option key={u.id} value={u.name}>{u.name}</option>)}</select>) : (acao.resp || 'N/D')}</td>
-                            <td className="px-6 py-4 text-slate-400 text-[10px] uppercase tracking-widest">{acao.mTitle}</td>
-                            <td className="px-6 py-4"><input type="date" className="bg-transparent border-none outline-none text-[10px] font-bold text-slate-600" value={acao.date || ''} onChange={(e) => updateActionDateGlobal(acao.mId, acao.id, e.target.value)} disabled={!canEdit} /></td>
-                            <td className="px-6 py-4 text-center"><select value={acao.status} onChange={(e) => updateActionStatusGlobal(acao.mId, acao.id, e.target.value)} className="px-3 py-1.5 rounded-lg text-[10px] font-bold uppercase bg-amber-50 text-amber-700 cursor-pointer" disabled={!canEdit}><option value="Pendente">Aguardando</option><option value="Em andamento">Execução</option><option value="Concluída">Finalizado</option></select></td>
-                            {canEdit && <td className="px-6 py-4 text-center"><button onClick={() => deleteActionGlobal(acao.mId, acao.id)} className="text-slate-200 hover:text-red-600"><Trash2 size={16} /></button></td>}
-                          </tr>
-                        ))}
+                        {stats.allActions.length === 0 && (
+                          <tr><td colSpan={canEdit ? 6 : 5} className="px-6 py-10 text-center text-slate-400 text-[10px] uppercase tracking-widest">Nenhuma ação registrada</td></tr>
+                        )}
+                        {stats.allActions.map((acao: any) => {
+                          const acaoKey = `${acao.mId}-${acao.id}`;
+                          const resps: string[] = acao.resps?.length > 0 ? acao.resps : (acao.resp ? [acao.resp] : []);
+                          return (
+                            <tr key={acaoKey} className="hover:bg-slate-50 transition-all align-top">
+                              {/* INICIATIVA + OBS INLINE */}
+                              <td className="px-6 py-4 text-slate-800 max-w-xs">
+                                <p className="leading-snug">{acao.title}</p>
+                                {canEdit && editingObsKey === acaoKey ? (
+                                  <textarea
+                                    autoFocus
+                                    rows={2}
+                                    className="mt-1.5 w-full text-[10px] text-amber-700 bg-amber-50 border border-amber-300 rounded p-1.5 outline-none resize-none font-normal not-italic"
+                                    value={obsInputValue}
+                                    onChange={e => setObsInputValue(e.target.value)}
+                                    onBlur={() => { updateActionObsGlobal(acao.mId, acao.id, obsInputValue); setEditingObsKey(null); }}
+                                    onKeyDown={e => { if (e.key === 'Escape') setEditingObsKey(null); }}
+                                    placeholder="Digite uma observação..."
+                                  />
+                                ) : acao.obs ? (
+                                  <p
+                                    className={`mt-1.5 text-[10px] text-amber-700 bg-amber-50 border border-amber-100 rounded px-2 py-1 font-normal not-italic whitespace-pre-wrap leading-relaxed ${canEdit ? 'cursor-pointer hover:border-amber-300 transition-colors' : ''}`}
+                                    onClick={() => canEdit && (setEditingObsKey(acaoKey), setObsInputValue(acao.obs || ''))}
+                                    title={canEdit ? 'Clique para editar' : undefined}
+                                  >{acao.obs}</p>
+                                ) : canEdit ? (
+                                  <button
+                                    className="mt-1 text-[9px] text-slate-300 hover:text-amber-500 font-normal not-italic flex items-center gap-1 transition-colors"
+                                    onClick={() => { setEditingObsKey(acaoKey); setObsInputValue(''); }}
+                                  ><MessageSquare size={10} /> adicionar nota</button>
+                                ) : null}
+                              </td>
+
+                              {/* RESPONSÁVEIS — chips + dropdown */}
+                              <td className="px-5 py-4" onClick={e => e.stopPropagation()}>
+                                <div className="flex flex-col gap-1.5">
+                                  <div className="flex flex-wrap gap-1">
+                                    {resps.length === 0 && <span className="text-[10px] text-slate-300 italic font-normal">Sem responsável</span>}
+                                    {resps.map((r: string) => (
+                                      <span key={r} className="inline-flex items-center gap-1 bg-slate-100 hover:bg-slate-200 text-slate-700 text-[9px] font-bold px-2 py-1 rounded-full transition-colors">
+                                        <span className="w-4 h-4 rounded-full bg-slate-900 text-amber-400 flex items-center justify-center text-[8px] font-black shrink-0">{r[0]}</span>
+                                        {r}
+                                        {canEdit && (
+                                          <button className="text-slate-400 hover:text-red-500 ml-0.5 transition-colors" onClick={() => updateActionRespsGlobal(acao.mId, acao.id, resps.filter(x => x !== r))}>
+                                            <X size={8} />
+                                          </button>
+                                        )}
+                                      </span>
+                                    ))}
+                                  </div>
+                                  {canEdit && (
+                                    <div className="relative">
+                                      <button
+                                        className="text-[9px] text-slate-400 hover:text-amber-600 font-normal not-italic flex items-center gap-1 transition-colors"
+                                        onClick={e => { e.stopPropagation(); setEditingRespsKey(editingRespsKey === acaoKey ? null : acaoKey); }}
+                                      ><Plus size={10} /> adicionar</button>
+                                      {editingRespsKey === acaoKey && (
+                                        <div className="absolute top-6 left-0 z-30 bg-white border border-slate-200 rounded-lg shadow-2xl py-1 w-52 animate-in zoom-in-95">
+                                          <p className="px-3 pt-2 pb-1 text-[9px] font-bold text-slate-400 uppercase tracking-widest">Adicionar responsável</p>
+                                          {users.filter((u: any) => !resps.includes(u.name)).map((u: any) => (
+                                            <button
+                                              key={u.id}
+                                              className="w-full text-left px-3 py-2 text-[10px] font-bold text-slate-700 hover:bg-amber-50 hover:text-amber-700 transition-colors flex items-center gap-2"
+                                              onClick={e => { e.stopPropagation(); updateActionRespsGlobal(acao.mId, acao.id, [...resps, u.name]); setEditingRespsKey(null); }}
+                                            >
+                                              <span className="w-5 h-5 rounded-full bg-slate-900 text-amber-400 flex items-center justify-center text-[8px] font-black shrink-0">{u.name[0]}</span>
+                                              {u.name}
+                                            </button>
+                                          ))}
+                                          {users.every((u: any) => resps.includes(u.name)) && (
+                                            <p className="px-3 py-2 text-[9px] text-slate-300 italic">Todos já adicionados</p>
+                                          )}
+                                        </div>
+                                      )}
+                                    </div>
+                                  )}
+                                </div>
+                              </td>
+
+                              <td className="px-6 py-4 text-slate-400 text-[10px] uppercase tracking-widest">{acao.mTitle}</td>
+                              <td className="px-6 py-4"><input type="date" className="bg-transparent border-none outline-none text-[10px] font-bold text-slate-600" value={acao.date || ''} onChange={e => updateActionDateGlobal(acao.mId, acao.id, e.target.value)} disabled={!canEdit} /></td>
+                              <td className="px-6 py-4 text-center"><select value={acao.status} onChange={e => updateActionStatusGlobal(acao.mId, acao.id, e.target.value)} className="px-3 py-1.5 rounded-lg text-[10px] font-bold uppercase bg-amber-50 text-amber-700 cursor-pointer" disabled={!canEdit}><option value="Pendente">Aguardando</option><option value="Em andamento">Execução</option><option value="Concluída">Finalizado</option></select></td>
+                              {canEdit && <td className="px-6 py-4 text-center"><button onClick={() => deleteActionGlobal(acao.mId, acao.id)} className="text-slate-200 hover:text-red-600 transition-colors"><Trash2 size={16} /></button></td>}
+                            </tr>
+                          );
+                        })}
                       </tbody>
                     </table>
                   </div>
+
+                  {/* FORMULÁRIO — Nova Ação Global */}
+                  {canEdit && (
+                    <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-6 space-y-4">
+                      <h3 className="text-[10px] font-bold uppercase text-slate-400 tracking-widest flex items-center gap-2 border-b border-slate-100 pb-4"><Plus size={14} className="text-amber-600" /> Nova Iniciativa</h3>
+                      <div className="grid grid-cols-1 sm:grid-cols-12 gap-4 items-end">
+                        <div className="sm:col-span-4 space-y-1">
+                          <label className="text-[10px] font-bold text-slate-400 uppercase">Título da Ação</label>
+                          <input placeholder="Descreva a iniciativa..." className="w-full p-3 border border-slate-200 rounded-lg text-sm bg-white font-bold italic outline-none focus:border-amber-500 transition-colors" value={tmpGlobalAcao.title} onChange={e => setTmpGlobalAcao({ ...tmpGlobalAcao, title: e.target.value })} />
+                        </div>
+                        <div className="sm:col-span-3 space-y-1">
+                          <label className="text-[10px] font-bold text-slate-400 uppercase">Reunião de Origem</label>
+                          <select className="w-full p-3 border border-slate-200 rounded-lg text-sm bg-white font-bold outline-none focus:border-amber-500 transition-colors" value={tmpGlobalAcao.meetingId} onChange={e => setTmpGlobalAcao({ ...tmpGlobalAcao, meetingId: e.target.value })}>
+                            <option value="">Selecione a reunião...</option>
+                            {meetings.map(m => <option key={m.id} value={m.id}>{m.title}</option>)}
+                          </select>
+                        </div>
+                        <div className="sm:col-span-2 space-y-1">
+                          <label className="text-[10px] font-bold text-slate-400 uppercase">Prazo</label>
+                          <input type="date" className="w-full p-3 border border-slate-200 rounded-lg text-sm bg-white font-bold outline-none focus:border-amber-500 transition-colors" value={tmpGlobalAcao.date} onChange={e => setTmpGlobalAcao({ ...tmpGlobalAcao, date: e.target.value })} />
+                        </div>
+                        <div className="sm:col-span-3 space-y-1">
+                          <label className="text-[10px] font-bold text-slate-400 uppercase">Responsáveis</label>
+                          <div className="p-3 border border-slate-200 rounded-lg bg-white min-h-[46px] flex flex-wrap gap-1.5 items-center">
+                            {tmpGlobalAcao.resps.map(r => (
+                              <span key={r} className="inline-flex items-center gap-1 bg-slate-100 text-slate-700 text-[9px] font-bold px-2 py-1 rounded-full">
+                                <span className="w-4 h-4 rounded-full bg-slate-900 text-amber-400 flex items-center justify-center text-[8px] font-black shrink-0">{r[0]}</span>
+                                {r}
+                                <button onClick={() => setTmpGlobalAcao({ ...tmpGlobalAcao, resps: tmpGlobalAcao.resps.filter(x => x !== r) })} className="text-slate-400 hover:text-red-500 ml-0.5"><X size={8} /></button>
+                              </span>
+                            ))}
+                            <select className="text-[9px] font-bold text-slate-400 bg-transparent outline-none cursor-pointer" value="" onChange={e => { if (e.target.value && !tmpGlobalAcao.resps.includes(e.target.value)) setTmpGlobalAcao({ ...tmpGlobalAcao, resps: [...tmpGlobalAcao.resps, e.target.value] }); }}>
+                              <option value="">+ pessoa</option>
+                              {users.filter((u: any) => !tmpGlobalAcao.resps.includes(u.name)).map((u: any) => <option key={u.id} value={u.name}>{u.name}</option>)}
+                            </select>
+                          </div>
+                        </div>
+                        <div className="sm:col-span-9 space-y-1">
+                          <label className="text-[10px] font-bold text-slate-400 uppercase">Observação (opcional)</label>
+                          <input placeholder="Contexto, detalhes ou links relevantes..." className="w-full p-3 border border-slate-200 rounded-lg text-sm bg-white font-normal italic outline-none focus:border-amber-500 transition-colors" value={tmpGlobalAcao.obs} onChange={e => setTmpGlobalAcao({ ...tmpGlobalAcao, obs: e.target.value })} />
+                        </div>
+                        <div className="sm:col-span-3">
+                          <button onClick={saveGlobalAction} className="w-full p-3 bg-amber-600 hover:bg-amber-700 text-white rounded-lg flex items-center justify-center gap-2 shadow-md font-bold uppercase text-[10px] tracking-widest transition-all">
+                            <Plus size={16} /> Registrar Ação
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
 
