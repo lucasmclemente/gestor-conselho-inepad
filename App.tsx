@@ -385,21 +385,42 @@ const App = () => {
   };
 
   // --- LÓGICA DE VOTAÇÃO ---
-  const handleRegisterVote = (delibIndex: number, voteType: 'Favor' | 'Contra' | 'Abstenção') => {
+  const handleRegisterVote = async (delibIndex: number, voteType: 'Favor' | 'Contra' | 'Abstenção') => {
     const newDelibs = [...(currentMeeting.deliberacoes || [])];
     const delib = newDelibs[delibIndex];
-    const votes = { ...(delib.votes || {}) };
-    votes[currentUser.name] = voteType;
+    const votes = { ...(delib.votes || {}), [currentUser.name]: voteType };
     newDelibs[delibIndex] = { ...delib, votes };
+    if (currentMeeting.id) {
+      const { error } = await supabase.from('meetings').update({ deliberacoes: newDelibs }).eq('id', currentMeeting.id);
+      if (error) { alert('Erro ao registrar voto: ' + error.message); return; }
+    }
     setCurrentMeeting({ ...currentMeeting, deliberacoes: newDelibs });
-    addLog('Votação', `Voto ${voteType} em: ${delib.title}`);
+    setMeetings((prev: any) => prev.map((m: any) => m.id === currentMeeting.id ? { ...m, deliberacoes: newDelibs } : m));
+    addLog('Votação', `Voto "${voteType}" em: ${delib.title}`);
   };
 
-  const handleDeleteDelib = (index: number) => {
+  const handleDeleteDelib = async (index: number) => {
     if (!window.confirm("Deseja excluir esta deliberação?")) return;
     const newDelibs = (currentMeeting.deliberacoes || []).filter((_: any, i: number) => i !== index);
+    if (currentMeeting.id) {
+      const { error } = await supabase.from('meetings').update({ deliberacoes: newDelibs }).eq('id', currentMeeting.id);
+      if (error) { alert('Erro ao excluir deliberação: ' + error.message); return; }
+    }
     setCurrentMeeting({ ...currentMeeting, deliberacoes: newDelibs });
+    setMeetings((prev: any) => prev.map((m: any) => m.id === currentMeeting.id ? { ...m, deliberacoes: newDelibs } : m));
     addLog('Exclusão', `Deliberação removida.`);
+  };
+
+  const updateDelibVoters = async (delibIndex: number, newVoters: string[]) => {
+    if (!canEdit) return;
+    const newDelibs = [...(currentMeeting.deliberacoes || [])];
+    newDelibs[delibIndex] = { ...newDelibs[delibIndex], voters: newVoters };
+    if (currentMeeting.id) {
+      const { error } = await supabase.from('meetings').update({ deliberacoes: newDelibs }).eq('id', currentMeeting.id);
+      if (error) { alert('Erro ao atualizar votantes: ' + error.message); return; }
+    }
+    setCurrentMeeting({ ...currentMeeting, deliberacoes: newDelibs });
+    setMeetings((prev: any) => prev.map((m: any) => m.id === currentMeeting.id ? { ...m, deliberacoes: newDelibs } : m));
   };
 
   const formatTime = (seconds: number) => {
@@ -758,66 +779,156 @@ const App = () => {
                     )}
 
                     {tab === 'delib' && (
-                      <div className="bg-white p-8 rounded-xl border border-slate-200 shadow-sm animate-in fade-in space-y-8">
-                        <div className="space-y-6">
+                      <div className="bg-white p-8 rounded-xl border border-slate-200 shadow-sm animate-in fade-in space-y-6" onClick={() => setEditingRespsKey(null)}>
+                        {/* Empty state */}
+                        {(currentMeeting.deliberacoes || []).length === 0 && (
+                          <div className="flex flex-col items-center justify-center py-16 text-slate-300">
+                            <ListChecks size={52} className="mb-3 opacity-30" />
+                            <p className="text-sm font-bold italic">Nenhuma deliberação registrada</p>
+                            {canEdit && <p className="text-xs mt-1 font-normal not-italic">Use o formulário abaixo para registrar a primeira proposição</p>}
+                          </div>
+                        )}
+                        {/* Cards de deliberação */}
+                        <div className="space-y-4">
                           {(currentMeeting.deliberacoes || []).map((d: any, i: any) => {
-                            const userVote = d.votes?.[currentUser.name];
-                            const canUserVote = d.voters.includes(currentUser.name);
-                            const favorCount = Object.values(d.votes || {}).filter(v => v === 'Favor').length;
-                            const contraCount = Object.values(d.votes || {}).filter(v => v === 'Contra').length;
-                            const abstCount = Object.values(d.votes || {}).filter(v => v === 'Abstenção').length;
+                            const voters: string[] = d.voters || [];
+                            const votes: Record<string, string> = d.votes || {};
+                            const userVote = votes[currentUser?.name];
+                            const canUserVote = voters.includes(currentUser?.name);
+                            const favorCount = voters.filter(v => votes[v] === 'Favor').length;
+                            const contraCount = voters.filter(v => votes[v] === 'Contra').length;
+                            const abstCount = voters.filter(v => votes[v] === 'Abstenção').length;
+                            const totalVoted = favorCount + contraCount + abstCount;
+                            const pendingCount = voters.length - totalVoted;
+                            const allVoted = voters.length > 0 && pendingCount === 0;
+                            const votersKey = `delib-voters-${i}`;
+                            const internalParticipants = (currentMeeting.participants || []).filter((p: any) => !p.isExternal);
+                            const availableToAdd = internalParticipants.filter((p: any) => !voters.includes(p.name));
+                            // Resultado
+                            let resultLabel = 'SEM VOTANTES'; let resultCls = 'bg-slate-100 text-slate-400';
+                            if (voters.length > 0 && !allVoted) { resultLabel = 'EM VOTAÇÃO'; resultCls = 'bg-amber-100 text-amber-700'; }
+                            else if (allVoted && favorCount > contraCount) { resultLabel = 'APROVADA'; resultCls = 'bg-emerald-100 text-emerald-700'; }
+                            else if (allVoted && contraCount > favorCount) { resultLabel = 'REJEITADA'; resultCls = 'bg-red-100 text-red-700'; }
+                            else if (allVoted) { resultLabel = 'EMPATE'; resultCls = 'bg-slate-100 text-slate-600'; }
                             return (
-                              <div key={i} className="p-6 bg-slate-50 rounded-xl border border-slate-200 shadow-sm group font-bold italic flex flex-col gap-4">
-                                <div className="flex justify-between items-start">
+                              <div key={i} className="rounded-xl border border-slate-200 shadow-sm overflow-hidden bg-white font-bold italic" onClick={e => e.stopPropagation()}>
+                                {/* Cabeçalho */}
+                                <div className="p-5 flex justify-between items-start gap-4 border-b border-slate-50">
                                   <p className="text-sm text-slate-800 flex-1 leading-relaxed">"{d.title}"</p>
-                                  {canEdit && (<button onClick={() => handleDeleteDelib(i)} className="p-2 text-slate-300 hover:text-red-500 transition-all"><Trash2 size={18} /></button>)}
+                                  <div className="flex items-center gap-2 shrink-0">
+                                    <span className={`text-[9px] font-black px-2.5 py-1 rounded-full uppercase tracking-wider ${resultCls}`}>{resultLabel}</span>
+                                    {canEdit && <button onClick={e => { e.stopPropagation(); handleDeleteDelib(i); }} className="p-1.5 text-slate-200 hover:text-red-500 transition-colors rounded-lg hover:bg-red-50"><Trash2 size={15} /></button>}
+                                  </div>
                                 </div>
-                                {canUserVote && (
-                                  <div className="bg-white p-4 rounded-lg border border-amber-100 flex items-center justify-between shadow-sm">
-                                    <span className="text-[10px] uppercase text-amber-600 tracking-tighter">Sua Decisão:</span>
-                                    <div className="flex gap-2">
-                                      <button onClick={() => handleRegisterVote(i, 'Favor')} className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[9px] uppercase transition-all ${userVote === 'Favor' ? 'bg-emerald-600 text-white' : 'bg-slate-100 text-slate-400 hover:bg-emerald-50'}`}><ThumbsUp size={12} /> Favor</button>
-                                      <button onClick={() => handleRegisterVote(i, 'Contra')} className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[9px] uppercase transition-all ${userVote === 'Contra' ? 'bg-red-600 text-white' : 'bg-slate-100 text-slate-400 hover:bg-red-50'}`}><ThumbsDown size={12} /> Contra</button>
-                                      <button onClick={() => handleRegisterVote(i, 'Abstenção')} className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[9px] uppercase transition-all ${userVote === 'Abstenção' ? 'bg-slate-600 text-white' : 'bg-slate-100 text-slate-400 hover:bg-slate-200'}`}><CircleSlash size={12} /> Abster</button>
+                                {/* Barra de progresso */}
+                                {voters.length > 0 && (
+                                  <div className="px-5 pt-3 pb-1">
+                                    <div className="flex justify-between items-center mb-1.5">
+                                      <span className="text-[9px] font-bold uppercase text-slate-400 tracking-wider not-italic">Progresso</span>
+                                      <span className="text-[9px] font-bold text-slate-500 not-italic">{totalVoted} de {voters.length} {voters.length === 1 ? 'voto' : 'votos'}</span>
+                                    </div>
+                                    <div className="h-2 bg-slate-100 rounded-full overflow-hidden flex">
+                                      <div className="bg-emerald-500 transition-all duration-500" style={{ width: `${voters.length > 0 ? (favorCount / voters.length) * 100 : 0}%` }} />
+                                      <div className="bg-red-500 transition-all duration-500" style={{ width: `${voters.length > 0 ? (contraCount / voters.length) * 100 : 0}%` }} />
+                                      <div className="bg-slate-300 transition-all duration-500" style={{ width: `${voters.length > 0 ? (abstCount / voters.length) * 100 : 0}%` }} />
                                     </div>
                                   </div>
                                 )}
-                                <div className="flex flex-col sm:flex-row sm:items-center gap-4 pt-4 border-t border-slate-200 mt-2">
-                                  <div className="flex-1 flex flex-wrap gap-2">
-                                    <span className="text-[10px] font-bold uppercase text-slate-400 w-full mb-1">Painel de Votantes:</span>
-                                    {d.voters.map((v: any, vi: any) => (
-                                      <div key={vi} className={`px-3 py-1 rounded-full text-[9px] uppercase border flex items-center gap-2 ${d.votes?.[v] ? 'bg-white border-amber-200 text-slate-800' : 'bg-slate-100 border-transparent text-slate-400'}`}>
-                                        {v} {d.votes?.[v] === 'Favor' && <Check className="text-emerald-500" size={10} />}
-                                        {d.votes?.[v] === 'Contra' && <X className="text-red-500" size={10} />}
-                                        {d.votes?.[v] === 'Abstenção' && <MinusCircle className="text-slate-400" size={10} />}
-                                      </div>
-                                    ))}
+                                {/* Painel de voto do usuário */}
+                                {canUserVote && (
+                                  <div className="mx-5 my-3 p-4 bg-amber-50 rounded-xl border border-amber-100 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                                    <div>
+                                      <span className="text-[9px] font-black uppercase text-amber-700 tracking-widest">Seu voto</span>
+                                      {userVote && <p className="text-[9px] text-amber-600 font-normal not-italic mt-0.5">Registrado: <strong>{userVote}</strong> — clique em outro para alterar</p>}
+                                      {!userVote && <p className="text-[9px] text-amber-500/70 font-normal not-italic mt-0.5">Selecione sua posição abaixo</p>}
+                                    </div>
+                                    <div className="flex gap-2 flex-wrap">
+                                      <button onClick={() => handleRegisterVote(i, 'Favor')} className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-[9px] font-bold uppercase transition-all shadow-sm ${userVote === 'Favor' ? 'bg-emerald-600 text-white ring-2 ring-emerald-300' : 'bg-white border border-slate-200 text-slate-500 hover:border-emerald-300 hover:text-emerald-600 hover:bg-emerald-50'}`}><ThumbsUp size={12} /> Favor</button>
+                                      <button onClick={() => handleRegisterVote(i, 'Contra')} className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-[9px] font-bold uppercase transition-all shadow-sm ${userVote === 'Contra' ? 'bg-red-600 text-white ring-2 ring-red-300' : 'bg-white border border-slate-200 text-slate-500 hover:border-red-300 hover:text-red-600 hover:bg-red-50'}`}><ThumbsDown size={12} /> Contra</button>
+                                      <button onClick={() => handleRegisterVote(i, 'Abstenção')} className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-[9px] font-bold uppercase transition-all shadow-sm ${userVote === 'Abstenção' ? 'bg-slate-600 text-white ring-2 ring-slate-300' : 'bg-white border border-slate-200 text-slate-500 hover:border-slate-400 hover:bg-slate-50'}`}><CircleSlash size={12} /> Abster</button>
+                                    </div>
                                   </div>
-                                  <div className="flex gap-4 bg-white px-4 py-2 rounded-lg border border-slate-100 text-[10px] font-black uppercase italic">
-                                    <div className="text-emerald-600">Favor: {favorCount}</div>
-                                    <div className="text-red-600">Contra: {contraCount}</div>
-                                    <div className="text-slate-400">Abst: {abstCount}</div>
+                                )}
+                                {/* Votantes + placar */}
+                                <div className="p-5 border-t border-slate-50 flex flex-col sm:flex-row gap-5">
+                                  <div className="flex-1">
+                                    <div className="flex items-center justify-between mb-2">
+                                      <span className="text-[9px] font-bold uppercase text-slate-400 tracking-wider not-italic">Votantes ({voters.length})</span>
+                                      {canEdit && (
+                                        <div className="relative" onClick={e => e.stopPropagation()}>
+                                          <button onClick={() => setEditingRespsKey(editingRespsKey === votersKey ? null : votersKey)} className="text-[9px] font-bold not-italic text-slate-300 hover:text-amber-500 transition-colors flex items-center gap-1"><Plus size={10} /> adicionar</button>
+                                          {editingRespsKey === votersKey && (
+                                            <div className="absolute top-6 right-0 z-30 bg-white border border-slate-200 rounded-lg shadow-2xl py-1 w-52 animate-in zoom-in-95">
+                                              <p className="px-3 pt-2 pb-1 text-[9px] font-bold text-slate-400 uppercase tracking-widest">Adicionar votante</p>
+                                              {availableToAdd.length === 0
+                                                ? <p className="px-3 py-2 text-[9px] text-slate-300 italic font-normal">Todos os membros já adicionados</p>
+                                                : availableToAdd.map((p: any, pi: number) => (
+                                                  <button key={pi} className="w-full text-left px-3 py-2 text-[10px] font-bold text-slate-700 hover:bg-amber-50 hover:text-amber-700 transition-colors flex items-center gap-2 not-italic"
+                                                    onClick={() => { updateDelibVoters(i, [...voters, p.name]); setEditingRespsKey(null); }}>
+                                                    <span className="w-5 h-5 rounded-full bg-slate-900 text-amber-400 flex items-center justify-center text-[8px] font-black shrink-0">{p.name[0]}</span>{p.name}
+                                                  </button>
+                                                ))
+                                              }
+                                            </div>
+                                          )}
+                                        </div>
+                                      )}
+                                    </div>
+                                    <div className="flex flex-wrap gap-1.5">
+                                      {voters.length === 0 && <span className="text-[9px] text-slate-300 italic font-normal">Nenhum votante definido</span>}
+                                      {voters.map((v: string) => {
+                                        const vote = votes[v];
+                                        return (
+                                          <span key={v} className={`inline-flex items-center gap-1.5 pl-1.5 pr-2 py-1 rounded-full text-[9px] font-bold transition-all border ${vote === 'Favor' ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : vote === 'Contra' ? 'bg-red-50 text-red-700 border-red-200' : vote === 'Abstenção' ? 'bg-slate-100 text-slate-500 border-slate-200' : 'bg-white text-slate-400 border-dashed border-slate-200'}`}>
+                                            <span className="w-4 h-4 rounded-full bg-slate-700 text-white flex items-center justify-center text-[7px] font-black shrink-0">{v[0]}</span>
+                                            {v}
+                                            {vote === 'Favor' && <Check size={9} className="text-emerald-600 ml-0.5" />}
+                                            {vote === 'Contra' && <X size={9} className="text-red-500 ml-0.5" />}
+                                            {vote === 'Abstenção' && <MinusCircle size={9} className="text-slate-400 ml-0.5" />}
+                                            {!vote && <span className="ml-0.5 text-[7px] text-slate-300 font-normal not-italic">pendente</span>}
+                                            {canEdit && <button onClick={e => { e.stopPropagation(); updateDelibVoters(i, voters.filter(x => x !== v)); }} className="ml-0.5 text-slate-300 hover:text-red-500 transition-colors"><X size={8} /></button>}
+                                          </span>
+                                        );
+                                      })}
+                                    </div>
                                   </div>
+                                  {voters.length > 0 && (
+                                    <div className="flex sm:flex-col gap-2 flex-wrap">
+                                      {[{ l: 'Favor', n: favorCount, cls: 'bg-emerald-50 text-emerald-700' }, { l: 'Contra', n: contraCount, cls: 'bg-red-50 text-red-700' }, { l: 'Abstenção', n: abstCount, cls: 'bg-slate-100 text-slate-500' }, ...(pendingCount > 0 ? [{ l: 'Pendente', n: pendingCount, cls: 'bg-amber-50 text-amber-600' }] : [])].map(s => (
+                                        <div key={s.l} className={`flex items-center gap-2 px-3 py-1.5 rounded-lg ${s.cls}`}>
+                                          <span className="text-xl font-black leading-none">{s.n}</span>
+                                          <span className="text-[8px] font-bold uppercase opacity-70 not-italic">{s.l}</span>
+                                        </div>
+                                      ))}
+                                    </div>
+                                  )}
                                 </div>
                               </div>
                             );
                           })}
                         </div>
+                        {/* Formulário nova deliberação */}
                         {canEdit && (
                           <div className="p-6 bg-amber-50 rounded-xl border border-amber-200 space-y-4">
-                            <h4 className="text-[10px] font-black uppercase text-amber-600 italic">Nova Proposição</h4>
-                            <textarea placeholder="Texto da Deliberação..." className="w-full p-4 border rounded-lg text-sm h-24 font-bold italic outline-none shadow-inner" value={tmpDelib.title} onChange={e => setTmpDelib({ ...tmpDelib, title: e.target.value })} />
+                            <h4 className="text-[10px] font-black uppercase text-amber-700 italic tracking-widest flex items-center gap-2"><ListChecks size={14} /> Nova Deliberação</h4>
+                            <textarea placeholder="Descreva a proposição a ser deliberada..." className="w-full p-4 border border-amber-200 bg-white rounded-lg text-sm h-24 font-bold italic outline-none resize-none focus:border-amber-400 focus:ring-1 focus:ring-amber-200" value={tmpDelib.title} onChange={e => setTmpDelib({ ...tmpDelib, title: e.target.value })} />
                             <div className="space-y-2">
-                              <label className="text-[10px] font-bold text-slate-400 uppercase">Conceder Direito a Voto:</label>
-                              <div className="flex flex-wrap gap-3 p-4 bg-white rounded-lg border max-h-40 overflow-y-auto">
-                                {(currentMeeting.participants || []).filter((p: any) => !p.isExternal).map((p: any, i: number) => (
-                                  <label key={i} className="flex items-center gap-2 text-[10px] font-bold uppercase text-slate-500 cursor-pointer hover:text-amber-600 transition-colors">
-                                    <input type="checkbox" checked={tmpDelib.voters.includes(p.name)} className="accent-amber-600" onChange={(e) => { if (e.target.checked) setTmpDelib({ ...tmpDelib, voters: [...tmpDelib.voters, p.name] }); else setTmpDelib({ ...tmpDelib, voters: tmpDelib.voters.filter(v => v !== p.name) }); }} /> {p.name}
-                                  </label>
+                              <label className="text-[9px] font-bold uppercase text-amber-700 tracking-widest">Atribuir direito a voto</label>
+                              <div className="p-3 bg-white border border-amber-200 rounded-lg min-h-[48px] flex flex-wrap gap-2 items-center">
+                                {tmpDelib.voters.map((v: string) => (
+                                  <span key={v} className="inline-flex items-center gap-1 bg-slate-100 text-slate-700 text-[9px] font-bold px-2 py-1 rounded-full">
+                                    <span className="w-4 h-4 rounded-full bg-slate-900 text-amber-400 flex items-center justify-center text-[7px] font-black shrink-0">{v[0]}</span>{v}
+                                    <button onClick={() => setTmpDelib({ ...tmpDelib, voters: tmpDelib.voters.filter((x: string) => x !== v) })} className="text-slate-400 hover:text-red-500 ml-0.5"><X size={8} /></button>
+                                  </span>
                                 ))}
+                                <select className="text-[9px] font-bold text-slate-400 bg-transparent outline-none cursor-pointer" value="" onChange={e => { if (e.target.value && !tmpDelib.voters.includes(e.target.value)) setTmpDelib({ ...tmpDelib, voters: [...tmpDelib.voters, e.target.value] }); }}>
+                                  <option value="">+ votante</option>
+                                  {(currentMeeting.participants || []).filter((p: any) => !p.isExternal && !tmpDelib.voters.includes(p.name)).map((p: any, pi: number) => <option key={pi} value={p.name}>{p.name}</option>)}
+                                </select>
                               </div>
+                              <p className="text-[8px] text-amber-600/60 font-normal not-italic">Apenas membros internos podem votar. Convidados externos são excluídos automaticamente.</p>
                             </div>
-                            <button onClick={() => { if (tmpDelib.title) { setCurrentMeeting({ ...currentMeeting, deliberacoes: [...(currentMeeting.deliberacoes || []), { ...tmpDelib, votes: {} }] }); setTmpDelib({ title: '', voters: [], votes: {} }); } }} className="w-full py-4 bg-slate-900 text-amber-500 rounded-lg font-bold uppercase text-[10px] tracking-widest shadow-xl hover:bg-slate-800 transition-all">Oficializar Deliberação</button>
+                            <button onClick={() => { if (tmpDelib.title.trim()) { setCurrentMeeting({ ...currentMeeting, deliberacoes: [...(currentMeeting.deliberacoes || []), { ...tmpDelib, votes: {} }] }); setTmpDelib({ title: '', voters: [], votes: {} }); } }} className="w-full py-4 bg-slate-900 text-amber-500 rounded-lg font-bold uppercase text-[10px] tracking-widest shadow-xl hover:bg-slate-800 transition-all flex items-center justify-center gap-2"><Check size={16} /> Registrar Deliberação</button>
                           </div>
                         )}
                       </div>
