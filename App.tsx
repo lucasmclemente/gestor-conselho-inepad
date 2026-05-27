@@ -48,7 +48,7 @@ const App = () => {
   const [editingPauta, setEditingPauta] = useState<number | null>(null);
   const [tmpPart, setTmpPart] = useState({ name: '', email: '', isExternal: false });
   const [tmpPauta, setTmpPauta] = useState({ title: '', resp: '', dur: '' });
-  const [tmpAcao, setTmpAcao] = useState({ title: '', resp: '', date: '', status: 'Pendente', obs: '' });
+  const [tmpAcao, setTmpAcao] = useState({ title: '', resps: [] as string[], resp: '', date: '', status: 'Pendente', obs: '' });
   const [tmpGlobalAcao, setTmpGlobalAcao] = useState({ title: '', resps: [] as string[], date: '', meetingId: '', obs: '' });
   const [tmpDelib, setTmpDelib] = useState({ title: '', voters: [] as string[], votes: {} as any });
   const [editingObsKey, setEditingObsKey] = useState<string | null>(null);
@@ -824,13 +824,99 @@ const App = () => {
 
                     {tab === 'acoes' && (
                       <div className="bg-white p-8 rounded-xl border border-slate-200 shadow-sm animate-in fade-in space-y-6">
-                        <div className="space-y-3">{(currentMeeting.acoes || []).map((a: any, i: any) => (<div key={a.id || i} className="p-4 bg-white rounded-lg border border-l-4 border-l-emerald-500 shadow-sm flex flex-col group font-bold italic"><div className="flex justify-between items-center w-full"><div><p className="text-sm text-slate-800">{a.title}</p><p className="text-[10px] text-slate-400 uppercase mt-1 tracking-widest">{a.resp} • {a.date}</p></div>{canEdit && <button onClick={() => setCurrentMeeting({ ...currentMeeting, acoes: (currentMeeting.acoes || []).filter((_: any, idx: any) => idx !== i) })}><Trash2 size={18} className="text-slate-200 hover:text-red-500" /></button>}</div>{a.obs && <div className="mt-2 text-[10px] text-amber-700 bg-amber-50/50 p-2 rounded border border-amber-100/50 whitespace-pre-wrap">OBS: {a.obs}</div>}</div>))}</div>
+                        <div className="space-y-3">
+                          {(currentMeeting.acoes || []).map((a: any, i: any) => {
+                            const meetingObsKey = `meeting-obs-${i}`;
+                            const meetingRespsKey = `meeting-resp-${i}`;
+                            const resps: string[] = a.resps?.length > 0 ? a.resps : (a.resp ? [a.resp] : []);
+                            return (
+                              <div key={a.id || i} className="p-4 bg-white rounded-lg border border-l-4 border-l-emerald-500 shadow-sm flex flex-col group font-bold italic" onClick={() => { if (editingRespsKey === meetingRespsKey) setEditingRespsKey(null); }}>
+                                <div className="flex justify-between items-start w-full gap-3">
+                                  <div className="flex-1 min-w-0">
+                                    <p className="text-sm text-slate-800">{a.title}</p>
+                                    {/* Responsáveis chips */}
+                                    <div className="flex flex-wrap gap-1 mt-2 items-center" onClick={e => e.stopPropagation()}>
+                                      {resps.length === 0 && <span className="text-[10px] text-slate-300 italic font-normal">Sem responsável</span>}
+                                      {resps.map((r: string) => (
+                                        <span key={r} className="inline-flex items-center gap-1 bg-slate-100 text-slate-700 text-[9px] font-bold px-2 py-1 rounded-full">
+                                          <span className="w-4 h-4 rounded-full bg-slate-900 text-amber-400 flex items-center justify-center text-[8px] font-black shrink-0">{r[0]}</span>
+                                          {r}
+                                          {canEdit && <button className="text-slate-400 hover:text-red-500 ml-0.5" onClick={() => { const nr = resps.filter(x => x !== r); setCurrentMeeting({ ...currentMeeting, acoes: (currentMeeting.acoes || []).map((ac: any, idx: any) => idx === i ? { ...ac, resps: nr, resp: nr[0] || '' } : ac) }); }}><X size={8} /></button>}
+                                        </span>
+                                      ))}
+                                      {canEdit && (
+                                        <div className="relative">
+                                          <button className="text-[9px] text-slate-300 hover:text-amber-500 font-normal not-italic flex items-center gap-1 transition-colors" onClick={e => { e.stopPropagation(); setEditingRespsKey(editingRespsKey === meetingRespsKey ? null : meetingRespsKey); }}>
+                                            <Plus size={10} /> resp.
+                                          </button>
+                                          {editingRespsKey === meetingRespsKey && (
+                                            <div className="absolute top-6 left-0 z-30 bg-white border border-slate-200 rounded-lg shadow-2xl py-1 w-48 animate-in zoom-in-95">
+                                              <p className="px-3 pt-2 pb-1 text-[9px] font-bold text-slate-400 uppercase tracking-widest">Adicionar responsável</p>
+                                              {(currentMeeting.participants || []).filter((p: any) => !p.isExternal && !resps.includes(p.name)).map((p: any, pi: number) => (
+                                                <button key={pi} className="w-full text-left px-3 py-2 text-[10px] font-bold text-slate-700 hover:bg-amber-50 hover:text-amber-700 transition-colors flex items-center gap-2"
+                                                  onClick={e => { e.stopPropagation(); const nr = [...resps, p.name]; setCurrentMeeting({ ...currentMeeting, acoes: (currentMeeting.acoes || []).map((ac: any, idx: any) => idx === i ? { ...ac, resps: nr, resp: nr[0] || '' } : ac) }); setEditingRespsKey(null); }}>
+                                                  <span className="w-5 h-5 rounded-full bg-slate-900 text-amber-400 flex items-center justify-center text-[8px] font-black shrink-0">{p.name[0]}</span>
+                                                  {p.name}
+                                                </button>
+                                              ))}
+                                              {(currentMeeting.participants || []).filter((p: any) => !p.isExternal && !resps.includes(p.name)).length === 0 && (
+                                                <p className="px-3 py-2 text-[9px] text-slate-300 italic">Todos já adicionados</p>
+                                              )}
+                                            </div>
+                                          )}
+                                        </div>
+                                      )}
+                                    </div>
+                                    <p className="text-[10px] text-slate-400 uppercase mt-1 tracking-widest">{a.date}</p>
+                                  </div>
+                                  {canEdit && <button onClick={() => setCurrentMeeting({ ...currentMeeting, acoes: (currentMeeting.acoes || []).filter((_: any, idx: any) => idx !== i) })} className="shrink-0"><Trash2 size={18} className="text-slate-200 hover:text-red-500" /></button>}
+                                </div>
+                                {/* OBS inline editável */}
+                                {canEdit && editingObsKey === meetingObsKey ? (
+                                  <textarea autoFocus rows={2}
+                                    className="mt-2 w-full text-[10px] text-amber-700 bg-amber-50 border border-amber-300 rounded p-1.5 outline-none resize-none font-normal not-italic"
+                                    value={obsInputValue}
+                                    onChange={e => setObsInputValue(e.target.value)}
+                                    onBlur={() => { setCurrentMeeting({ ...currentMeeting, acoes: (currentMeeting.acoes || []).map((ac: any, idx: any) => idx === i ? { ...ac, obs: obsInputValue } : ac) }); setEditingObsKey(null); }}
+                                    onKeyDown={e => { if (e.key === 'Escape') setEditingObsKey(null); }}
+                                    placeholder="Digite uma observação..."
+                                  />
+                                ) : a.obs ? (
+                                  <p className={`mt-2 text-[10px] text-amber-700 bg-amber-50/50 p-2 rounded border border-amber-100/50 whitespace-pre-wrap font-normal not-italic ${canEdit ? 'cursor-pointer hover:border-amber-300 transition-colors' : ''}`}
+                                    onClick={() => canEdit && (setEditingObsKey(meetingObsKey), setObsInputValue(a.obs || ''))}
+                                    title={canEdit ? 'Clique para editar' : undefined}>OBS: {a.obs}</p>
+                                ) : canEdit ? (
+                                  <button className="mt-2 text-[9px] text-slate-300 hover:text-amber-500 font-normal not-italic flex items-center gap-1 transition-colors self-start"
+                                    onClick={() => { setEditingObsKey(meetingObsKey); setObsInputValue(''); }}>
+                                    <MessageSquare size={10} /> adicionar nota
+                                  </button>
+                                ) : null}
+                              </div>
+                            );
+                          })}
+                        </div>
                         {canEdit && (
                           <div className="p-5 bg-slate-50 border border-dashed border-slate-300 rounded-xl grid grid-cols-1 sm:grid-cols-12 gap-4 items-end">
                             <div className="sm:col-span-5"><label className="text-[10px] font-bold text-slate-400 uppercase">Ação</label><input placeholder="Título" className="w-full p-3 border rounded-lg text-sm bg-white font-bold italic" value={tmpAcao.title} onChange={e => setTmpAcao({ ...tmpAcao, title: e.target.value })} /></div>
-                            <div className="sm:col-span-3"><label className="text-[10px] font-bold text-slate-400 uppercase">Resp.</label><select className="w-full p-3 border rounded-lg text-sm bg-white font-bold" value={tmpAcao.resp} onChange={e => setTmpAcao({ ...tmpAcao, resp: e.target.value })}><option value="">Selecione...</option>{(currentMeeting.participants || []).filter((p: any) => !p.isExternal).map((p: any, i: number) => (<option key={i} value={p.name}>{p.name}</option>))}</select></div>
+                            <div className="sm:col-span-4 space-y-1">
+                              <label className="text-[10px] font-bold text-slate-400 uppercase">Responsáveis</label>
+                              <div className="p-2.5 border border-slate-200 rounded-lg bg-white min-h-[46px] flex flex-wrap gap-1.5 items-center">
+                                {tmpAcao.resps.map(r => (
+                                  <span key={r} className="inline-flex items-center gap-1 bg-slate-100 text-slate-700 text-[9px] font-bold px-2 py-1 rounded-full">
+                                    <span className="w-4 h-4 rounded-full bg-slate-900 text-amber-400 flex items-center justify-center text-[8px] font-black shrink-0">{r[0]}</span>
+                                    {r}
+                                    <button onClick={() => setTmpAcao({ ...tmpAcao, resps: tmpAcao.resps.filter(x => x !== r) })} className="text-slate-400 hover:text-red-500 ml-0.5"><X size={8} /></button>
+                                  </span>
+                                ))}
+                                <select className="text-[9px] font-bold text-slate-400 bg-transparent outline-none cursor-pointer" value="" onChange={e => { if (e.target.value && !tmpAcao.resps.includes(e.target.value)) setTmpAcao({ ...tmpAcao, resps: [...tmpAcao.resps, e.target.value] }); }}>
+                                  <option value="">+ pessoa</option>
+                                  {(currentMeeting.participants || []).filter((p: any) => !p.isExternal && !tmpAcao.resps.includes(p.name)).map((p: any, pi: number) => <option key={pi} value={p.name}>{p.name}</option>)}
+                                </select>
+                              </div>
+                            </div>
                             <div className="sm:col-span-3"><label className="text-[10px] font-bold text-slate-400 uppercase">Prazo</label><input type="date" className="w-full p-3 border rounded-lg text-sm bg-white font-bold" value={tmpAcao.date} onChange={e => setTmpAcao({ ...tmpAcao, date: e.target.value })} /></div>
-                            <div className="sm:col-span-12"><button onClick={() => { if (tmpAcao.title) { setCurrentMeeting({ ...currentMeeting, acoes: [...(currentMeeting.acoes || []), { ...tmpAcao, id: Date.now() }] }); setTmpAcao({ title: '', resp: '', date: '', status: 'Pendente', obs: '' }); } }} className="w-full p-3 bg-emerald-600 text-white rounded-lg flex items-center justify-center shadow-md font-bold uppercase text-[10px] tracking-widest"><Plus size={18} className="mr-2" /> Adicionar Iniciativa</button></div>
+                            <div className="sm:col-span-12"><label className="text-[10px] font-bold text-slate-400 uppercase">Observação (opcional)</label><input placeholder="Contexto ou detalhes da ação..." className="w-full p-3 border rounded-lg text-sm bg-white font-normal italic mt-1" value={tmpAcao.obs} onChange={e => setTmpAcao({ ...tmpAcao, obs: e.target.value })} /></div>
+                            <div className="sm:col-span-12"><button onClick={() => { if (tmpAcao.title) { setCurrentMeeting({ ...currentMeeting, acoes: [...(currentMeeting.acoes || []), { ...tmpAcao, resp: tmpAcao.resps[0] || '', id: Date.now() }] }); setTmpAcao({ title: '', resps: [], resp: '', date: '', status: 'Pendente', obs: '' }); } }} className="w-full p-3 bg-emerald-600 text-white rounded-lg flex items-center justify-center shadow-md font-bold uppercase text-[10px] tracking-widest"><Plus size={18} className="mr-2" /> Adicionar Iniciativa</button></div>
                           </div>
                         )}
                       </div>
