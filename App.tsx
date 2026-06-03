@@ -914,18 +914,40 @@ const App = () => {
                             <textarea placeholder="Descreva a proposição a ser deliberada..." className="w-full p-4 border border-amber-200 bg-white rounded-lg text-sm h-24 font-bold italic outline-none resize-none focus:border-amber-400 focus:ring-1 focus:ring-amber-200" value={tmpDelib.title} onChange={e => setTmpDelib({ ...tmpDelib, title: e.target.value })} />
                             <div className="space-y-2">
                               <label className="text-[9px] font-bold uppercase text-amber-700 tracking-widest">Atribuir direito a voto</label>
-                              <div className="p-3 bg-white border border-amber-200 rounded-lg min-h-[48px] flex flex-wrap gap-2 items-center">
-                                {tmpDelib.voters.map((v: string) => (
-                                  <span key={v} className="inline-flex items-center gap-1 bg-slate-100 text-slate-700 text-[9px] font-bold px-2 py-1 rounded-full">
-                                    <span className="w-4 h-4 rounded-full bg-slate-900 text-amber-400 flex items-center justify-center text-[7px] font-black shrink-0">{v[0]}</span>{v}
-                                    <button onClick={() => setTmpDelib({ ...tmpDelib, voters: tmpDelib.voters.filter((x: string) => x !== v) })} className="text-slate-400 hover:text-red-500 ml-0.5"><X size={8} /></button>
-                                  </span>
-                                ))}
-                                <select className="text-[9px] font-bold text-slate-400 bg-transparent outline-none cursor-pointer" value="" onChange={e => { if (e.target.value && !tmpDelib.voters.includes(e.target.value)) setTmpDelib({ ...tmpDelib, voters: [...tmpDelib.voters, e.target.value] }); }}>
-                                  <option value="">+ votante</option>
-                                  {(currentMeeting.participants || []).filter((p: any) => !p.isExternal && !tmpDelib.voters.includes(p.name)).map((p: any, pi: number) => <option key={pi} value={p.name}>{p.name}</option>)}
-                                </select>
-                              </div>
+                              {(() => {
+                                const internalMembers = (currentMeeting.participants || []).filter((p: any) => !p.isExternal);
+                                const available = internalMembers.filter((p: any) => !tmpDelib.voters.includes(p.name));
+                                if (internalMembers.length === 0) {
+                                  return (
+                                    <div className="p-4 bg-white border border-dashed border-amber-300 rounded-lg flex items-center gap-3 text-amber-600">
+                                      <UserCheck size={18} className="shrink-0 opacity-60" />
+                                      <div>
+                                        <p className="text-[10px] font-bold">Nenhum membro interno nesta reunião</p>
+                                        <p className="text-[9px] font-normal not-italic mt-0.5">Adicione participantes na aba <strong>Informações</strong> antes de atribuir votantes.</p>
+                                      </div>
+                                    </div>
+                                  );
+                                }
+                                return (
+                                  <div className="p-3 bg-white border border-amber-200 rounded-lg min-h-[48px] flex flex-wrap gap-2 items-center">
+                                    {tmpDelib.voters.map((v: string) => (
+                                      <span key={v} className="inline-flex items-center gap-1 bg-slate-100 text-slate-700 text-[9px] font-bold px-2 py-1 rounded-full">
+                                        <span className="w-4 h-4 rounded-full bg-slate-900 text-amber-400 flex items-center justify-center text-[7px] font-black shrink-0">{v[0]}</span>{v}
+                                        <button onClick={() => setTmpDelib({ ...tmpDelib, voters: tmpDelib.voters.filter((x: string) => x !== v) })} className="text-slate-400 hover:text-red-500 ml-0.5"><X size={8} /></button>
+                                      </span>
+                                    ))}
+                                    {available.length > 0 && (
+                                      <select className="text-[9px] font-bold text-amber-600 bg-transparent outline-none cursor-pointer border border-dashed border-amber-300 rounded px-2 py-1 hover:border-amber-500 transition-colors" value="" onChange={e => { if (e.target.value) setTmpDelib({ ...tmpDelib, voters: [...tmpDelib.voters, e.target.value] }); }}>
+                                        <option value="">+ adicionar votante</option>
+                                        {available.map((p: any, pi: number) => <option key={pi} value={p.name}>{p.name}</option>)}
+                                      </select>
+                                    )}
+                                    {available.length === 0 && tmpDelib.voters.length > 0 && (
+                                      <span className="text-[8px] text-slate-300 italic font-normal">Todos os membros adicionados</span>
+                                    )}
+                                  </div>
+                                );
+                              })()}
                               <p className="text-[8px] text-amber-600/60 font-normal not-italic">Apenas membros internos podem votar. Convidados externos são excluídos automaticamente.</p>
                             </div>
                             <button onClick={() => { if (tmpDelib.title.trim()) { setCurrentMeeting({ ...currentMeeting, deliberacoes: [...(currentMeeting.deliberacoes || []), { ...tmpDelib, votes: {} }] }); setTmpDelib({ title: '', voters: [], votes: {} }); } }} className="w-full py-4 bg-slate-900 text-amber-500 rounded-lg font-bold uppercase text-[10px] tracking-widest shadow-xl hover:bg-slate-800 transition-all flex items-center justify-center gap-2"><Check size={16} /> Registrar Deliberação</button>
