@@ -1,5 +1,6 @@
 import React, { useState, useRef, useMemo, useEffect } from 'react';
 import { generateMeetingPDF } from './services/generateMeetingPDF';
+import { generateAtaPDF } from './services/generateAtaPDF';
 import { createClient } from '@supabase/supabase-js';
 import {
   LayoutDashboard, Calendar, ChevronRight, UserPlus,
@@ -708,7 +709,7 @@ const App = () => {
                   </div>
                 ) : (
                   <div className="animate-in fade-in duration-300 pb-20">
-                    <div className="flex items-center justify-between mb-6 bg-white p-4 rounded-xl border border-slate-200 shadow-sm sticky top-0 z-10"><button onClick={() => setView('list')} className="p-2 text-slate-500 hover:bg-slate-100 rounded-lg transition-all flex items-center gap-2 text-xs font-bold uppercase tracking-widest"><ChevronRight className="rotate-180" size={20} /> Voltar</button><div className="flex items-center gap-2">{currentMeeting.id && (<button onClick={() => generateMeetingPDF(currentMeeting, currentUser?.client_id || 'INEPAD')} className="border border-slate-200 text-slate-600 hover:bg-slate-50 hover:border-amber-400 hover:text-amber-600 px-4 py-2.5 rounded-lg font-bold text-xs uppercase shadow-sm flex items-center gap-2 transition-all"><Download size={15} /> Exportar PDF</button>)}{canEdit && (<button onClick={saveMeeting} className="bg-slate-800 hover:bg-slate-900 text-white px-6 py-2.5 rounded-lg font-bold text-xs uppercase shadow-sm flex items-center gap-2 transition-all"><Save size={16} className="text-amber-500" /> Salvar</button>)}</div></div>
+                    <div className="flex items-center justify-between mb-6 bg-white p-4 rounded-xl border border-slate-200 shadow-sm sticky top-0 z-10"><button onClick={() => setView('list')} className="p-2 text-slate-500 hover:bg-slate-100 rounded-lg transition-all flex items-center gap-2 text-xs font-bold uppercase tracking-widest"><ChevronRight className="rotate-180" size={20} /> Voltar</button><div className="flex items-center gap-2">{currentMeeting.id && (<button onClick={() => generateMeetingPDF(currentMeeting, currentUser?.client_id || 'INEPAD')} className="border border-slate-200 text-slate-600 hover:bg-slate-50 hover:border-amber-400 hover:text-amber-600 px-4 py-2.5 rounded-lg font-bold text-xs uppercase shadow-sm flex items-center gap-2 transition-all"><Download size={15} /> Exportar PDF</button>)}{currentMeeting.id && (<button onClick={() => generateAtaPDF(currentMeeting, clientProfile?.name || currentUser.client_id, clientProfile?.logo_url).catch((e: any) => alert('Erro ao gerar ata: ' + e.message))} className="border border-amber-300 bg-amber-50 text-amber-700 hover:bg-amber-100 hover:border-amber-400 px-4 py-2.5 rounded-lg font-bold text-xs uppercase shadow-sm flex items-center gap-2 transition-all"><FileText size={15} /> Gerar Ata</button>)}{canEdit && (<button onClick={saveMeeting} className="bg-slate-800 hover:bg-slate-900 text-white px-6 py-2.5 rounded-lg font-bold text-xs uppercase shadow-sm flex items-center gap-2 transition-all"><Save size={16} className="text-amber-500" /> Salvar</button>)}</div></div>
                     <input placeholder="Título..." className="text-3xl md:text-4xl font-bold italic text-slate-900 bg-transparent outline-none w-full border-b border-slate-200 focus:border-amber-500 pb-2 mb-8" value={currentMeeting.title} onChange={e => setCurrentMeeting({ ...currentMeeting, title: e.target.value })} readOnly={!canEdit} />
                     <div className="border-b border-slate-200 flex gap-6 mb-8 overflow-x-auto font-bold text-[10px] uppercase tracking-widest no-scrollbar italic py-2">{['Informações', 'Ordem do Dia', 'Materiais', 'Deliberações', 'Plano de Ação', 'Atas'].map((label, i) => { const ids = ['info', 'pauta', 'materiais', 'delib', 'acoes', 'atas']; return <button key={i} onClick={() => setTab(ids[i])} className={`pb-3 transition-all relative whitespace-nowrap ${tab === ids[i] ? 'text-amber-600 border-b-2 border-amber-600 scale-105' : 'text-slate-400 hover:text-slate-800'}`}>{label}</button> })}</div>
 
@@ -719,12 +720,32 @@ const App = () => {
                           <div className="bg-white p-6 md:p-8 rounded-xl border border-slate-200 shadow-sm space-y-6">
                             <h3 className="text-xs font-bold uppercase text-slate-500 tracking-widest flex items-center gap-2 border-b border-slate-50 pb-4"><UserCheck size={16} className="text-amber-600" /> Participantes</h3>
                             <div className="space-y-2">{(currentMeeting.participants || []).map((p: any, i: any) => (
-                              <div key={i} className="flex justify-between items-center p-4 bg-slate-50 rounded-lg border border-slate-100 group transition-all hover:bg-white hover:shadow-md font-bold italic">
+                              <div key={i} className={`flex justify-between items-center p-4 rounded-lg border group transition-all hover:shadow-md font-bold italic ${p.present === false ? 'bg-red-50 border-red-100' : 'bg-slate-50 border-slate-100 hover:bg-white'}`}>
                                 <div className="flex items-center gap-4">
-                                  <div className="w-10 h-10 rounded-xl bg-white border border-slate-200 text-slate-400 flex items-center justify-center text-xs font-bold">{p.name[0]}</div>
-                                  <div><p className="text-sm text-slate-800">{p.name} {p.isExternal && <span className="text-[8px] bg-amber-100 text-amber-700 px-1 rounded uppercase ml-2 border border-amber-200">Convidado</span>}</p><p className="text-[10px] text-slate-400 italic">{p.email}</p></div>
+                                  <div className={`w-10 h-10 rounded-xl border flex items-center justify-center text-xs font-bold ${p.present === false ? 'bg-red-50 border-red-200 text-red-400' : 'bg-white border-slate-200 text-slate-400'}`}>{p.name[0]}</div>
+                                  <div>
+                                    <p className={`text-sm ${p.present === false ? 'text-slate-400 line-through' : 'text-slate-800'}`}>
+                                      {p.name} {p.isExternal && <span className="text-[8px] bg-amber-100 text-amber-700 px-1 rounded uppercase ml-2 border border-amber-200">Convidado</span>}
+                                      {p.present === false && <span className="text-[8px] bg-red-100 text-red-500 px-1.5 py-0.5 rounded uppercase ml-2 border border-red-200 not-italic">Ausente</span>}
+                                    </p>
+                                    <p className="text-[10px] text-slate-400 italic">{p.email}</p>
+                                  </div>
                                 </div>
-                                {canEdit && <button onClick={() => setCurrentMeeting({ ...currentMeeting, participants: (currentMeeting.participants || []).filter((_: any, idx: any) => idx !== i) })} className="p-2 text-slate-400 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity"><X size={16} /></button>}
+                                <div className="flex items-center gap-1">
+                                  {canEdit && (
+                                    <button
+                                      onClick={() => {
+                                        const newParts = (currentMeeting.participants || []).map((pt: any, idx: any) => idx === i ? { ...pt, present: pt.present === false ? true : false } : pt);
+                                        setCurrentMeeting({ ...currentMeeting, participants: newParts });
+                                      }}
+                                      className={`p-2 rounded-lg transition-all ${p.present === false ? 'text-red-400 hover:text-red-600 hover:bg-red-100' : 'text-slate-300 hover:text-emerald-500 hover:bg-emerald-50'}`}
+                                      title={p.present === false ? 'Marcar como presente' : 'Marcar como ausente'}
+                                    >
+                                      {p.present === false ? <UserMinus size={15} /> : <UserCheck size={15} />}
+                                    </button>
+                                  )}
+                                  {canEdit && <button onClick={() => setCurrentMeeting({ ...currentMeeting, participants: (currentMeeting.participants || []).filter((_: any, idx: any) => idx !== i) })} className="p-2 text-slate-400 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity"><X size={16} /></button>}
+                                </div>
                               </div>
                             ))}</div>
                             {canEdit && (
@@ -788,23 +809,57 @@ const App = () => {
                         </div>
                         <div className="space-y-3">
                           {(currentMeeting.pautas || []).map((p: any, i: any) => (
-                            <div key={i} className={`flex justify-between items-center p-4 border rounded-lg transition-all group border-l-4 font-bold italic ${activePautaIndex === i ? 'bg-amber-50 border-amber-500 scale-[1.01] shadow-sm' : 'bg-white border-slate-200'}`}>
-                              <div className="flex items-center gap-4 flex-1">
-                                <div className="flex flex-col gap-1 mr-2">
-                                  {!isSessionActive && canEdit && (<><button onClick={() => handleMovePauta(i, 'up')} className="text-slate-300 hover:text-amber-600 disabled:opacity-0" disabled={i === 0}><ChevronUp size={16} /></button><button onClick={() => handleMovePauta(i, 'down')} className="text-slate-300 hover:text-amber-600 disabled:opacity-0" disabled={i === currentMeeting.pautas.length - 1}><ChevronDown size={16} /></button></>)}
-                                  {isSessionActive && activePautaIndex === i && <Play size={16} className="text-amber-500 animate-pulse" />}
+                            <div key={i} className={`flex flex-col border rounded-lg transition-all group border-l-4 font-bold italic overflow-hidden ${activePautaIndex === i ? 'bg-amber-50 border-amber-500 scale-[1.01] shadow-sm' : 'bg-white border-slate-200'}`}>
+                              <div className="flex justify-between items-center p-4">
+                                <div className="flex items-center gap-4 flex-1">
+                                  <div className="flex flex-col gap-1 mr-2">
+                                    {!isSessionActive && canEdit && (<><button onClick={() => handleMovePauta(i, 'up')} className="text-slate-300 hover:text-amber-600 disabled:opacity-0" disabled={i === 0}><ChevronUp size={16} /></button><button onClick={() => handleMovePauta(i, 'down')} className="text-slate-300 hover:text-amber-600 disabled:opacity-0" disabled={i === currentMeeting.pautas.length - 1}><ChevronDown size={16} /></button></>)}
+                                    {isSessionActive && activePautaIndex === i && <Play size={16} className="text-amber-500 animate-pulse" />}
+                                  </div>
+                                  <span className="text-slate-300">#{i + 1}</span>
+                                  <div>
+                                    <p className="text-sm text-slate-800">{p.title}</p>
+                                    <p className="text-[10px] text-slate-500 font-bold uppercase">{p.resp} • {p.dur} min {p.realDur && <span className="text-emerald-600 ml-2">Gasto: {p.realDur}min</span>}</p>
+                                  </div>
                                 </div>
-                                <span className="text-slate-300">#{i + 1}</span>
-                                <div>
-                                  <p className="text-sm text-slate-800">{p.title}</p>
-                                  <p className="text-[10px] text-slate-500 font-bold uppercase">{p.resp} • {p.dur} min {p.realDur && <span className="text-emerald-600 ml-2">Gasto: {p.realDur}min</span>}</p>
+                                <div className="flex items-center gap-4">
+                                  {isSessionActive && activePautaIndex === i && (<><div className={`font-mono text-xl ${timeElapsed > (parseInt(p.dur) * 60) ? 'text-red-600 animate-pulse' : 'text-amber-600'}`}>{formatTime(timeElapsed)}</div><button onClick={() => handleFinalizePauta(i)} className="bg-emerald-600 text-white px-3 py-1.5 rounded-lg text-[10px] font-bold uppercase flex items-center gap-2">Próxima <SkipForward size={14} /></button></>)}
+                                  {!isSessionActive && canEdit && <button onClick={() => setCurrentMeeting({ ...currentMeeting, pautas: (currentMeeting.pautas || []).filter((_: any, idx: any) => idx !== i) })} className="p-2 text-slate-200 hover:text-red-500 transition-all"><Trash2 size={18} /></button>}
+                                  {p.completed && <CheckCircle2 size={20} className="text-emerald-500" />}
                                 </div>
                               </div>
-                              <div className="flex items-center gap-4">
-                                {isSessionActive && activePautaIndex === i && (<><div className={`font-mono text-xl ${timeElapsed > (parseInt(p.dur) * 60) ? 'text-red-600 animate-pulse' : 'text-amber-600'}`}>{formatTime(timeElapsed)}</div><button onClick={() => handleFinalizePauta(i)} className="bg-emerald-600 text-white px-3 py-1.5 rounded-lg text-[10px] font-bold uppercase flex items-center gap-2">Próxima <SkipForward size={14} /></button></>)}
-                                {!isSessionActive && canEdit && <button onClick={() => setCurrentMeeting({ ...currentMeeting, pautas: (currentMeeting.pautas || []).filter((_: any, idx: any) => idx !== i) })} className="p-2 text-slate-200 hover:text-red-500 transition-all"><Trash2 size={18} /></button>}
-                                {p.completed && <CheckCircle2 size={20} className="text-emerald-500" />}
-                              </div>
+                              {!isSessionActive && (
+                                <div className="px-4 pb-3 border-t border-slate-50 bg-white" onClick={e => e.stopPropagation()}>
+                                  {canEdit && editingObsKey === `pauta-notes-${i}` ? (
+                                    <textarea
+                                      autoFocus
+                                      rows={3}
+                                      className="mt-2 w-full text-[10px] text-slate-700 bg-white border border-slate-200 rounded-lg p-2 outline-none resize-none font-normal not-italic focus:border-amber-400 focus:ring-1 focus:ring-amber-100"
+                                      value={obsInputValue}
+                                      onChange={e => setObsInputValue(e.target.value)}
+                                      onBlur={() => {
+                                        const newPautas = [...(currentMeeting.pautas || [])];
+                                        newPautas[i] = { ...newPautas[i], notes: obsInputValue };
+                                        setCurrentMeeting({ ...currentMeeting, pautas: newPautas });
+                                        setEditingObsKey(null);
+                                      }}
+                                      onKeyDown={e => { if (e.key === 'Escape') setEditingObsKey(null); }}
+                                      placeholder="Registre os pontos discutidos nesta pauta..."
+                                    />
+                                  ) : p.notes ? (
+                                    <p
+                                      className={`mt-2 text-[10px] text-slate-600 bg-slate-50/50 p-2 rounded border border-slate-100 whitespace-pre-wrap font-normal not-italic leading-relaxed ${canEdit ? 'cursor-pointer hover:border-amber-300 transition-colors' : ''}`}
+                                      onClick={() => canEdit && (setEditingObsKey(`pauta-notes-${i}`), setObsInputValue(p.notes || ''))}
+                                      title={canEdit ? 'Clique para editar' : undefined}
+                                    ><span className="font-bold text-amber-600 text-[9px] uppercase tracking-wider">Discussão: </span>{p.notes}</p>
+                                  ) : canEdit ? (
+                                    <button
+                                      className="mt-1.5 text-[9px] text-slate-300 hover:text-amber-500 font-normal not-italic flex items-center gap-1 transition-colors"
+                                      onClick={() => { setEditingObsKey(`pauta-notes-${i}`); setObsInputValue(''); }}
+                                    ><MessageSquare size={10} /> adicionar notas de discussão</button>
+                                  ) : null}
+                                </div>
+                              )}
                             </div>
                           ))}
                         </div>
