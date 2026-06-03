@@ -56,6 +56,10 @@ const App = () => {
   const [obsInputValue, setObsInputValue] = useState('');
   const [editingRespsKey, setEditingRespsKey] = useState<string | null>(null);
   const [newUserForm, setnewUserForm] = useState({ name: '', email: '', role: 'Conselheiro', password: '', client_id: '' });
+  const [clientProfile, setClientProfile] = useState<any>(null);
+  const [clientProfileForm, setClientProfileForm] = useState({ name: '', logo_url: '' });
+  const [savingClientProfile, setSavingClientProfile] = useState(false);
+  const logoRef = useRef<HTMLInputElement>(null);
 
   const [activePautaIndex, setActivePautaIndex] = useState<number | null>(null);
   const [timeElapsed, setTimeElapsed] = useState(0);
@@ -157,14 +161,21 @@ const App = () => {
         uQuery = uQuery.eq('client_id', currentUser.client_id);
         lQuery = lQuery.eq('client_id', currentUser.client_id);
       }
-      const [mRes, uRes, lRes] = await Promise.all([
+      const [mRes, uRes, lRes, cRes] = await Promise.all([
         mQuery.order('created_at', { ascending: false }),
         uQuery.order('name'),
-        lQuery.order('log_date', { ascending: false }).limit(50)
+        lQuery.order('log_date', { ascending: false }).limit(50),
+        supabase.from('clients').select('*').eq('client_id', currentUser.client_id).maybeSingle()
       ]);
       if (mRes.data) setMeetings(mRes.data);
       if (uRes.data) setUsers(uRes.data);
       if (lRes.data) setAuditLogs(lRes.data);
+      if (cRes.data) {
+        setClientProfile(cRes.data);
+        setClientProfileForm({ name: cRes.data.name || '', logo_url: cRes.data.logo_url || '' });
+      } else {
+        setClientProfileForm({ name: currentUser.client_id, logo_url: '' });
+      }
     } catch (e) { console.error(e); }
     setLoading(false);
   };
@@ -384,6 +395,27 @@ const App = () => {
     }
   };
 
+  // --- PERFIL DA EMPRESA ---
+  const handleLogoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const ext = file.name.split('.').pop();
+    const fileName = `${currentUser.client_id}/logo.${ext}`;
+    const { error: upError } = await supabase.storage.from('client-logos').upload(fileName, file, { upsert: true });
+    if (upError) { alert('Erro no upload: ' + upError.message); return; }
+    const { data: urlData } = supabase.storage.from('client-logos').getPublicUrl(fileName);
+    setClientProfileForm(prev => ({ ...prev, logo_url: urlData.publicUrl }));
+  };
+
+  const saveClientProfile = async () => {
+    setSavingClientProfile(true);
+    const payload = { client_id: currentUser.client_id, name: clientProfileForm.name, logo_url: clientProfileForm.logo_url };
+    const { data, error } = await supabase.from('clients').upsert(payload, { onConflict: 'client_id' }).select().single();
+    if (error) { alert('Erro ao salvar perfil: ' + error.message); }
+    else { setClientProfile(data); addLog('Configuração', `Perfil da empresa atualizado: ${data.name}`); alert('✅ Perfil salvo com sucesso!'); }
+    setSavingClientProfile(false);
+  };
+
   // Retorna o nome do votante que corresponde ao usuário atual (por nome ou por email)
   const resolveVoterName = (voters: string[]): string | null => {
     if (voters.includes(currentUser?.name)) return currentUser.name;
@@ -562,7 +594,13 @@ const App = () => {
           {isSidebarCollapsed ? <ChevronRight size={16} /> : <ChevronLeft size={16} />}
         </button>
         <div className={`flex flex-col items-center justify-center border-b border-white/5 bg-slate-900/30 transition-all duration-300 ${isSidebarCollapsed ? 'p-4' : 'p-10'}`}>
-          <img src={isSidebarCollapsed ? "/favicon.png" : "/logo-sidebar.jpg"} alt="Logo" className={`w-auto object-contain transition-all ${isSidebarCollapsed ? 'h-8' : 'h-12'}`} style={{ mixBlendMode: 'lighten' }} />
+          {clientProfile?.logo_url ? (
+            <img src={clientProfile.logo_url} alt={clientProfile.name || 'Logo'} className={`w-auto object-contain transition-all ${isSidebarCollapsed ? 'h-8' : 'h-14'}`} style={{ mixBlendMode: 'lighten' }} />
+          ) : (
+            isSidebarCollapsed
+              ? <div className="w-8 h-8 rounded-lg bg-amber-600 text-white flex items-center justify-center text-xs font-black">{(currentUser?.client_id || 'C')[0]}</div>
+              : <img src="/logo-sidebar.jpg" alt="Logo" className="w-auto h-12 object-contain" style={{ mixBlendMode: 'lighten' }} />
+          )}
         </div>
         <nav className="flex-1 px-3 py-4 space-y-1 text-[10px] font-bold uppercase tracking-widest">
           {[
@@ -592,7 +630,7 @@ const App = () => {
         <header className="h-16 bg-white border-b border-slate-200 flex items-center justify-between px-4 md:px-8 shrink-0 shadow-sm z-10">
           <div className="flex items-center gap-4">
             <button className="md:hidden p-2 text-slate-600" onClick={() => setIsMobileMenuOpen(true)}><Menu size={24} /></button>
-            <h2 className="text-[10px] font-bold text-slate-400 uppercase tracking-widest hidden sm:inline">INEPAD Consultoria • {isSuper ? 'GESTÃO MASTER' : `Gestão: ${currentUser.client_id}`}</h2>
+            <h2 className="text-[10px] font-bold text-slate-400 uppercase tracking-widest hidden sm:inline">INEPAD Consultoria • {isSuper ? 'GESTÃO MASTER' : (clientProfile?.name || currentUser.client_id)}</h2>
           </div>
           <div className="flex gap-4 items-center">
             <div className="text-right hidden xs:block">
@@ -1250,6 +1288,47 @@ const App = () => {
                       {isSuper ? 'Contas de Clientes' : 'Conselheiros'}
                     </h1>
                   </div>
+
+                  {/* PERFIL DA EMPRESA */}
+                  {isAdm && (
+                    <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm space-y-5">
+                      <h3 className="text-xs font-bold uppercase text-slate-500 tracking-widest border-b border-slate-100 pb-4 flex items-center gap-2">
+                        <Building2 size={16} className="text-amber-600" /> Perfil da Empresa
+                      </h3>
+                      <div className="flex flex-col sm:flex-row gap-6 items-start">
+                        {/* Preview da logo */}
+                        <div className="shrink-0">
+                          <div className="w-28 h-28 rounded-xl border-2 border-dashed border-slate-200 bg-slate-50 flex items-center justify-center overflow-hidden">
+                            {clientProfileForm.logo_url
+                              ? <img src={clientProfileForm.logo_url} alt="Logo" className="w-full h-full object-contain p-2" />
+                              : <div className="flex flex-col items-center gap-1 text-slate-300"><Camera size={28} /><span className="text-[9px] font-bold uppercase">Sem logo</span></div>
+                            }
+                          </div>
+                          <input ref={logoRef} type="file" accept="image/*" className="hidden" onChange={handleLogoUpload} />
+                          <button onClick={() => logoRef.current?.click()} className="mt-2 w-28 py-1.5 text-[9px] font-bold uppercase tracking-wider text-slate-500 border border-slate-200 rounded-lg hover:border-amber-400 hover:text-amber-600 transition-colors flex items-center justify-center gap-1">
+                            <Upload size={11} /> Carregar logo
+                          </button>
+                        </div>
+                        {/* Campos */}
+                        <div className="flex-1 space-y-4">
+                          <div className="space-y-1">
+                            <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Nome da Empresa</label>
+                            <input type="text" placeholder="Ex: RealFlex Indústria S.A." className="w-full p-3 border border-slate-200 rounded-lg text-sm font-bold outline-none focus:border-amber-500 transition-colors" value={clientProfileForm.name} onChange={e => setClientProfileForm(p => ({ ...p, name: e.target.value }))} />
+                            <p className="text-[9px] text-slate-400 font-normal">Este nome aparece no cabeçalho e nos documentos gerados.</p>
+                          </div>
+                          {clientProfileForm.logo_url && (
+                            <div className="space-y-1">
+                              <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">URL da Logo</label>
+                              <input type="text" readOnly className="w-full p-3 border border-slate-100 rounded-lg text-xs bg-slate-50 text-slate-400 outline-none cursor-default" value={clientProfileForm.logo_url} />
+                            </div>
+                          )}
+                          <button onClick={saveClientProfile} disabled={savingClientProfile} className="px-6 py-3 bg-amber-600 hover:bg-amber-700 text-white rounded-lg font-bold text-[10px] uppercase tracking-widest flex items-center gap-2 transition-all shadow-md disabled:opacity-50">
+                            <Save size={14} /> {savingClientProfile ? 'Salvando...' : 'Salvar Perfil'}
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  )}
 
                   {/* FORMULÁRIO DE CADASTRO */}
                   {isAdm && (
