@@ -200,11 +200,42 @@ serve(async (req) => {
 
     if (membErr) throw new Error('Erro ao buscar membros: ' + membErr.message)
 
-    // { client_id: { nome: email } }
+    // { client_id: { nomeExato: email } }
     const nameToEmail: Record<string, Record<string, string>> = {}
+    // { client_id: { primeiroNomeLower: [{name, email}] } } — para fallback parcial
+    const firstNameIndex: Record<string, Record<string, { name: string; email: string }[]>> = {}
+
     for (const m of members ?? []) {
+      if (!m.name || !m.email) continue
       if (!nameToEmail[m.client_id]) nameToEmail[m.client_id] = {}
-      if (m.name && m.email) nameToEmail[m.client_id][m.name] = m.email
+      if (!firstNameIndex[m.client_id]) firstNameIndex[m.client_id] = {}
+
+      // Mapa exato
+      nameToEmail[m.client_id][m.name] = m.email
+
+      // Índice por primeiro nome (case-insensitive)
+      const firstName = m.name.trim().split(/\s+/)[0].toLowerCase()
+      if (!firstNameIndex[m.client_id][firstName]) firstNameIndex[m.client_id][firstName] = []
+      firstNameIndex[m.client_id][firstName].push({ name: m.name, email: m.email })
+    }
+
+    // Resolve nome do responsável → email
+    // 1. Tenta match exato; 2. Tenta match por primeiro nome (só se único resultado)
+    function resolveEmail(respName: string, clientId: string): string | null {
+      const exactMap = nameToEmail[clientId] ?? {}
+      if (exactMap[respName]) return exactMap[respName]
+
+      // Fallback: busca pelo primeiro nome informado
+      const firstWord = respName.trim().split(/\s+/)[0].toLowerCase()
+      const candidates = (firstNameIndex[clientId] ?? {})[firstWord] ?? []
+      if (candidates.length === 1) return candidates[0].email
+
+      // Fallback 2: nome informado está contido no nome completo do membro
+      const contained = Object.entries(exactMap).find(([memberName]) =>
+        memberName.toLowerCase().includes(respName.toLowerCase()) ||
+        respName.toLowerCase().includes(memberName.toLowerCase().split(' ')[0])
+      )
+      return contained ? contained[1] : null
     }
 
     // Busca todas as reuniões com ações
@@ -220,8 +251,6 @@ serve(async (req) => {
 
     for (const meeting of meetings ?? []) {
       const acoes: any[] = meeting.acoes ?? []
-      const clientMap = nameToEmail[meeting.client_id] ?? {}
-
       for (const acao of acoes) {
         if (acao.status === 'Concluída') continue
 
@@ -231,7 +260,7 @@ serve(async (req) => {
           : acao.resp ? [acao.resp] : []
 
         for (const respName of resps) {
-          const email = clientMap[respName]
+          const email = resolveEmail(respName, meeting.client_id)
           if (!email) continue // membro não encontrado, pula
 
           if (!byEmail[email]) byEmail[email] = { name: respName, actions: [] }
