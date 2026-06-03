@@ -384,11 +384,21 @@ const App = () => {
     }
   };
 
+  // Retorna o nome do votante que corresponde ao usuário atual (por nome ou por email)
+  const resolveVoterName = (voters: string[]): string | null => {
+    if (voters.includes(currentUser?.name)) return currentUser.name;
+    const match = (currentMeeting.participants || []).find(
+      (p: any) => p.email === currentUser?.email && voters.includes(p.name)
+    );
+    return match?.name ?? null;
+  };
+
   // --- LÓGICA DE VOTAÇÃO ---
   const handleRegisterVote = async (delibIndex: number, voteType: 'Favor' | 'Contra' | 'Abstenção') => {
     const newDelibs = [...(currentMeeting.deliberacoes || [])];
     const delib = newDelibs[delibIndex];
-    const votes = { ...(delib.votes || {}), [currentUser.name]: voteType };
+    const voterName = resolveVoterName(delib.voters || []) || currentUser.name;
+    const votes = { ...(delib.votes || {}), [voterName]: voteType };
     newDelibs[delibIndex] = { ...delib, votes };
     if (currentMeeting.id) {
       const { error } = await supabase.from('meetings').update({ deliberacoes: newDelibs }).eq('id', currentMeeting.id);
@@ -793,8 +803,16 @@ const App = () => {
                           {(currentMeeting.deliberacoes || []).map((d: any, i: any) => {
                             const voters: string[] = d.voters || [];
                             const votes: Record<string, string> = d.votes || {};
-                            const userVote = votes[currentUser?.name];
-                            const canUserVote = voters.includes(currentUser?.name);
+                            // Resolve o nome do votante pelo nome OU pelo e-mail do usuário logado
+                            const myVoterName = (() => {
+                              if (voters.includes(currentUser?.name)) return currentUser?.name;
+                              const match = (currentMeeting.participants || []).find(
+                                (p: any) => p.email === currentUser?.email && voters.includes(p.name)
+                              );
+                              return match?.name ?? null;
+                            })();
+                            const canUserVote = !!myVoterName;
+                            const userVote = myVoterName ? votes[myVoterName] : undefined;
                             const favorCount = voters.filter(v => votes[v] === 'Favor').length;
                             const contraCount = voters.filter(v => votes[v] === 'Contra').length;
                             const abstCount = voters.filter(v => votes[v] === 'Abstenção').length;
