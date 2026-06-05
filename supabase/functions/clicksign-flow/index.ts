@@ -1,17 +1,10 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2"
 
-const ALLOWED_ORIGINS = [
-  'https://conselho.inepadconsulting.com',
-  'https://gestor-conselho-inepad-lng8wjt3s.vercel.app',
-  'https://gestor-conselho-inepad-giv8zvalq.vercel.app',
-]
-
-function getCors(req: Request) {
-  const origin = req.headers.get('origin') ?? ''
-  const allowedOrigin = ALLOWED_ORIGINS.includes(origin) ? origin : ALLOWED_ORIGINS[0]
+// CORS aberto — segurança garantida pelo JWT obrigatório em todas as rotas
+function getCors(_req: Request) {
   return {
-    'Access-Control-Allow-Origin': allowedOrigin,
+    'Access-Control-Allow-Origin': '*',
     'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
   }
 }
