@@ -84,29 +84,40 @@ serve(async (req) => {
 
     let signedStorageUrl = ata.url
 
-    // Tenta baixar o PDF assinado
-    const signedFileUrl =
-      doc?.downloads?.signed_file_url ||
-      doc?.signed_file_url
+    // Baixa o PDF assinado via endpoint de download do ClickSign
+    try {
+      // Tenta a URL do campo downloads primeiro, depois o endpoint direto
+      const signedFileUrl =
+        doc?.downloads?.signed_file_url ||
+        doc?.signed_file_url ||
+        `${CLICKSIGN_BASE}/documents/${clicksign_key}/download`
 
-    if (signedFileUrl) {
-      try {
-        const pdfResp = await fetch(`${signedFileUrl}?access_token=${CLICKSIGN_TOKEN}`)
-        if (pdfResp.ok) {
-          const pdfBuffer = await pdfResp.arrayBuffer()
-          const filePath = `atas/${meeting.client_id}/${Date.now()}_assinada.pdf`
-          await supabaseAdmin.storage.from('meeting-files').upload(filePath, pdfBuffer, {
-            contentType: 'application/pdf', upsert: true
-          })
+      console.log(`[clicksign-check] Baixando PDF assinado: ${signedFileUrl}`)
+      const pdfResp = await fetch(`${signedFileUrl}?access_token=${CLICKSIGN_TOKEN}`)
+      console.log(`[clicksign-check] Download status: ${pdfResp.status}, Content-Type: ${pdfResp.headers.get('content-type')}`)
+
+      if (pdfResp.ok && pdfResp.headers.get('content-type')?.includes('pdf')) {
+        const pdfBuffer = await pdfResp.arrayBuffer()
+        const filePath = `atas/${meeting.client_id}/${Date.now()}_assinada.pdf`
+        const { error: uploadErr } = await supabaseAdmin.storage
+          .from('meeting-files')
+          .upload(filePath, pdfBuffer, { contentType: 'application/pdf', upsert: true })
+        if (!uploadErr) {
           const { data: urlData } = await supabaseAdmin.storage
             .from('meeting-files')
             .createSignedUrl(filePath, 60 * 60 * 24 * 365)
-          if (urlData?.signedUrl) signedStorageUrl = urlData.signedUrl
-          console.log(`[clicksign-check] PDF assinado salvo`)
+          if (urlData?.signedUrl) {
+            signedStorageUrl = urlData.signedUrl
+            console.log(`[clicksign-check] ✅ PDF assinado salvo no Storage`)
+          }
+        } else {
+          console.error('[clicksign-check] Erro no upload:', uploadErr)
         }
-      } catch (e) {
-        console.error('[clicksign-check] Erro ao baixar PDF:', e)
+      } else {
+        console.warn(`[clicksign-check] PDF não disponível ainda (${pdfResp.status})`)
       }
+    } catch (e) {
+      console.error('[clicksign-check] Erro ao baixar PDF assinado:', e)
     }
 
     // Atualiza a ata
