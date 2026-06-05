@@ -23,6 +23,11 @@ const App = () => {
   const [loading, setLoading] = useState(false);
   const [currentUser, setCurrentUser] = useState<any>(null);
   const [authForm, setAuthForm] = useState({ email: '', password: '' });
+  const [forgotMode, setForgotMode] = useState(false);
+  const [forgotEmail, setForgotEmail] = useState('');
+  const [sendingReset, setSendingReset] = useState(false);
+  const [isRecovering, setIsRecovering] = useState(false);
+  const [recoveryForm, setRecoveryForm] = useState({ password: '', confirm: '' });
   const [activeMenu, setActiveMenu] = useState('dashboard');
   const [view, setView] = useState('list');
   const [tab, setTab] = useState('info');
@@ -78,8 +83,12 @@ const App = () => {
       if (session) fetchMemberProfile(session.user.id);
     });
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (_event === 'PASSWORD_RECOVERY') {
+        setIsRecovering(true);
+        return; // não faz login normal — exibe tela de nova senha
+      }
       if (session) fetchMemberProfile(session.user.id);
-      else setCurrentUser(null);
+      else { setCurrentUser(null); setIsRecovering(false); }
     });
     return () => subscription.unsubscribe();
   }, []);
@@ -660,6 +669,64 @@ const App = () => {
     </div>
   );
 
+  // ── Tela de definição de nova senha (após clicar no link do e-mail de recuperação) ──
+  if (isRecovering) {
+    return (
+      <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4 font-sans text-slate-900">
+        <div className="w-full max-w-md bg-white rounded-2xl shadow-xl p-8 border border-slate-100">
+          <div className="text-center mb-8">
+            <img src="/logo-login.jpg" alt="INEPAD" className="h-20 mx-auto mb-4 object-contain" />
+            <h1 className="text-xl font-bold text-slate-800 uppercase tracking-wide">Nova Senha</h1>
+            <p className="text-xs text-slate-500 mt-2 font-bold">Defina sua nova senha de acesso</p>
+          </div>
+          <form className="space-y-4" onSubmit={async (e) => {
+            e.preventDefault();
+            if (recoveryForm.password !== recoveryForm.confirm)
+              return alert('As senhas não coincidem.');
+            if (recoveryForm.password.length < 8)
+              return alert('A senha deve ter no mínimo 8 caracteres.');
+            if (!/[a-zA-Z]/.test(recoveryForm.password) || !/[0-9]/.test(recoveryForm.password))
+              return alert('A senha deve conter letras e números.');
+            setLoading(true);
+            const { error } = await supabase.auth.updateUser({ password: recoveryForm.password });
+            setLoading(false);
+            if (error) { alert('Erro ao redefinir senha: ' + error.message); return; }
+            alert('✅ Senha redefinida com sucesso! Faça login com a nova senha.');
+            await supabase.auth.signOut();
+            setIsRecovering(false);
+            setRecoveryForm({ password: '', confirm: '' });
+          }}>
+            <div className="space-y-1">
+              <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Nova Senha</label>
+              <input
+                type="password"
+                placeholder="Mínimo 8 caracteres com letras e números"
+                className="w-full p-4 bg-slate-50 border border-slate-200 rounded-lg outline-none font-bold focus:border-amber-400 transition-colors"
+                value={recoveryForm.password}
+                onChange={e => setRecoveryForm({ ...recoveryForm, password: e.target.value })}
+                required
+              />
+            </div>
+            <div className="space-y-1">
+              <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Confirmar Nova Senha</label>
+              <input
+                type="password"
+                placeholder="Repita a nova senha"
+                className="w-full p-4 bg-slate-50 border border-slate-200 rounded-lg outline-none font-bold focus:border-amber-400 transition-colors"
+                value={recoveryForm.confirm}
+                onChange={e => setRecoveryForm({ ...recoveryForm, confirm: e.target.value })}
+                required
+              />
+            </div>
+            <button disabled={loading} className="w-full bg-amber-600 hover:bg-amber-700 text-white py-4 rounded-lg font-bold uppercase shadow-md transition-all disabled:opacity-50">
+              {loading ? 'Salvando...' : 'Salvar Nova Senha'}
+            </button>
+          </form>
+        </div>
+      </div>
+    );
+  }
+
   if (!currentUser) {
     return (
       <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4 font-sans text-slate-900">
@@ -669,17 +736,58 @@ const App = () => {
             <h1 className="text-xl font-bold text-slate-800 uppercase tracking-wide">Acesso GovCorp</h1>
             <p className="text-xs text-slate-500 mt-2 font-bold">25 ANOS DE GOVERNANÇA</p>
           </div>
-          <form className="space-y-4" onSubmit={async (e) => {
-            e.preventDefault();
-            setLoading(true);
-            const { error } = await supabase.auth.signInWithPassword({ email: authForm.email, password: authForm.password });
-            if (error) alert('Erro de Acesso: ' + error.message);
-            setLoading(false);
-          }}>
-            <input type="email" placeholder="E-mail Corporativo" className="w-full p-4 bg-slate-50 border border-slate-200 rounded-lg outline-none font-bold" value={authForm.email} onChange={e => setAuthForm({ ...authForm, email: e.target.value })} required />
-            <input type="password" placeholder="Senha" className="w-full p-4 bg-slate-50 border border-slate-200 rounded-lg outline-none font-bold" value={authForm.password} onChange={e => setAuthForm({ ...authForm, password: e.target.value })} required />
-            <button disabled={loading} className="w-full bg-amber-600 hover:bg-amber-700 text-white py-4 rounded-lg font-bold uppercase shadow-md transition-all">Entrar na Plataforma</button>
-          </form>
+
+          {!forgotMode ? (
+            /* ── Formulário de Login ── */
+            <form className="space-y-4" onSubmit={async (e) => {
+              e.preventDefault();
+              setLoading(true);
+              const { error } = await supabase.auth.signInWithPassword({ email: authForm.email, password: authForm.password });
+              if (error) alert('Erro de Acesso: ' + error.message);
+              setLoading(false);
+            }}>
+              <input type="email" placeholder="E-mail Corporativo" className="w-full p-4 bg-slate-50 border border-slate-200 rounded-lg outline-none font-bold" value={authForm.email} onChange={e => setAuthForm({ ...authForm, email: e.target.value })} required />
+              <input type="password" placeholder="Senha" className="w-full p-4 bg-slate-50 border border-slate-200 rounded-lg outline-none font-bold" value={authForm.password} onChange={e => setAuthForm({ ...authForm, password: e.target.value })} required />
+              <button disabled={loading} className="w-full bg-amber-600 hover:bg-amber-700 text-white py-4 rounded-lg font-bold uppercase shadow-md transition-all">Entrar na Plataforma</button>
+              <button type="button" onClick={() => { setForgotMode(true); setForgotEmail(authForm.email); }} className="w-full text-center text-xs text-slate-400 hover:text-amber-600 transition-colors font-bold pt-1">
+                Esqueci minha senha
+              </button>
+            </form>
+          ) : (
+            /* ── Formulário de Recuperação de Senha ── */
+            <form className="space-y-4" onSubmit={async (e) => {
+              e.preventDefault();
+              if (!forgotEmail) return alert('Digite seu e-mail.');
+              setSendingReset(true);
+              const { error } = await supabase.auth.resetPasswordForEmail(forgotEmail, {
+                redirectTo: window.location.origin,
+              });
+              setSendingReset(false);
+              if (error) { alert('Erro: ' + error.message); return; }
+              alert(`✅ E-mail de recuperação enviado para ${forgotEmail}.\n\nVerifique sua caixa de entrada e clique no link para definir uma nova senha.`);
+              setForgotMode(false);
+              setForgotEmail('');
+            }}>
+              <div className="p-4 bg-amber-50 border border-amber-200 rounded-lg text-xs text-amber-700 font-bold">
+                Informe o e-mail da sua conta. Enviaremos um link para redefinir sua senha.
+              </div>
+              <input
+                type="email"
+                placeholder="Seu e-mail corporativo"
+                className="w-full p-4 bg-slate-50 border border-slate-200 rounded-lg outline-none font-bold focus:border-amber-400 transition-colors"
+                value={forgotEmail}
+                onChange={e => setForgotEmail(e.target.value)}
+                required
+                autoFocus
+              />
+              <button disabled={sendingReset} className="w-full bg-amber-600 hover:bg-amber-700 text-white py-4 rounded-lg font-bold uppercase shadow-md transition-all disabled:opacity-50">
+                {sendingReset ? 'Enviando...' : 'Enviar Link de Recuperação'}
+              </button>
+              <button type="button" onClick={() => setForgotMode(false)} className="w-full text-center text-xs text-slate-400 hover:text-slate-600 transition-colors font-bold pt-1">
+                ← Voltar para o login
+              </button>
+            </form>
+          )}
         </div>
       </div>
     );
