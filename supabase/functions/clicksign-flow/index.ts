@@ -118,34 +118,18 @@ serve(async (req) => {
         return ok({ error: `ClickSign não retornou chave do signatário ${participant.name}` })
       }
 
-      // Vincula o signatário ao documento (minimal payload)
-      const listUrl = `${CLICKSIGN_BASE}/lists?access_token=${CLICKSIGN_TOKEN}`
-      const listPayload = { list: { document_key: documentKey, signer_key: signerKey, sign_as: 'sign', refusable: false } }
-      console.log(`[clicksign-flow] POST lists URL: ${listUrl.replace(CLICKSIGN_TOKEN!, '***')}`)
-      console.log(`[clicksign-flow] POST lists body: ${JSON.stringify(listPayload)}`)
-
-      const listResp = await fetch(listUrl, {
+      // Vincula o signatário ao documento
+      const listResp = await fetch(`${CLICKSIGN_BASE}/lists?access_token=${CLICKSIGN_TOKEN}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(listPayload),
+        body: JSON.stringify({ list: { document_key: documentKey, signer_key: signerKey, sign_as: 'sign', refusable: false } }),
       })
       const listText = await listResp.text()
-      console.log(`[clicksign-flow] lists response ${listResp.status}: ${listText}`)
+      console.log(`[clicksign-flow] lists ${listResp.status}: ${listText.substring(0, 200)}`)
 
       if (!listResp.ok) {
         return ok({ error: `Erro ao vincular ${participant.name} (${listResp.status}): ${listText}` })
       }
-
-      // DIAGNÓSTICO: retorna os dados intermediários para inspeção
-      return ok({
-        debug: true,
-        documentKey,
-        signerKey,
-        signerEmail: participant.email,
-        listStatus: listResp.status,
-        listResponse: listText,
-        message: 'Diagnóstico — verifique os dados acima antes de prosseguir'
-      })
     }
 
     if (signersAdded === 0) {
