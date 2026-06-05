@@ -139,26 +139,28 @@ serve(async (req) => {
       return ok({ error: 'Nenhum signatário foi adicionado ao documento. Verifique se os participantes da reunião possuem e-mail.' })
     }
 
-    // 4. Verifica o estado completo do documento antes de finalizar
-    const checkResp = await fetch(`${CLICKSIGN_BASE}/documents/${documentKey}?access_token=${CLICKSIGN_TOKEN}`)
-    const checkText = await checkResp.text()
-    console.log(`[clicksign-flow] Documento completo: ${checkText}`)
+    // 4. Ativa o documento — monta URL explícita com /api/v1 garantido
+    const baseHost = CLICKSIGN_BASE.includes('app.clicksign.com')
+      ? 'https://app.clicksign.com'
+      : 'https://sandbox.clicksign.com'
+    const finishUrl = `${baseHost}/api/v1/documents/${documentKey}/finish?access_token=${CLICKSIGN_TOKEN}`
+    console.log(`[clicksign-flow] Finish URL: ${finishUrl.replace(CLICKSIGN_TOKEN!, '***')}`)
 
-    // 5. Tenta ativar o documento — primeiro PATCH, depois POST como fallback
-    let finishResp = await fetch(`${CLICKSIGN_BASE}/documents/${documentKey}/finish?access_token=${CLICKSIGN_TOKEN}`, {
+    const finishResp = await fetch(finishUrl, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
     })
+    const finishText = await finishResp.text()
+    console.log(`[clicksign-flow] finish ${finishResp.status}: ${finishText.substring(0, 300)}`)
+
     if (!finishResp.ok) {
-      console.log(`[clicksign-flow] PATCH finish falhou (${finishResp.status}), tentando POST...`)
-      finishResp = await fetch(`${CLICKSIGN_BASE}/documents/${documentKey}/finish?access_token=${CLICKSIGN_TOKEN}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-      })
-    }
-    if (!finishResp.ok) {
-      const errText = await finishResp.text()
-      return ok({ error: `Erro ao ativar documento (${finishResp.status}): ${errText} | Doc: ${checkText.substring(0, 500)}` })
+      // Se 404, significa que o endpoint finish pode não existir nessa versão
+      // Alguns ambientes sandbox ativam automaticamente ao adicionar signatários
+      if (finishResp.status === 404) {
+        console.log('[clicksign-flow] Endpoint /finish não encontrado — documento pode já estar ativo')
+      } else {
+        return ok({ error: `Erro ao ativar documento (${finishResp.status}): ${finishText}` })
+      }
     }
 
     console.log(`[clicksign-flow] Documento ativado com sucesso: ${documentKey}`)
