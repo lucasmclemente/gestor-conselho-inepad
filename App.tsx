@@ -501,6 +501,21 @@ const App = () => {
     };
   }, [meetings, dashboardFilter, filterResp, filterStatus, filterOrigin]);
 
+  // Regenera a signed URL antes de abrir — evita o erro 404 por URL expirada (7 dias)
+  const openAtaUrl = async (storedUrl: string) => {
+    try {
+      // Extrai o filePath da URL armazenada (funciona tanto para signed quanto para public URLs)
+      const match = storedUrl.match(/\/(?:sign|public)\/meeting-files\/(.+?)(?:\?|$)/);
+      if (!match) { window.open(storedUrl, '_blank'); return; }
+      const filePath = match[1];
+      const { data, error } = await supabase.storage
+        .from('meeting-files')
+        .createSignedUrl(filePath, 60 * 60 * 24 * 7);
+      if (error || !data?.signedUrl) { window.open(storedUrl, '_blank'); return; }
+      window.open(data.signedUrl, '_blank');
+    } catch { window.open(storedUrl, '_blank'); }
+  };
+
   const allAtas = useMemo(() => {
     return meetings
       .flatMap(m => (m.atas || []).map((ata: any) => ({
@@ -1191,7 +1206,7 @@ const App = () => {
                     )}
 
                                         {tab === 'atas' && (
-                      <div className="bg-white p-8 rounded-xl border border-slate-200 shadow-sm animate-in fade-in space-y-8"><div className="flex justify-between items-center border-b border-slate-50 pb-4"><h3 className="text-xs font-bold uppercase text-slate-500 tracking-widest">Atas Finais</h3>{canEdit && <button onClick={() => ataRef.current?.click()} className="bg-slate-100 hover:bg-slate-200 text-slate-700 px-4 py-2 rounded-lg text-[10px] font-bold uppercase flex items-center gap-2 transition-all"><Upload size={14} /> Carregar</button>}</div><div className="grid grid-cols-1 sm:grid-cols-2 gap-4">{(currentMeeting.atas || []).map((ata: any, i: any) => (<div key={i} className="p-4 bg-white border border-slate-200 rounded-xl flex items-center gap-4 group italic font-bold"><div className="p-3 bg-amber-50 text-amber-600 rounded-lg"><FileCheck size={24} /></div><div className="flex-1 truncate text-sm">{ata.name}</div><a href={ata.url} target="_blank" rel="noreferrer" className="text-slate-300 hover:text-amber-600"><ExternalLink size={18} /></a></div>))}</div></div>
+                      <div className="bg-white p-8 rounded-xl border border-slate-200 shadow-sm animate-in fade-in space-y-8"><div className="flex justify-between items-center border-b border-slate-50 pb-4"><h3 className="text-xs font-bold uppercase text-slate-500 tracking-widest">Atas Finais</h3>{canEdit && <button onClick={() => ataRef.current?.click()} className="bg-slate-100 hover:bg-slate-200 text-slate-700 px-4 py-2 rounded-lg text-[10px] font-bold uppercase flex items-center gap-2 transition-all"><Upload size={14} /> Carregar</button>}</div><div className="grid grid-cols-1 sm:grid-cols-2 gap-4">{(currentMeeting.atas || []).map((ata: any, i: any) => (<div key={i} className="p-4 bg-white border border-slate-200 rounded-xl flex items-center gap-4 group italic font-bold"><div className="p-3 bg-amber-50 text-amber-600 rounded-lg"><FileCheck size={24} /></div><div className="flex-1 truncate text-sm">{ata.name}</div><button onClick={() => openAtaUrl(ata.url)} className="text-slate-300 hover:text-amber-600 transition-colors"><ExternalLink size={18} /></button></div>))}</div></div>
                     )}
                   </div>
                 )
@@ -1294,14 +1309,12 @@ const App = () => {
 
                           {/* Ações */}
                           <div className="flex items-center gap-2 mt-auto">
-                            <a
-                              href={ata.url}
-                              target="_blank"
-                              rel="noreferrer"
+                            <button
+                              onClick={() => openAtaUrl(ata.url)}
                               className="flex-1 flex items-center justify-center gap-2 py-2.5 bg-slate-900 hover:bg-amber-600 text-white rounded-lg text-[10px] font-bold uppercase tracking-widest transition-all shadow-sm"
                             >
                               <ExternalLink size={13} /> Abrir
-                            </a>
+                            </button>
                             <button
                               onClick={() => {
                                 const m = meetings.find((m: any) => m.id === ata.meetingId);
