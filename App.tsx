@@ -502,18 +502,34 @@ const App = () => {
   }, [meetings, dashboardFilter, filterResp, filterStatus, filterOrigin]);
 
   // Regenera a signed URL antes de abrir — evita o erro 404 por URL expirada (7 dias)
-  const openAtaUrl = async (storedUrl: string) => {
+  const openAtaUrl = async (storedUrl: string, setLoading?: (v: boolean) => void) => {
     try {
+      if (setLoading) setLoading(true);
       // Extrai o filePath da URL armazenada (funciona tanto para signed quanto para public URLs)
       const match = storedUrl.match(/\/(?:sign|public)\/meeting-files\/(.+?)(?:\?|$)/);
-      if (!match) { window.open(storedUrl, '_blank'); return; }
-      const filePath = match[1];
+      if (!match) {
+        // URL fora do padrão esperado — tenta abrir direto
+        window.open(storedUrl, '_blank');
+        return;
+      }
+      const filePath = decodeURIComponent(match[1]);
       const { data, error } = await supabase.storage
         .from('meeting-files')
         .createSignedUrl(filePath, 60 * 60 * 24 * 7);
-      if (error || !data?.signedUrl) { window.open(storedUrl, '_blank'); return; }
+      if (error) {
+        alert(`Erro ao acessar o arquivo: ${error.message}\n\nO arquivo pode ter sido removido do servidor.`);
+        return;
+      }
+      if (!data?.signedUrl) {
+        alert('Não foi possível gerar o link de acesso. Tente novamente.');
+        return;
+      }
       window.open(data.signedUrl, '_blank');
-    } catch { window.open(storedUrl, '_blank'); }
+    } catch (e: any) {
+      alert('Erro inesperado ao abrir o arquivo: ' + (e?.message || e));
+    } finally {
+      if (setLoading) setLoading(false);
+    }
   };
 
   const allAtas = useMemo(() => {
