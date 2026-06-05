@@ -1,18 +1,29 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2"
 
-const CORS = {
-  'Access-Control-Allow-Origin': 'https://conselho.inepadconsulting.com',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+const ALLOWED_ORIGINS = [
+  'https://conselho.inepadconsulting.com',
+  'https://gestor-conselho-inepad-lng8wjt3s.vercel.app',
+  'https://gestor-conselho-inepad-giv8zvalq.vercel.app',
+]
+
+function getCors(req: Request) {
+  const origin = req.headers.get('origin') ?? ''
+  const allowedOrigin = ALLOWED_ORIGINS.includes(origin) ? origin : ALLOWED_ORIGINS[0]
+  return {
+    'Access-Control-Allow-Origin': allowedOrigin,
+    'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+  }
 }
 
 serve(async (req) => {
-  if (req.method === 'OPTIONS') return new Response('ok', { headers: CORS })
+  const cors = getCors(req)
+  if (req.method === 'OPTIONS') return new Response('ok', { headers: cors })
 
   try {
     // Autenticação JWT
     const authHeader = req.headers.get('Authorization')
-    if (!authHeader) return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401, headers: CORS })
+    if (!authHeader) return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401, headers: cors })
 
     const supabaseClient = createClient(
       Deno.env.get('SUPABASE_URL') ?? '',
@@ -20,18 +31,18 @@ serve(async (req) => {
       { global: { headers: { Authorization: authHeader } } }
     )
     const { data: { user }, error: authError } = await supabaseClient.auth.getUser()
-    if (authError || !user) return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401, headers: CORS })
+    if (authError || !user) return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401, headers: cors })
 
     const { meetingId, ataUrl, ataName, meetingTitle, meetingDate, participants } = await req.json()
 
     if (!ataUrl || !participants?.length) {
-      return new Response(JSON.stringify({ error: 'Parâmetros obrigatórios: ataUrl, participants' }), { status: 400, headers: CORS })
+      return new Response(JSON.stringify({ error: 'Parâmetros obrigatórios: ataUrl, participants' }), { status: 400, headers: cors })
     }
 
     const CLICKSIGN_TOKEN = Deno.env.get('CLICKSIGN_ACCESS_TOKEN')
     const CLICKSIGN_BASE = Deno.env.get('CLICKSIGN_BASE_URL') ?? 'https://sandbox.clicksign.com/api/v1'
 
-    if (!CLICKSIGN_TOKEN) return new Response(JSON.stringify({ error: 'CLICKSIGN_ACCESS_TOKEN não configurado' }), { status: 500, headers: CORS })
+    if (!CLICKSIGN_TOKEN) return new Response(JSON.stringify({ error: 'CLICKSIGN_ACCESS_TOKEN não configurado' }), { status: 500, headers: cors })
 
     // 1. Baixa o PDF da ata
     const pdfResp = await fetch(ataUrl)
@@ -117,13 +128,13 @@ serve(async (req) => {
 
     return new Response(
       JSON.stringify({ success: true, clicksign_key: documentKey }),
-      { headers: { ...CORS, 'Content-Type': 'application/json' }, status: 200 }
+      { headers: { ...cors, 'Content-Type': 'application/json' }, status: 200 }
     )
   } catch (error: any) {
     console.error('clicksign-flow error:', error)
     return new Response(
       JSON.stringify({ error: error.message }),
-      { headers: { ...CORS, 'Content-Type': 'application/json' }, status: 500 }
+      { headers: { ...cors, 'Content-Type': 'application/json' }, status: 500 }
     )
   }
 })
