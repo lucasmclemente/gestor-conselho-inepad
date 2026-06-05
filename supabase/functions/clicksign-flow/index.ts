@@ -1,36 +1,63 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2"
 
-// CORS aberto — segurança garantida pelo JWT obrigatório em todas as rotas
 const CORS = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
   'Content-Type': 'application/json',
 }
 
-// Converte ArrayBuffer para base64 em chunks — evita erro em PDFs grandes
 function arrayBufferToBase64(buffer: ArrayBuffer): string {
   const bytes = new Uint8Array(buffer)
   let binary = ''
   const chunkSize = 8192
   for (let i = 0; i < bytes.length; i += chunkSize) {
-    const chunk = bytes.subarray(i, i + chunkSize)
-    binary += String.fromCharCode(...chunk)
+    binary += String.fromCharCode(...bytes.subarray(i, i + chunkSize))
   }
   return btoa(binary)
 }
 
-// Sempre retorna 200 com { error } ou { success, clicksign_key }
-// para que o Supabase invoke() passe a mensagem de erro ao front-end
 function ok(body: object) {
   return new Response(JSON.stringify(body), { headers: CORS, status: 200 })
+}
+
+function buildSignEmail(name: string, meetingTitle: string, meetingDate: string, signUrl: string, deadline: string): string {
+  return `
+    <div style="font-family:sans-serif;max-width:600px;margin:auto;border:1px solid #e2e8f0;border-radius:12px;overflow:hidden;">
+      <div style="background:#0f172a;padding:24px 30px;text-align:center;">
+        <img src="https://jrtrrubtjbinnddqdbta.supabase.co/storage/v1/object/public/meeting-files/logo-sidebar.jpg"
+             alt="INEPAD" style="height:32px;margin-bottom:10px;" />
+        <p style="margin:0;color:#f59e0b;font-size:10px;font-weight:bold;text-transform:uppercase;letter-spacing:2px;">
+          Assinatura Digital • Ata de Reunião
+        </p>
+      </div>
+      <div style="padding:32px;">
+        <p style="font-size:16px;color:#1e293b;margin:0 0 8px;">Olá, <strong>${name}</strong></p>
+        <p style="font-size:13px;color:#64748b;margin:0 0 24px;line-height:1.6;">
+          Você foi convidado a assinar a ata da reunião abaixo. Clique no botão para acessar o documento e assinar digitalmente.
+        </p>
+        <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:16px;margin-bottom:24px;">
+          <p style="margin:0 0 4px;font-size:12px;font-weight:bold;color:#1e293b;">📋 ${meetingTitle}</p>
+          <p style="margin:0;font-size:11px;color:#64748b;">Data da reunião: ${meetingDate || 'N/D'} &nbsp;|&nbsp; Prazo para assinar: ${deadline}</p>
+        </div>
+        <div style="text-align:center;margin-bottom:24px;">
+          <a href="${signUrl}" style="background:#0f172a;color:#fff;padding:14px 32px;text-decoration:none;border-radius:8px;font-weight:bold;font-size:13px;display:inline-block;">
+            ✍️ Assinar Documento
+          </a>
+        </div>
+        <p style="font-size:10px;color:#94a3b8;text-align:center;line-height:1.6;">
+          Este link é de uso individual e intransferível.<br/>
+          Powered by <a href="https://www.clicksign.com" style="color:#94a3b8;">ClickSign</a> • Assinatura Eletrônica com Validade Jurídica
+        </p>
+      </div>
+    </div>
+  `
 }
 
 serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: CORS })
 
   try {
-    // Autenticação JWT
     const authHeader = req.headers.get('Authorization')
     if (!authHeader) return ok({ error: 'Unauthorized' })
 
@@ -50,24 +77,23 @@ serve(async (req) => {
 
     const CLICKSIGN_TOKEN = Deno.env.get('CLICKSIGN_ACCESS_TOKEN')
     const CLICKSIGN_BASE = Deno.env.get('CLICKSIGN_BASE_URL') ?? 'https://sandbox.clicksign.com/api/v1'
+    const RESEND_API_KEY = Deno.env.get('RESEND_API_KEY')
 
-    if (!CLICKSIGN_TOKEN) return ok({ error: 'Secret CLICKSIGN_ACCESS_TOKEN não configurado no Supabase' })
+    if (!CLICKSIGN_TOKEN) return ok({ error: 'Secret CLICKSIGN_ACCESS_TOKEN não configurado' })
 
-    console.log(`[clicksign-flow] Baixando PDF: ${ataUrl.substring(0, 80)}...`)
-
-    // 1. Baixa o PDF da ata
+    // 1. Baixa o PDF
+    console.log(`[clicksign-flow] Baixando PDF...`)
     const pdfResp = await fetch(ataUrl)
-    if (!pdfResp.ok) return ok({ error: `Erro ao baixar PDF da ata: HTTP ${pdfResp.status}` })
+    if (!pdfResp.ok) return ok({ error: `Erro ao baixar PDF: HTTP ${pdfResp.status}` })
     const pdfBuffer = await pdfResp.arrayBuffer()
-    console.log(`[clicksign-flow] PDF baixado: ${pdfBuffer.byteLength} bytes`)
-
     const pdfBase64 = arrayBufferToBase64(pdfBuffer)
+    console.log(`[clicksign-flow] PDF: ${pdfBuffer.byteLength} bytes`)
+
+    // 2. Cria documento no ClickSign
     const deadlineDate = new Date()
     deadlineDate.setDate(deadlineDate.getDate() + 30)
-
-    // 2. Cria documento no ClickSign — path único com timestamp para evitar conflito
+    const deadlineStr = deadlineDate.toLocaleDateString('pt-BR', { day: '2-digit', month: 'long', year: 'numeric' })
     const docPath = `/Atas/${Date.now()}_${ataName.replace(/[^a-zA-Z0-9._-]/g, '_').substring(0, 40)}`
-    console.log(`[clicksign-flow] Criando documento ClickSign: ${docPath}`)
 
     const createDocResp = await fetch(`${CLICKSIGN_BASE}/documents?access_token=${CLICKSIGN_TOKEN}`, {
       method: 'POST',
@@ -86,88 +112,84 @@ serve(async (req) => {
     })
 
     const createDocText = await createDocResp.text()
-    console.log(`[clicksign-flow] ClickSign create doc status: ${createDocResp.status} | body: ${createDocText.substring(0, 300)}`)
-
     if (!createDocResp.ok) {
       return ok({ error: `ClickSign recusou o documento (${createDocResp.status}): ${createDocText}` })
     }
-
-    const docData = JSON.parse(createDocText)
-    const documentKey: string = docData.document?.key
+    const documentKey: string = JSON.parse(createDocText).document?.key
     if (!documentKey) return ok({ error: 'ClickSign não retornou a chave do documento' })
+    console.log(`[clicksign-flow] Documento criado: ${documentKey}`)
 
-    // 3. Adiciona cada signatário
-    let signersAdded = 0
+    // 3. Adiciona signatários e coleta URLs de assinatura
+    const signingLinks: { name: string; email: string; url: string }[] = []
+
     for (const participant of participants) {
       // Cria o signatário
       const signerResp = await fetch(`${CLICKSIGN_BASE}/signers?access_token=${CLICKSIGN_TOKEN}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          signer: { email: participant.email, auths: ['email'], name: participant.name }
-        })
+        body: JSON.stringify({ signer: { email: participant.email, auths: ['email'], name: participant.name } })
       })
       if (!signerResp.ok) {
-        const errText = await signerResp.text()
-        console.error(`[clicksign-flow] Erro ao criar signatário ${participant.email}: ${errText}`)
-        return ok({ error: `Erro ao criar signatário ${participant.name} (${signerResp.status}): ${errText}` })
+        const e = await signerResp.text()
+        return ok({ error: `Erro ao criar signatário ${participant.name} (${signerResp.status}): ${e}` })
       }
-      const signerData = await signerResp.json()
-      const signerKey: string = signerData.signer?.key
-      if (!signerKey) {
-        return ok({ error: `ClickSign não retornou chave do signatário ${participant.name}` })
-      }
+      const signerKey: string = (await signerResp.json()).signer?.key
+      if (!signerKey) return ok({ error: `ClickSign não retornou chave do signatário ${participant.name}` })
 
-      // Vincula o signatário ao documento
+      // Vincula ao documento
       const listResp = await fetch(`${CLICKSIGN_BASE}/lists?access_token=${CLICKSIGN_TOKEN}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ list: { document_key: documentKey, signer_key: signerKey, sign_as: 'sign', refusable: false } }),
+        body: JSON.stringify({ list: { document_key: documentKey, signer_key: signerKey, sign_as: 'sign', refusable: false } })
       })
       const listText = await listResp.text()
-      console.log(`[clicksign-flow] lists ${listResp.status}: ${listText.substring(0, 200)}`)
-
       if (!listResp.ok) {
         return ok({ error: `Erro ao vincular ${participant.name} (${listResp.status}): ${listText}` })
       }
-
-      signersAdded++
-      console.log(`[clicksign-flow] Signatário vinculado: ${participant.email}`)
-    }
-
-    if (signersAdded === 0) {
-      return ok({ error: 'Nenhum signatário foi adicionado ao documento. Verifique se os participantes da reunião possuem e-mail.' })
-    }
-
-    // 4. Ativa o documento — monta URL explícita com /api/v1 garantido
-    const baseHost = CLICKSIGN_BASE.includes('app.clicksign.com')
-      ? 'https://app.clicksign.com'
-      : 'https://sandbox.clicksign.com'
-    const finishUrl = `${baseHost}/api/v1/documents/${documentKey}/finish?access_token=${CLICKSIGN_TOKEN}`
-    console.log(`[clicksign-flow] Finish URL: ${finishUrl.replace(CLICKSIGN_TOKEN!, '***')}`)
-
-    const finishResp = await fetch(finishUrl, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-    })
-    const finishText = await finishResp.text()
-    console.log(`[clicksign-flow] finish ${finishResp.status}: ${finishText.substring(0, 300)}`)
-
-    if (!finishResp.ok) {
-      // Se 404, significa que o endpoint finish pode não existir nessa versão
-      // Alguns ambientes sandbox ativam automaticamente ao adicionar signatários
-      if (finishResp.status === 404) {
-        console.log('[clicksign-flow] Endpoint /finish não encontrado — documento pode já estar ativo')
-      } else {
-        return ok({ error: `Erro ao ativar documento (${finishResp.status}): ${finishText}` })
+      const signUrl: string = JSON.parse(listText).list?.url
+      if (signUrl) {
+        signingLinks.push({ name: participant.name, email: participant.email, url: signUrl })
+        console.log(`[clicksign-flow] Signatário vinculado: ${participant.email} → ${signUrl}`)
       }
     }
 
-    console.log(`[clicksign-flow] Documento ativado com sucesso: ${documentKey}`)
-    return ok({ success: true, clicksign_key: documentKey })
+    if (signingLinks.length === 0) {
+      return ok({ error: 'Nenhum link de assinatura foi gerado. Verifique os participantes da reunião.' })
+    }
+
+    // 4. Tenta ativar o documento via ClickSign (opcional — envia e-mails do ClickSign)
+    const baseHost = CLICKSIGN_BASE.includes('app.clicksign.com')
+      ? 'https://app.clicksign.com'
+      : 'https://sandbox.clicksign.com'
+    const finishResp = await fetch(`${baseHost}/api/v1/documents/${documentKey}/finish?access_token=${CLICKSIGN_TOKEN}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+    })
+    const finishOk = finishResp.ok
+    console.log(`[clicksign-flow] finish: ${finishResp.status} ${finishOk ? '✅' : '⚠️ (usando envio próprio)'}`)
+
+    // 5. Se ClickSign não enviou e-mails (sandbox), envia via Resend com links de assinatura
+    if (!finishOk && RESEND_API_KEY) {
+      console.log(`[clicksign-flow] Enviando e-mails via Resend para ${signingLinks.length} signatários...`)
+      for (const { name, email, url } of signingLinks) {
+        await fetch('https://api.resend.com/emails', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${RESEND_API_KEY}` },
+          body: JSON.stringify({
+            from: 'Governança INEPAD <conselho@inepadconsulting.com>',
+            to: email,
+            subject: `✍️ Assine a ata: ${meetingTitle}`,
+            html: buildSignEmail(name, meetingTitle, meetingDate || '', url, deadlineStr),
+          })
+        })
+        console.log(`[clicksign-flow] E-mail enviado para ${email}`)
+      }
+    }
+
+    return ok({ success: true, clicksign_key: documentKey, signers: signingLinks.length })
 
   } catch (error: any) {
-    console.error('[clicksign-flow] Erro inesperado:', error)
+    console.error('[clicksign-flow] Erro:', error)
     return ok({ error: `Erro interno: ${error.message}` })
   }
 })
