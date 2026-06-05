@@ -26,7 +26,11 @@ const App = () => {
   const [forgotMode, setForgotMode] = useState(false);
   const [forgotEmail, setForgotEmail] = useState('');
   const [sendingReset, setSendingReset] = useState(false);
-  const [isRecovering, setIsRecovering] = useState(false);
+  // Detecta link de recuperação SINCRONAMENTE via URL hash — evita race condition com getSession()
+  const [isRecovering, setIsRecovering] = useState(() => {
+    const params = new URLSearchParams(window.location.hash.slice(1));
+    return params.get('type') === 'recovery';
+  });
   const [recoveryForm, setRecoveryForm] = useState({ password: '', confirm: '' });
   const [activeMenu, setActiveMenu] = useState('dashboard');
   const [view, setView] = useState('list');
@@ -79,14 +83,22 @@ const App = () => {
 
   // --- LOGICA DE SESSÃO ---
   useEffect(() => {
+    // Verifica se a URL contém um token de recuperação de senha
+    const params = new URLSearchParams(window.location.hash.slice(1));
+    const isRecoveryLink = params.get('type') === 'recovery';
+
     supabase.auth.getSession().then(({ data: { session } }) => {
-      if (session) fetchMemberProfile(session.user.id);
+      // Não faz login automático se for link de recuperação
+      if (session && !isRecoveryLink) fetchMemberProfile(session.user.id);
     });
+
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       if (_event === 'PASSWORD_RECOVERY') {
         setIsRecovering(true);
-        return; // não faz login normal — exibe tela de nova senha
+        return;
       }
+      // Ignora todos os eventos de auth enquanto estiver em modo de recuperação
+      if (isRecoveryLink) return;
       if (session) fetchMemberProfile(session.user.id);
       else { setCurrentUser(null); setIsRecovering(false); }
     });
