@@ -204,7 +204,15 @@ const App = () => {
       if (signedError) throw signedError;
       const secureUrl = signedData.signedUrl;
       const newFile = { name: file.name, url: secureUrl, uploadedAt: new Date().toISOString() };
-      const updatedFiles = [...(currentMeeting[type] || []), newFile];
+      // Atas: substituir a anterior (cada reunião tem 1 ata vigente)
+      // Materiais: acumular normalmente
+      if (type === 'atas' && (currentMeeting.atas || []).length > 0) {
+        const confirmar = window.confirm(
+          `Já existe uma ata publicada para esta reunião:\n"${currentMeeting.atas[0].name}"\n\nDeseja substituí-la pela nova versão?`
+        );
+        if (!confirmar) { setLoading(false); if (e.target) e.target.value = ''; return; }
+      }
+      const updatedFiles = type === 'atas' ? [newFile] : [...(currentMeeting[type] || []), newFile];
 
       // Auto-save diretamente no banco — evita perda de dados se o usuário não clicar em Salvar
       if (currentMeeting.id) {
