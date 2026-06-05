@@ -83,12 +83,16 @@ const App = () => {
 
   // --- LOGICA DE SESSÃO ---
   useEffect(() => {
-    // Verifica se a URL contém um token de recuperação de senha
     const params = new URLSearchParams(window.location.hash.slice(1));
     const isRecoveryLink = params.get('type') === 'recovery';
 
+    // Limpa o hash para não reprocessar em refresh
+    if (isRecoveryLink) {
+      window.history.replaceState(null, '', window.location.pathname);
+    }
+
     supabase.auth.getSession().then(({ data: { session } }) => {
-      // Não faz login automático se for link de recuperação
+      // Não faz login automático se for link de recuperação (isRecovering já está true pelo lazy init)
       if (session && !isRecoveryLink) fetchMemberProfile(session.user.id);
     });
 
@@ -97,8 +101,8 @@ const App = () => {
         setIsRecovering(true);
         return;
       }
-      // Ignora todos os eventos de auth enquanto estiver em modo de recuperação
-      if (isRecoveryLink) return;
+      // Sem guard isRecoveryLink aqui — o render prioriza isRecovering (checado antes de currentUser)
+      // Isso garante que o login normal funciona depois do reset de senha
       if (session) fetchMemberProfile(session.user.id);
       else { setCurrentUser(null); setIsRecovering(false); }
     });
