@@ -130,6 +130,9 @@ serve(async (req) => {
       if (!listResp.ok) {
         return ok({ error: `Erro ao vincular ${participant.name} (${listResp.status}): ${listText}` })
       }
+
+      signersAdded++
+      console.log(`[clicksign-flow] Signatário vinculado: ${participant.email}`)
     }
 
     if (signersAdded === 0) {
