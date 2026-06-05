@@ -7,7 +7,7 @@ import {
   Clock, CheckCircle2, AlertCircle, FileText, Send, X, Trash2,
   Upload, Save, Lock, Target, FileCheck, BarChart3,
   PieChart as PieIcon, LogIn, User, Key, LogOut, UserCheck,
-  Mail, UserCog, Settings, Camera, UserCircle, History, Filter, MessageSquare, Download, ExternalLink, ListChecks, Plus, Edit2, Check, Menu, ChevronUp, ChevronDown, Play, Square, Timer, SkipForward, Building2, ChevronLeft, UserMinus, ThumbsUp, ThumbsDown, CircleSlash, MinusCircle
+  Mail, UserCog, Settings, Camera, UserCircle, History, Filter, MessageSquare, Download, ExternalLink, ListChecks, Plus, Edit2, Check, Menu, ChevronUp, ChevronDown, Play, Square, Timer, SkipForward, Building2, ChevronLeft, UserMinus, ThumbsUp, ThumbsDown, CircleSlash, MinusCircle, Archive, Search
 } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend } from 'recharts';
 
@@ -60,6 +60,7 @@ const App = () => {
   const [clientProfile, setClientProfile] = useState<any>(null);
   const [clientProfileForm, setClientProfileForm] = useState({ name: '', logo_url: '' });
   const [savingClientProfile, setSavingClientProfile] = useState(false);
+  const [atasSearch, setAtasSearch] = useState('');
   const logoRef = useRef<HTMLInputElement>(null);
 
   const [activePautaIndex, setActivePautaIndex] = useState<number | null>(null);
@@ -500,6 +501,27 @@ const App = () => {
     };
   }, [meetings, dashboardFilter, filterResp, filterStatus, filterOrigin]);
 
+  const allAtas = useMemo(() => {
+    return meetings
+      .flatMap(m => (m.atas || []).map((ata: any) => ({
+        ...ata,
+        meetingTitle: m.title,
+        meetingDate: m.date,
+        meetingId: m.id,
+        meetingStatus: m.status,
+      })))
+      .sort((a, b) => new Date(b.uploadedAt || 0).getTime() - new Date(a.uploadedAt || 0).getTime());
+  }, [meetings]);
+
+  const filteredAtas = useMemo(() => {
+    if (!atasSearch.trim()) return allAtas;
+    const s = atasSearch.toLowerCase();
+    return allAtas.filter(a =>
+      a.name?.toLowerCase().includes(s) ||
+      a.meetingTitle?.toLowerCase().includes(s)
+    );
+  }, [allAtas, atasSearch]);
+
   const ConvocationModal = () => (
     <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-md z-[100] flex items-center justify-center p-4">
       <div className="bg-white w-full max-w-2xl rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh] animate-in zoom-in-95">
@@ -608,6 +630,7 @@ const App = () => {
             { id: 'dashboard', icon: <LayoutDashboard size={18} />, label: 'Dashboard' },
             { id: 'reunioes', icon: <Calendar size={18} />, label: 'Conselho', action: () => setView('list') },
             { id: 'plano-acao', icon: <ListChecks size={18} />, label: 'Plano de Ação' },
+            { id: 'repositorio-atas', icon: <Archive size={18} />, label: 'Repositório de Atas' },
             { id: 'usuarios', icon: <UserCog size={18} />, label: isSuper ? 'Contas de Clientes' : 'Membros', adm: true },
             { id: 'auditoria', icon: <History size={18} />, label: 'Auditoria', adm: true }
           ].map((item) => (
@@ -1172,6 +1195,129 @@ const App = () => {
                     )}
                   </div>
                 )
+              )}
+
+              {activeMenu === 'repositorio-atas' && (
+                <div className="space-y-6 animate-in fade-in">
+
+                  {/* Cabeçalho */}
+                  <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+                    <div>
+                      <h1 className="text-2xl font-bold text-slate-800 tracking-tight italic flex items-center gap-3">
+                        <Archive size={24} className="text-amber-600" /> Repositório de Atas
+                      </h1>
+                      <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1">
+                        {allAtas.length} {allAtas.length === 1 ? 'documento' : 'documentos'} em{' '}
+                        {new Set(allAtas.map((a: any) => a.meetingId)).size} {new Set(allAtas.map((a: any) => a.meetingId)).size === 1 ? 'reunião' : 'reuniões'}
+                      </p>
+                    </div>
+                    {/* Busca */}
+                    <div className="relative w-full sm:w-80">
+                      <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+                      <input
+                        type="text"
+                        placeholder="Buscar por nome ou reunião..."
+                        className="w-full pl-9 pr-4 py-2.5 border border-slate-200 rounded-lg text-xs font-bold outline-none focus:border-amber-400 focus:ring-1 focus:ring-amber-100 bg-white transition-all"
+                        value={atasSearch}
+                        onChange={e => setAtasSearch(e.target.value)}
+                      />
+                      {atasSearch && (
+                        <button onClick={() => setAtasSearch('')} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-300 hover:text-slate-500 transition-colors">
+                          <X size={13} />
+                        </button>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Estado vazio — sem atas */}
+                  {allAtas.length === 0 && (
+                    <div className="bg-white rounded-xl border border-dashed border-slate-200 py-24 flex flex-col items-center justify-center text-slate-300 shadow-sm">
+                      <Archive size={52} className="mb-4 opacity-30" />
+                      <p className="text-xs font-bold uppercase tracking-widest text-slate-400">Nenhuma ata publicada ainda</p>
+                      <p className="text-[10px] font-normal text-slate-300 mt-2 not-italic">
+                        Publique atas nas reuniões para que apareçam aqui.
+                      </p>
+                    </div>
+                  )}
+
+                  {/* Estado vazio — busca sem resultado */}
+                  {allAtas.length > 0 && filteredAtas.length === 0 && (
+                    <div className="bg-white rounded-xl border border-dashed border-slate-200 py-16 flex flex-col items-center justify-center text-slate-300 shadow-sm">
+                      <Search size={36} className="mb-3 opacity-30" />
+                      <p className="text-xs font-bold uppercase tracking-widest text-slate-400">Nenhum resultado para "{atasSearch}"</p>
+                      <button onClick={() => setAtasSearch('')} className="mt-4 text-[10px] font-bold text-amber-600 hover:text-amber-700 uppercase tracking-widest transition-colors">
+                        Limpar busca
+                      </button>
+                    </div>
+                  )}
+
+                  {/* Grid de cards */}
+                  {filteredAtas.length > 0 && (
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                      {filteredAtas.map((ata: any, i: number) => (
+                        <div key={`${ata.meetingId}-${i}`}
+                          className="bg-white border border-slate-200 rounded-xl p-5 flex flex-col gap-4 shadow-sm hover:shadow-md hover:border-amber-300 transition-all group">
+
+                          {/* Ícone + nome do arquivo */}
+                          <div className="flex items-start gap-3">
+                            <div className="p-3 bg-amber-50 text-amber-600 rounded-lg shrink-0 group-hover:bg-amber-100 transition-colors">
+                              <FileCheck size={22} />
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <p className="text-sm font-bold text-slate-800 leading-snug break-words line-clamp-2" title={ata.name}>
+                                {ata.name}
+                              </p>
+                              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mt-1">
+                                {ata.uploadedAt
+                                  ? new Date(ata.uploadedAt).toLocaleDateString('pt-BR', { day: '2-digit', month: 'short', year: 'numeric' })
+                                  : 'Data não registrada'}
+                              </p>
+                            </div>
+                          </div>
+
+                          {/* Reunião de origem */}
+                          <div className="flex items-center gap-2 px-3 py-2.5 bg-slate-50 rounded-lg border border-slate-100">
+                            <Calendar size={12} className="text-amber-500 shrink-0" />
+                            <div className="flex-1 min-w-0">
+                              <p className="text-[10px] font-bold text-slate-700 truncate italic">{ata.meetingTitle}</p>
+                              <p className="text-[9px] text-slate-400 uppercase tracking-widest font-bold">
+                                {ata.meetingDate
+                                  ? new Date(ata.meetingDate + 'T00:00:00').toLocaleDateString('pt-BR', { day: '2-digit', month: 'short', year: 'numeric' })
+                                  : 'Data n/d'}
+                                {' '}•{' '}
+                                <span className={`${ata.meetingStatus === 'Concluída' ? 'text-emerald-500' : ata.meetingStatus === 'Em Andamento' ? 'text-amber-500' : 'text-slate-400'}`}>
+                                  {ata.meetingStatus}
+                                </span>
+                              </p>
+                            </div>
+                          </div>
+
+                          {/* Ações */}
+                          <div className="flex items-center gap-2 mt-auto">
+                            <a
+                              href={ata.url}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="flex-1 flex items-center justify-center gap-2 py-2.5 bg-slate-900 hover:bg-amber-600 text-white rounded-lg text-[10px] font-bold uppercase tracking-widest transition-all shadow-sm"
+                            >
+                              <ExternalLink size={13} /> Abrir
+                            </a>
+                            <button
+                              onClick={() => {
+                                const m = meetings.find((m: any) => m.id === ata.meetingId);
+                                if (m) { setCurrentMeeting(m); setView('details'); setTab('atas'); setActiveMenu('reunioes'); }
+                              }}
+                              className="px-3 py-2.5 border border-slate-200 hover:border-amber-300 hover:text-amber-600 text-slate-400 rounded-lg text-[10px] transition-all"
+                              title="Ver na reunião"
+                            >
+                              <ChevronRight size={15} />
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
               )}
 
               {activeMenu === 'plano-acao' && (
