@@ -555,6 +555,33 @@ const App = () => {
     };
   }, [meetings, dashboardFilter, filterResp, filterStatus, filterOrigin]);
 
+  // Verifica status da assinatura no ClickSign e atualiza a ata manualmente
+  const handleCheckSignature = async (ataIndex: number) => {
+    if (!currentMeeting.id) return;
+    const ata = (currentMeeting.atas || [])[ataIndex];
+    if (!ata?.clicksign_key) return;
+    setClicksignLoading(true);
+    try {
+      const CLICKSIGN_BASE = 'https://sandbox.clicksign.com/api/v1'; // usa env na edge fn
+      const { data, error } = await supabase.functions.invoke('clicksign-check', {
+        body: { meetingId: currentMeeting.id, ataIndex, clicksign_key: ata.clicksign_key }
+      });
+      if (error) throw new Error(error.message);
+      if (data?.error) throw new Error(data.error);
+      if (data?.signed) {
+        const { data: saved } = await supabase.from('meetings').select('*').eq('id', currentMeeting.id).single();
+        if (saved) { setCurrentMeeting(saved); setMeetings(prev => prev.map(m => m.id === currentMeeting.id ? saved : m)); }
+        alert('✅ Ata marcada como assinada digitalmente!');
+      } else {
+        alert(`Status atual: ${data?.status ?? 'aguardando assinaturas'}`);
+      }
+    } catch (err: any) {
+      alert('Erro ao verificar: ' + err.message);
+    } finally {
+      setClicksignLoading(false);
+    }
+  };
+
   // Envia ata para assinatura digital via ClickSign
   const handleSendToClickSign = async (ataIndex: number) => {
     if (!currentMeeting.id) return;
@@ -1454,6 +1481,13 @@ const App = () => {
       <div className="px-4 pb-4 border-t border-slate-50 pt-3">
         <button disabled={clicksignLoading} onClick={() => handleSendToClickSign(i)} className="w-full flex items-center justify-center gap-2 py-2.5 bg-slate-900 hover:bg-amber-600 text-white rounded-lg text-[10px] font-bold uppercase tracking-widest transition-all shadow-sm disabled:opacity-50">
           <PenLine size={13} /> {clicksignLoading ? 'Enviando...' : 'Enviar para Assinatura Digital'}
+        </button>
+      </div>
+    )}
+    {ata.clicksign_status === 'pending' && canEdit && (
+      <div className="px-4 pb-4 border-t border-slate-50 pt-3">
+        <button disabled={clicksignLoading} onClick={() => handleCheckSignature(i)} className="w-full flex items-center justify-center gap-2 py-2 border border-amber-200 text-amber-600 hover:bg-amber-50 rounded-lg text-[10px] font-bold uppercase tracking-widest transition-all disabled:opacity-50">
+          <ShieldCheck size={13} /> {clicksignLoading ? 'Verificando...' : 'Verificar Status da Assinatura'}
         </button>
       </div>
     )}

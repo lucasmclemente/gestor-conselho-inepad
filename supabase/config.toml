@@ -443,3 +443,8 @@ entrypoint = "./functions/clicksign-flow/index.ts"
 enabled = true
 verify_jwt = false
 entrypoint = "./functions/clicksign-webhook/index.ts"
+
+[functions.clicksign-check]
+enabled = true
+verify_jwt = true
+entrypoint = "./functions/clicksign-check/index.ts"
