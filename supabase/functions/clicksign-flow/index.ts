@@ -97,7 +97,9 @@ serve(async (req) => {
     if (!documentKey) return ok({ error: 'ClickSign não retornou a chave do documento' })
 
     // 3. Adiciona cada signatário
+    let signersAdded = 0
     for (const participant of participants) {
+      // Cria o signatário
       const signerResp = await fetch(`${CLICKSIGN_BASE}/signers?access_token=${CLICKSIGN_TOKEN}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -106,14 +108,18 @@ serve(async (req) => {
         })
       })
       if (!signerResp.ok) {
-        console.error(`[clicksign-flow] Erro ao criar signatário ${participant.email}: ${await signerResp.text()}`)
-        continue
+        const errText = await signerResp.text()
+        console.error(`[clicksign-flow] Erro ao criar signatário ${participant.email}: ${errText}`)
+        return ok({ error: `Erro ao criar signatário ${participant.name} (${signerResp.status}): ${errText}` })
       }
       const signerData = await signerResp.json()
       const signerKey: string = signerData.signer?.key
-      if (!signerKey) continue
+      if (!signerKey) {
+        return ok({ error: `ClickSign não retornou chave do signatário ${participant.name}` })
+      }
 
-      await fetch(`${CLICKSIGN_BASE}/lists?access_token=${CLICKSIGN_TOKEN}`, {
+      // Vincula o signatário ao documento
+      const listResp = await fetch(`${CLICKSIGN_BASE}/lists?access_token=${CLICKSIGN_TOKEN}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -125,7 +131,18 @@ serve(async (req) => {
           }
         })
       })
+      if (!listResp.ok) {
+        const errText = await listResp.text()
+        console.error(`[clicksign-flow] Erro ao vincular signatário: ${errText}`)
+        return ok({ error: `Erro ao vincular ${participant.name} ao documento (${listResp.status}): ${errText}` })
+      }
+
+      signersAdded++
       console.log(`[clicksign-flow] Signatário adicionado: ${participant.email}`)
+    }
+
+    if (signersAdded === 0) {
+      return ok({ error: 'Nenhum signatário foi adicionado ao documento. Verifique se os participantes da reunião possuem e-mail.' })
     }
 
     // 4. Ativa o documento (envia e-mails)
