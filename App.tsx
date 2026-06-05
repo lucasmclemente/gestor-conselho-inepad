@@ -581,6 +581,7 @@ const App = () => {
         }
       });
       if (error) throw new Error(error.message);
+      if (data?.debug) { alert('DIAGNÓSTICO:\n' + JSON.stringify(data, null, 2)); return; }
       if (data?.error) throw new Error(data.error);
       const updatedAtas = (currentMeeting.atas || []).map((a: any, i: number) =>
         i === ataIndex ? { ...a, clicksign_key: data.clicksign_key, clicksign_status: 'pending', clicksign_sent_at: new Date().toISOString() } : a

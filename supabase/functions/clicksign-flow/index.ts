@@ -118,50 +118,54 @@ serve(async (req) => {
         return ok({ error: `ClickSign não retornou chave do signatário ${participant.name}` })
       }
 
-      // Vincula o signatário ao documento
-      const listBody = JSON.stringify({
-        list: {
-          document_key: documentKey,
-          signer_key: signerKey,
-          sign_as: 'sign',
-          refusable: false,
-          message: `Você foi convidado a assinar a ata da reunião "${meetingTitle}".`,
-        }
-      })
-      const listResp = await fetch(`${CLICKSIGN_BASE}/lists?access_token=${CLICKSIGN_TOKEN}`, {
+      // Vincula o signatário ao documento (minimal payload)
+      const listUrl = `${CLICKSIGN_BASE}/lists?access_token=${CLICKSIGN_TOKEN}`
+      const listPayload = { list: { document_key: documentKey, signer_key: signerKey, sign_as: 'sign', refusable: false } }
+      console.log(`[clicksign-flow] POST lists URL: ${listUrl.replace(CLICKSIGN_TOKEN!, '***')}`)
+      console.log(`[clicksign-flow] POST lists body: ${JSON.stringify(listPayload)}`)
+
+      const listResp = await fetch(listUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: listBody,
+        body: JSON.stringify(listPayload),
       })
       const listText = await listResp.text()
-      console.log(`[clicksign-flow] lists status: ${listResp.status} | body: ${listText.substring(0, 300)}`)
+      console.log(`[clicksign-flow] lists response ${listResp.status}: ${listText}`)
 
       if (!listResp.ok) {
-        return ok({ error: `Erro ao vincular ${participant.name} ao documento (${listResp.status}): ${listText}` })
+        return ok({ error: `Erro ao vincular ${participant.name} (${listResp.status}): ${listText}` })
       }
 
-      // Verifica se a chave do list foi retornada (confirma associação)
-      const listData = JSON.parse(listText)
-      if (!listData.list?.key && !listData.key) {
-        console.warn(`[clicksign-flow] List criado mas sem chave: ${listText}`)
-      }
-
-      signersAdded++
-      console.log(`[clicksign-flow] Signatário vinculado com sucesso: ${participant.email}`)
+      // DIAGNÓSTICO: retorna os dados intermediários para inspeção
+      return ok({
+        debug: true,
+        documentKey,
+        signerKey,
+        signerEmail: participant.email,
+        listStatus: listResp.status,
+        listResponse: listText,
+        message: 'Diagnóstico — verifique os dados acima antes de prosseguir'
+      })
     }
 
     if (signersAdded === 0) {
       return ok({ error: 'Nenhum signatário foi adicionado ao documento. Verifique se os participantes da reunião possuem e-mail.' })
     }
 
-    // 4. Ativa o documento (envia e-mails)
+    // 4. Verifica o estado do documento antes de finalizar
+    const checkResp = await fetch(`${CLICKSIGN_BASE}/documents/${documentKey}?access_token=${CLICKSIGN_TOKEN}`)
+    const checkText = await checkResp.text()
+    console.log(`[clicksign-flow] Documento antes do finish: ${checkText.substring(0, 500)}`)
+
+    // 5. Ativa o documento (envia e-mails)
     const finishResp = await fetch(`${CLICKSIGN_BASE}/documents/${documentKey}/finish?access_token=${CLICKSIGN_TOKEN}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
     })
     if (!finishResp.ok) {
       const errText = await finishResp.text()
-      return ok({ error: `Erro ao ativar documento no ClickSign (${finishResp.status}): ${errText}` })
+      // Inclui estado do documento no erro para diagnóstico
+      return ok({ error: `Erro ao ativar documento no ClickSign (${finishResp.status}): ${errText} | Estado doc: ${checkText.substring(0, 200)}` })
     }
 
     console.log(`[clicksign-flow] Documento ativado com sucesso: ${documentKey}`)
