@@ -204,8 +204,26 @@ const App = () => {
       if (signedError) throw signedError;
       const secureUrl = signedData.signedUrl;
       const newFile = { name: file.name, url: secureUrl, uploadedAt: new Date().toISOString() };
-      setCurrentMeeting((prev: any) => ({ ...prev, [type]: [...(prev[type] || []), newFile] }));
+      const updatedFiles = [...(currentMeeting[type] || []), newFile];
+
+      // Auto-save diretamente no banco — evita perda de dados se o usuário não clicar em Salvar
+      if (currentMeeting.id) {
+        const { data: saved, error: saveErr } = await supabase
+          .from('meetings')
+          .update({ [type]: updatedFiles })
+          .eq('id', currentMeeting.id)
+          .select()
+          .single();
+        if (saveErr) throw saveErr;
+        setCurrentMeeting(saved);
+        setMeetings(prev => prev.map(m => m.id === currentMeeting.id ? saved : m));
+      } else {
+        // Reunião ainda não foi salva — atualiza apenas o estado local
+        setCurrentMeeting((prev: any) => ({ ...prev, [type]: updatedFiles }));
+      }
+
       addLog('Upload', `Arquivo ${file.name} em ${type}`);
+
       if (type === 'atas') {
         const participants = (currentMeeting.participants || []).filter((p: any) => !p.isExternal);
         const emails = participants.map((p: any) => p.email).filter((e: string) => e);
@@ -216,8 +234,10 @@ const App = () => {
             await supabase.functions.invoke('send-minute-notification', {
               body: { meetingTitle: currentMeeting.title, minuteName: file.name, minuteUrl: secureUrl, actions: currentMeeting.acoes || [], recipients: emails, pendingSummary: usersToNotify }
             });
-            alert("Ata publicada e relatórios de pendências globais enviados!");
-          } catch (e) { alert("Ata publicada, erro no disparo de e-mails."); }
+            alert("✅ Ata publicada, salva automaticamente e e-mails enviados!");
+          } catch (e) { alert("✅ Ata publicada e salva automaticamente. Erro no disparo de e-mails."); }
+        } else {
+          alert("✅ Ata publicada e salva automaticamente!");
         }
       }
     } catch (err: any) { alert("Erro: " + err.message); }
