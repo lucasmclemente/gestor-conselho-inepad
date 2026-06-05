@@ -96,25 +96,38 @@ serve(async (req) => {
       const pdfResp = await fetch(`${signedFileUrl}?access_token=${CLICKSIGN_TOKEN}`)
       console.log(`[clicksign-check] Download status: ${pdfResp.status}, Content-Type: ${pdfResp.headers.get('content-type')}`)
 
-      if (pdfResp.ok && pdfResp.headers.get('content-type')?.includes('pdf')) {
+      const contentType = pdfResp.headers.get('content-type') ?? ''
+      const contentLength = pdfResp.headers.get('content-length') ?? 'unknown'
+      console.log(`[clicksign-check] Download: status=${pdfResp.status} type=${contentType} size=${contentLength}`)
+
+      if (pdfResp.ok) {
         const pdfBuffer = await pdfResp.arrayBuffer()
-        const filePath = `atas/${meeting.client_id}/${Date.now()}_assinada.pdf`
-        const { error: uploadErr } = await supabaseAdmin.storage
-          .from('meeting-files')
-          .upload(filePath, pdfBuffer, { contentType: 'application/pdf', upsert: true })
-        if (!uploadErr) {
-          const { data: urlData } = await supabaseAdmin.storage
-            .from('meeting-files')
-            .createSignedUrl(filePath, 60 * 60 * 24 * 365)
-          if (urlData?.signedUrl) {
-            signedStorageUrl = urlData.signedUrl
-            console.log(`[clicksign-check] ✅ PDF assinado salvo no Storage`)
-          }
+        console.log(`[clicksign-check] Buffer: ${pdfBuffer.byteLength} bytes`)
+
+        if (pdfBuffer.byteLength < 100) {
+          // Provavelmente HTML de erro — loga o conteúdo
+          const text = new TextDecoder().decode(pdfBuffer.slice(0, 500))
+          console.warn(`[clicksign-check] Resposta pequena demais (provavelmente erro): ${text}`)
         } else {
-          console.error('[clicksign-check] Erro no upload:', uploadErr)
+          const filePath = `atas/${meeting.client_id}/${Date.now()}_assinada.pdf`
+          const { error: uploadErr } = await supabaseAdmin.storage
+            .from('meeting-files')
+            .upload(filePath, pdfBuffer, { contentType: 'application/pdf', upsert: true })
+          if (!uploadErr) {
+            const { data: urlData } = await supabaseAdmin.storage
+              .from('meeting-files')
+              .createSignedUrl(filePath, 60 * 60 * 24 * 365)
+            if (urlData?.signedUrl) {
+              signedStorageUrl = urlData.signedUrl
+              console.log(`[clicksign-check] ✅ PDF assinado salvo: ${filePath}`)
+            }
+          } else {
+            console.error('[clicksign-check] Erro no upload:', JSON.stringify(uploadErr))
+          }
         }
       } else {
-        console.warn(`[clicksign-check] PDF não disponível ainda (${pdfResp.status})`)
+        const errBody = await pdfResp.text()
+        console.warn(`[clicksign-check] Download falhou (${pdfResp.status}): ${errBody.substring(0, 300)}`)
       }
     } catch (e) {
       console.error('[clicksign-check] Erro ao baixar PDF assinado:', e)
@@ -132,9 +145,10 @@ serve(async (req) => {
     )
 
     await supabaseAdmin.from('meetings').update({ atas: updatedAtas }).eq('id', meetingId)
-    console.log(`[clicksign-check] ✅ Ata ${ata.name} marcada como assinada`)
+    const pdfUpdated = signedStorageUrl !== ata.url
+    console.log(`[clicksign-check] ✅ Ata ${ata.name} marcada como assinada. PDF atualizado: ${pdfUpdated}`)
 
-    return ok({ signed: true, status: 'closed' })
+    return ok({ signed: true, status: 'closed', pdfUpdated, signedUrl: pdfUpdated ? signedStorageUrl : null })
 
   } catch (error: any) {
     console.error('[clicksign-check] Erro:', error)

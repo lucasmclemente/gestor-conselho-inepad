@@ -571,9 +571,13 @@ const App = () => {
       if (data?.signed) {
         const { data: saved } = await supabase.from('meetings').select('*').eq('id', currentMeeting.id).single();
         if (saved) { setCurrentMeeting(saved); setMeetings(prev => prev.map(m => m.id === currentMeeting.id ? saved : m)); }
-        alert('✅ Ata marcada como assinada digitalmente!');
+        if (data?.pdfUpdated) {
+          alert('✅ Ata assinada! O documento foi atualizado com a versão assinada pelo ClickSign.');
+        } else {
+          alert('✅ Ata marcada como assinada. O PDF assinado não estava disponível ainda — tente novamente em alguns minutos.');
+        }
       } else {
-        alert(`Status atual: ${data?.status ?? 'aguardando assinaturas'}`);
+        alert(`Status atual: ${data?.message ?? data?.status ?? 'aguardando assinaturas'}`);
       }
     } catch (err: any) {
       alert('Erro ao verificar: ' + err.message);
