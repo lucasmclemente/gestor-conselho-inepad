@@ -139,20 +139,26 @@ serve(async (req) => {
       return ok({ error: 'Nenhum signatário foi adicionado ao documento. Verifique se os participantes da reunião possuem e-mail.' })
     }
 
-    // 4. Verifica o estado do documento antes de finalizar
+    // 4. Verifica o estado completo do documento antes de finalizar
     const checkResp = await fetch(`${CLICKSIGN_BASE}/documents/${documentKey}?access_token=${CLICKSIGN_TOKEN}`)
     const checkText = await checkResp.text()
-    console.log(`[clicksign-flow] Documento antes do finish: ${checkText.substring(0, 500)}`)
+    console.log(`[clicksign-flow] Documento completo: ${checkText}`)
 
-    // 5. Ativa o documento (envia e-mails)
-    const finishResp = await fetch(`${CLICKSIGN_BASE}/documents/${documentKey}/finish?access_token=${CLICKSIGN_TOKEN}`, {
+    // 5. Tenta ativar o documento — primeiro PATCH, depois POST como fallback
+    let finishResp = await fetch(`${CLICKSIGN_BASE}/documents/${documentKey}/finish?access_token=${CLICKSIGN_TOKEN}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
     })
     if (!finishResp.ok) {
+      console.log(`[clicksign-flow] PATCH finish falhou (${finishResp.status}), tentando POST...`)
+      finishResp = await fetch(`${CLICKSIGN_BASE}/documents/${documentKey}/finish?access_token=${CLICKSIGN_TOKEN}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+      })
+    }
+    if (!finishResp.ok) {
       const errText = await finishResp.text()
-      // Inclui estado do documento no erro para diagnóstico
-      return ok({ error: `Erro ao ativar documento no ClickSign (${finishResp.status}): ${errText} | Estado doc: ${checkText.substring(0, 200)}` })
+      return ok({ error: `Erro ao ativar documento (${finishResp.status}): ${errText} | Doc: ${checkText.substring(0, 500)}` })
     }
 
     console.log(`[clicksign-flow] Documento ativado com sucesso: ${documentKey}`)
