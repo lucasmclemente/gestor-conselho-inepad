@@ -7,7 +7,7 @@ import {
   Clock, CheckCircle2, AlertCircle, FileText, Send, X, Trash2,
   Upload, Save, Lock, Target, FileCheck, BarChart3,
   PieChart as PieIcon, LogIn, User, Key, LogOut, UserCheck,
-  Mail, UserCog, Settings, Camera, UserCircle, History, Filter, MessageSquare, Download, ExternalLink, ListChecks, Plus, Edit2, Check, Menu, ChevronUp, ChevronDown, Play, Square, Timer, SkipForward, Building2, ChevronLeft, UserMinus, ThumbsUp, ThumbsDown, CircleSlash, MinusCircle, Archive, Search
+  Mail, UserCog, Settings, Camera, UserCircle, History, Filter, MessageSquare, Download, ExternalLink, ListChecks, Plus, Edit2, Check, Menu, ChevronUp, ChevronDown, Play, Square, Timer, SkipForward, Building2, ChevronLeft, UserMinus, ThumbsUp, ThumbsDown, CircleSlash, MinusCircle, Archive, Search, PenLine, ShieldCheck
 } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend } from 'recharts';
 
@@ -70,6 +70,7 @@ const App = () => {
   const [clientProfileForm, setClientProfileForm] = useState({ name: '', logo_url: '' });
   const [savingClientProfile, setSavingClientProfile] = useState(false);
   const [atasSearch, setAtasSearch] = useState('');
+  const [clicksignLoading, setClicksignLoading] = useState(false);
   const logoRef = useRef<HTMLInputElement>(null);
 
   const [activePautaIndex, setActivePautaIndex] = useState<number | null>(null);
@@ -553,6 +554,49 @@ const App = () => {
       barData: filteredM.slice(0, 6).map(m => ({ name: m.date || 'S/D', 'Pautas': m.pautas?.length || 0, 'Ações': m.acoes?.length || 0 }))
     };
   }, [meetings, dashboardFilter, filterResp, filterStatus, filterOrigin]);
+
+  // Envia ata para assinatura digital via ClickSign
+  const handleSendToClickSign = async (ataIndex: number) => {
+    if (!currentMeeting.id) return;
+    const ata = (currentMeeting.atas || [])[ataIndex];
+    if (!ata) return;
+    const internalParticipants = (currentMeeting.participants || []).filter((p: any) => !p.isExternal && p.email);
+    if (internalParticipants.length === 0) { alert('Nenhum participante interno com e-mail cadastrado para assinar.'); return; }
+    if (!window.confirm(`Enviar "${ata.name}" para assinatura digital de ${internalParticipants.length} participante(s) via ClickSign?`)) return;
+    setClicksignLoading(true);
+    try {
+      // Gera URL fresca do arquivo
+      const match = ata.url.match(/\/(?:sign|public)\/meeting-files\/(.+?)(?:\?|$)/);
+      if (!match) throw new Error('Não foi possível localizar o arquivo da ata no servidor.');
+      const { data: freshUrl, error: urlErr } = await supabase.storage.from('meeting-files').createSignedUrl(match[1], 300);
+      if (urlErr || !freshUrl?.signedUrl) throw new Error('Erro ao gerar link do arquivo.');
+      const { data, error } = await supabase.functions.invoke('clicksign-flow', {
+        body: {
+          meetingId: currentMeeting.id,
+          ataUrl: freshUrl.signedUrl,
+          ataName: ata.name,
+          meetingTitle: currentMeeting.title,
+          meetingDate: currentMeeting.date,
+          participants: internalParticipants.map((p: any) => ({ name: p.name, email: p.email })),
+        }
+      });
+      if (error) throw new Error(error.message);
+      if (data?.error) throw new Error(data.error);
+      const updatedAtas = (currentMeeting.atas || []).map((a: any, i: number) =>
+        i === ataIndex ? { ...a, clicksign_key: data.clicksign_key, clicksign_status: 'pending', clicksign_sent_at: new Date().toISOString() } : a
+      );
+      const { data: saved, error: saveErr } = await supabase.from('meetings').update({ atas: updatedAtas }).eq('id', currentMeeting.id).select().single();
+      if (saveErr) throw saveErr;
+      setCurrentMeeting(saved);
+      setMeetings(prev => prev.map(m => m.id === currentMeeting.id ? saved : m));
+      addLog('Assinatura Digital', `Ata enviada ao ClickSign: ${ata.name}`);
+      alert('✅ Ata enviada para assinatura! Os participantes receberão um e-mail do ClickSign para assinar.');
+    } catch (err: any) {
+      alert('Erro ao enviar para assinatura: ' + err.message);
+    } finally {
+      setClicksignLoading(false);
+    }
+  };
 
   // Remove uma ata da reunião e salva no banco
   const handleDeleteAta = async (meetingId: string, ataIndex: number, ataName: string) => {
@@ -1392,7 +1436,29 @@ const App = () => {
                     )}
 
                                         {tab === 'atas' && (
-                      <div className="bg-white p-8 rounded-xl border border-slate-200 shadow-sm animate-in fade-in space-y-8"><div className="flex justify-between items-center border-b border-slate-50 pb-4"><h3 className="text-xs font-bold uppercase text-slate-500 tracking-widest">Atas Finais</h3>{canEdit && <button onClick={() => ataRef.current?.click()} className="bg-slate-100 hover:bg-slate-200 text-slate-700 px-4 py-2 rounded-lg text-[10px] font-bold uppercase flex items-center gap-2 transition-all"><Upload size={14} /> Carregar</button>}</div><div className="grid grid-cols-1 sm:grid-cols-2 gap-4">{(currentMeeting.atas || []).map((ata: any, i: any) => (<div key={i} className="p-4 bg-white border border-slate-200 rounded-xl flex items-center gap-4 group italic font-bold"><div className="p-3 bg-amber-50 text-amber-600 rounded-lg"><FileCheck size={24} /></div><div className="flex-1 truncate text-sm">{ata.name}</div><button onClick={() => openAtaUrl(ata.url)} className="text-slate-300 hover:text-amber-600 transition-colors" title="Abrir"><ExternalLink size={18} /></button>{isAdm && <button onClick={() => handleDeleteAta(currentMeeting.id, i, ata.name)} className="text-slate-200 hover:text-red-500 transition-colors" title="Excluir ata"><Trash2 size={17} /></button>}</div>))}</div></div>
+                      <div className="bg-white p-8 rounded-xl border border-slate-200 shadow-sm animate-in fade-in space-y-8"><div className="flex justify-between items-center border-b border-slate-50 pb-4"><h3 className="text-xs font-bold uppercase text-slate-500 tracking-widest">Atas Finais</h3>{canEdit && <button onClick={() => ataRef.current?.click()} className="bg-slate-100 hover:bg-slate-200 text-slate-700 px-4 py-2 rounded-lg text-[10px] font-bold uppercase flex items-center gap-2 transition-all"><Upload size={14} /> Carregar</button>}</div><div className="grid grid-cols-1 sm:grid-cols-2 gap-4">{(currentMeeting.atas || []).map((ata: any, i: any) => (
+  <div key={i} className="bg-white border border-slate-200 rounded-xl overflow-hidden group font-bold italic hover:border-amber-200 transition-all">
+    <div className="p-4 flex items-center gap-3">
+      <div className="p-3 bg-amber-50 text-amber-600 rounded-lg shrink-0"><FileCheck size={22} /></div>
+      <div className="flex-1 min-w-0">
+        <p className="text-sm truncate">{ata.name}</p>
+        {ata.clicksign_status === 'signed' && <span className="inline-flex items-center gap-1 text-[9px] bg-emerald-50 text-emerald-700 border border-emerald-200 px-2 py-0.5 rounded-full mt-1 not-italic"><ShieldCheck size={9} /> Assinada Digitalmente</span>}
+        {ata.clicksign_status === 'pending' && <span className="inline-flex items-center gap-1 text-[9px] bg-amber-50 text-amber-600 border border-amber-200 px-2 py-0.5 rounded-full mt-1 not-italic"><Clock size={9} /> Aguardando Assinaturas</span>}
+      </div>
+      <div className="flex items-center gap-1.5 shrink-0">
+        <button onClick={() => openAtaUrl(ata.clicksign_status === 'signed' && ata.clicksign_signed_url ? ata.clicksign_signed_url : ata.url)} className="text-slate-300 hover:text-amber-600 transition-colors" title="Abrir"><ExternalLink size={17} /></button>
+        {isAdm && <button onClick={() => handleDeleteAta(currentMeeting.id, i, ata.name)} className="text-slate-200 hover:text-red-500 transition-colors" title="Excluir ata"><Trash2 size={16} /></button>}
+      </div>
+    </div>
+    {clientProfile?.clicksign_enabled && canEdit && !ata.clicksign_key && (
+      <div className="px-4 pb-4 border-t border-slate-50 pt-3">
+        <button disabled={clicksignLoading} onClick={() => handleSendToClickSign(i)} className="w-full flex items-center justify-center gap-2 py-2.5 bg-slate-900 hover:bg-amber-600 text-white rounded-lg text-[10px] font-bold uppercase tracking-widest transition-all shadow-sm disabled:opacity-50">
+          <PenLine size={13} /> {clicksignLoading ? 'Enviando...' : 'Enviar para Assinatura Digital'}
+        </button>
+      </div>
+    )}
+  </div>
+))}</div></div>
                     )}
                   </div>
                 )
@@ -1473,6 +1539,8 @@ const App = () => {
                                   ? new Date(ata.uploadedAt).toLocaleDateString('pt-BR', { day: '2-digit', month: 'short', year: 'numeric' })
                                   : 'Data não registrada'}
                               </p>
+                              {ata.clicksign_status === 'signed' && <span className="inline-flex items-center gap-1 text-[9px] bg-emerald-50 text-emerald-700 border border-emerald-200 px-2 py-0.5 rounded-full mt-1.5 font-bold not-italic"><ShieldCheck size={9} /> Assinada Digitalmente</span>}
+                              {ata.clicksign_status === 'pending' && <span className="inline-flex items-center gap-1 text-[9px] bg-amber-50 text-amber-600 border border-amber-200 px-2 py-0.5 rounded-full mt-1.5 font-bold not-italic"><Clock size={9} /> Aguardando Assinaturas</span>}
                             </div>
                           </div>
 
@@ -1741,6 +1809,35 @@ const App = () => {
                           </button>
                         </div>
                       </div>
+                    </div>
+                  )}
+
+                  {/* ADD-ON CLICKSIGN — visível apenas para SuperAdmin */}
+                  {isSuper && (
+                    <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm space-y-4">
+                      <h3 className="text-xs font-bold uppercase text-slate-500 tracking-widest border-b border-slate-100 pb-4 flex items-center gap-2">
+                        <PenLine size={16} className="text-amber-600" /> Add-on: Assinatura Digital
+                      </h3>
+                      <div className="flex items-center justify-between p-4 bg-slate-50 rounded-xl border border-slate-200">
+                        <div>
+                          <p className="text-sm font-bold text-slate-800 italic">ClickSign — {clientProfile?.name || currentUser.client_id}</p>
+                          <p className="text-[10px] text-slate-400 font-normal not-italic mt-0.5">Habilita envio de atas para assinatura digital (cobrança adicional)</p>
+                        </div>
+                        <button
+                          onClick={async () => {
+                            const newVal = !clientProfile?.clicksign_enabled;
+                            const payload = { client_id: currentUser.client_id, name: clientProfileForm.name || currentUser.client_id, logo_url: clientProfileForm.logo_url || '', clicksign_enabled: newVal };
+                            const { data, error } = await supabase.from('clients').upsert(payload, { onConflict: 'client_id' }).select().single();
+                            if (!error && data) { setClientProfile(data); addLog('Configuração', `ClickSign ${newVal ? 'ativado' : 'desativado'}: ${data.name || currentUser.client_id}`); }
+                          }}
+                          className={`relative inline-flex h-7 w-12 shrink-0 items-center rounded-full transition-colors duration-200 focus:outline-none ${clientProfile?.clicksign_enabled ? 'bg-amber-600' : 'bg-slate-200'}`}
+                        >
+                          <span className={`inline-block h-5 w-5 transform rounded-full bg-white shadow-md transition-transform duration-200 ${clientProfile?.clicksign_enabled ? 'translate-x-6' : 'translate-x-1'}`} />
+                        </button>
+                      </div>
+                      {clientProfile?.clicksign_enabled
+                        ? <p className="text-[10px] text-emerald-600 font-bold not-italic flex items-center gap-1.5"><CheckCircle2 size={12} /> Add-on ativo — botão de assinatura digital visível nas atas</p>
+                        : <p className="text-[10px] text-slate-400 font-normal not-italic">Add-on inativo — o cliente não verá a opção de assinatura digital</p>}
                     </div>
                   )}
 

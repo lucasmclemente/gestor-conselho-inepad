@@ -433,3 +433,13 @@ enabled = true
 verify_jwt = false
 import_map = "./functions/send-weekly-reminder/deno.json"
 entrypoint = "./functions/send-weekly-reminder/index.ts"
+
+[functions.clicksign-flow]
+enabled = true
+verify_jwt = true
+entrypoint = "./functions/clicksign-flow/index.ts"
+
+[functions.clicksign-webhook]
+enabled = true
+verify_jwt = false
+entrypoint = "./functions/clicksign-webhook/index.ts"
