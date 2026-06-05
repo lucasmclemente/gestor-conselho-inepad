@@ -2,21 +2,37 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2"
 
 // CORS aberto — segurança garantida pelo JWT obrigatório em todas as rotas
-function getCors(_req: Request) {
-  return {
-    'Access-Control-Allow-Origin': '*',
-    'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+const CORS = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+  'Content-Type': 'application/json',
+}
+
+// Converte ArrayBuffer para base64 em chunks — evita erro em PDFs grandes
+function arrayBufferToBase64(buffer: ArrayBuffer): string {
+  const bytes = new Uint8Array(buffer)
+  let binary = ''
+  const chunkSize = 8192
+  for (let i = 0; i < bytes.length; i += chunkSize) {
+    const chunk = bytes.subarray(i, i + chunkSize)
+    binary += String.fromCharCode(...chunk)
   }
+  return btoa(binary)
+}
+
+// Sempre retorna 200 com { error } ou { success, clicksign_key }
+// para que o Supabase invoke() passe a mensagem de erro ao front-end
+function ok(body: object) {
+  return new Response(JSON.stringify(body), { headers: CORS, status: 200 })
 }
 
 serve(async (req) => {
-  const cors = getCors(req)
-  if (req.method === 'OPTIONS') return new Response('ok', { headers: cors })
+  if (req.method === 'OPTIONS') return new Response('ok', { headers: CORS })
 
   try {
     // Autenticação JWT
     const authHeader = req.headers.get('Authorization')
-    if (!authHeader) return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401, headers: cors })
+    if (!authHeader) return ok({ error: 'Unauthorized' })
 
     const supabaseClient = createClient(
       Deno.env.get('SUPABASE_URL') ?? '',
@@ -24,30 +40,35 @@ serve(async (req) => {
       { global: { headers: { Authorization: authHeader } } }
     )
     const { data: { user }, error: authError } = await supabaseClient.auth.getUser()
-    if (authError || !user) return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401, headers: cors })
+    if (authError || !user) return ok({ error: 'Unauthorized' })
 
-    const { meetingId, ataUrl, ataName, meetingTitle, meetingDate, participants } = await req.json()
+    const { ataUrl, ataName, meetingTitle, meetingDate, participants } = await req.json()
 
     if (!ataUrl || !participants?.length) {
-      return new Response(JSON.stringify({ error: 'Parâmetros obrigatórios: ataUrl, participants' }), { status: 400, headers: cors })
+      return ok({ error: 'Parâmetros obrigatórios ausentes: ataUrl, participants' })
     }
 
     const CLICKSIGN_TOKEN = Deno.env.get('CLICKSIGN_ACCESS_TOKEN')
     const CLICKSIGN_BASE = Deno.env.get('CLICKSIGN_BASE_URL') ?? 'https://sandbox.clicksign.com/api/v1'
 
-    if (!CLICKSIGN_TOKEN) return new Response(JSON.stringify({ error: 'CLICKSIGN_ACCESS_TOKEN não configurado' }), { status: 500, headers: cors })
+    if (!CLICKSIGN_TOKEN) return ok({ error: 'Secret CLICKSIGN_ACCESS_TOKEN não configurado no Supabase' })
+
+    console.log(`[clicksign-flow] Baixando PDF: ${ataUrl.substring(0, 80)}...`)
 
     // 1. Baixa o PDF da ata
     const pdfResp = await fetch(ataUrl)
-    if (!pdfResp.ok) throw new Error(`Erro ao baixar PDF: ${pdfResp.status}`)
+    if (!pdfResp.ok) return ok({ error: `Erro ao baixar PDF da ata: HTTP ${pdfResp.status}` })
     const pdfBuffer = await pdfResp.arrayBuffer()
-    const pdfBase64 = btoa(String.fromCharCode(...new Uint8Array(pdfBuffer)))
+    console.log(`[clicksign-flow] PDF baixado: ${pdfBuffer.byteLength} bytes`)
 
+    const pdfBase64 = arrayBufferToBase64(pdfBuffer)
     const deadlineDate = new Date()
-    deadlineDate.setDate(deadlineDate.getDate() + 30) // 30 dias para assinar
+    deadlineDate.setDate(deadlineDate.getDate() + 30)
 
     // 2. Cria documento no ClickSign
-    const docPath = `/Atas/${meetingDate || 'sem-data'}_${ataName.replace(/[^a-zA-Z0-9._-]/g, '_')}`
+    const docPath = `/Atas/${(meetingDate || 'sem-data').replace(/\//g, '-')}_${ataName.replace(/[^a-zA-Z0-9._-]/g, '_')}`
+    console.log(`[clicksign-flow] Criando documento ClickSign: ${docPath}`)
+
     const createDocResp = await fetch(`${CLICKSIGN_BASE}/documents?access_token=${CLICKSIGN_TOKEN}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -64,37 +85,34 @@ serve(async (req) => {
       })
     })
 
+    const createDocText = await createDocResp.text()
+    console.log(`[clicksign-flow] ClickSign create doc status: ${createDocResp.status} | body: ${createDocText.substring(0, 300)}`)
+
     if (!createDocResp.ok) {
-      const errText = await createDocResp.text()
-      throw new Error(`Erro ao criar documento no ClickSign: ${errText}`)
+      return ok({ error: `ClickSign recusou o documento (${createDocResp.status}): ${createDocText}` })
     }
-    const docData = await createDocResp.json()
+
+    const docData = JSON.parse(createDocText)
     const documentKey: string = docData.document?.key
-    if (!documentKey) throw new Error('ClickSign não retornou chave do documento')
+    if (!documentKey) return ok({ error: 'ClickSign não retornou a chave do documento' })
 
     // 3. Adiciona cada signatário
     for (const participant of participants) {
-      // Cria o signatário
       const signerResp = await fetch(`${CLICKSIGN_BASE}/signers?access_token=${CLICKSIGN_TOKEN}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          signer: {
-            email: participant.email,
-            auths: ['email'],
-            name: participant.name,
-          }
+          signer: { email: participant.email, auths: ['email'], name: participant.name }
         })
       })
       if (!signerResp.ok) {
-        console.error(`Erro ao criar signatário ${participant.email}: ${await signerResp.text()}`)
+        console.error(`[clicksign-flow] Erro ao criar signatário ${participant.email}: ${await signerResp.text()}`)
         continue
       }
       const signerData = await signerResp.json()
       const signerKey: string = signerData.signer?.key
       if (!signerKey) continue
 
-      // Vincula signatário ao documento
       await fetch(`${CLICKSIGN_BASE}/lists?access_token=${CLICKSIGN_TOKEN}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -107,27 +125,24 @@ serve(async (req) => {
           }
         })
       })
+      console.log(`[clicksign-flow] Signatário adicionado: ${participant.email}`)
     }
 
-    // 4. Ativa o documento (envia e-mails aos signatários)
+    // 4. Ativa o documento (envia e-mails)
     const finishResp = await fetch(`${CLICKSIGN_BASE}/documents/${documentKey}/finish?access_token=${CLICKSIGN_TOKEN}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
     })
     if (!finishResp.ok) {
       const errText = await finishResp.text()
-      throw new Error(`Erro ao ativar documento: ${errText}`)
+      return ok({ error: `Erro ao ativar documento no ClickSign (${finishResp.status}): ${errText}` })
     }
 
-    return new Response(
-      JSON.stringify({ success: true, clicksign_key: documentKey }),
-      { headers: { ...cors, 'Content-Type': 'application/json' }, status: 200 }
-    )
+    console.log(`[clicksign-flow] Documento ativado com sucesso: ${documentKey}`)
+    return ok({ success: true, clicksign_key: documentKey })
+
   } catch (error: any) {
-    console.error('clicksign-flow error:', error)
-    return new Response(
-      JSON.stringify({ error: error.message }),
-      { headers: { ...cors, 'Content-Type': 'application/json' }, status: 500 }
-    )
+    console.error('[clicksign-flow] Erro inesperado:', error)
+    return ok({ error: `Erro interno: ${error.message}` })
   }
 })
