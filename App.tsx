@@ -529,6 +529,24 @@ const App = () => {
     };
   }, [meetings, dashboardFilter, filterResp, filterStatus, filterOrigin]);
 
+  // Remove uma ata da reunião e salva no banco
+  const handleDeleteAta = async (meetingId: string, ataIndex: number, ataName: string) => {
+    if (!isAdm) return;
+    if (!window.confirm(`Deseja excluir a ata "${ataName}"? Esta ação não pode ser desfeita.`)) return;
+    const meeting = meetings.find(m => m.id === meetingId) || currentMeeting;
+    const newAtas = (meeting.atas || []).filter((_: any, i: number) => i !== ataIndex);
+    const { data: saved, error } = await supabase
+      .from('meetings')
+      .update({ atas: newAtas })
+      .eq('id', meetingId)
+      .select()
+      .single();
+    if (error) { alert('Erro ao excluir ata: ' + error.message); return; }
+    setMeetings(prev => prev.map(m => m.id === meetingId ? saved : m));
+    if (currentMeeting.id === meetingId) setCurrentMeeting(saved);
+    addLog('Exclusão', `Ata removida: ${ataName}`);
+  };
+
   // Regenera a signed URL antes de abrir — evita o erro 404 por URL expirada (7 dias)
   const openAtaUrl = async (storedUrl: string, setLoading?: (v: boolean) => void) => {
     try {
@@ -1250,7 +1268,7 @@ const App = () => {
                     )}
 
                                         {tab === 'atas' && (
-                      <div className="bg-white p-8 rounded-xl border border-slate-200 shadow-sm animate-in fade-in space-y-8"><div className="flex justify-between items-center border-b border-slate-50 pb-4"><h3 className="text-xs font-bold uppercase text-slate-500 tracking-widest">Atas Finais</h3>{canEdit && <button onClick={() => ataRef.current?.click()} className="bg-slate-100 hover:bg-slate-200 text-slate-700 px-4 py-2 rounded-lg text-[10px] font-bold uppercase flex items-center gap-2 transition-all"><Upload size={14} /> Carregar</button>}</div><div className="grid grid-cols-1 sm:grid-cols-2 gap-4">{(currentMeeting.atas || []).map((ata: any, i: any) => (<div key={i} className="p-4 bg-white border border-slate-200 rounded-xl flex items-center gap-4 group italic font-bold"><div className="p-3 bg-amber-50 text-amber-600 rounded-lg"><FileCheck size={24} /></div><div className="flex-1 truncate text-sm">{ata.name}</div><button onClick={() => openAtaUrl(ata.url)} className="text-slate-300 hover:text-amber-600 transition-colors"><ExternalLink size={18} /></button></div>))}</div></div>
+                      <div className="bg-white p-8 rounded-xl border border-slate-200 shadow-sm animate-in fade-in space-y-8"><div className="flex justify-between items-center border-b border-slate-50 pb-4"><h3 className="text-xs font-bold uppercase text-slate-500 tracking-widest">Atas Finais</h3>{canEdit && <button onClick={() => ataRef.current?.click()} className="bg-slate-100 hover:bg-slate-200 text-slate-700 px-4 py-2 rounded-lg text-[10px] font-bold uppercase flex items-center gap-2 transition-all"><Upload size={14} /> Carregar</button>}</div><div className="grid grid-cols-1 sm:grid-cols-2 gap-4">{(currentMeeting.atas || []).map((ata: any, i: any) => (<div key={i} className="p-4 bg-white border border-slate-200 rounded-xl flex items-center gap-4 group italic font-bold"><div className="p-3 bg-amber-50 text-amber-600 rounded-lg"><FileCheck size={24} /></div><div className="flex-1 truncate text-sm">{ata.name}</div><button onClick={() => openAtaUrl(ata.url)} className="text-slate-300 hover:text-amber-600 transition-colors" title="Abrir"><ExternalLink size={18} /></button>{isAdm && <button onClick={() => handleDeleteAta(currentMeeting.id, i, ata.name)} className="text-slate-200 hover:text-red-500 transition-colors" title="Excluir ata"><Trash2 size={17} /></button>}</div>))}</div></div>
                     )}
                   </div>
                 )
@@ -1369,6 +1387,20 @@ const App = () => {
                             >
                               <ChevronRight size={15} />
                             </button>
+                            {isAdm && (
+                              <button
+                                onClick={() => {
+                                  const m = meetings.find((m: any) => m.id === ata.meetingId);
+                                  if (!m) return;
+                                  const ataIdx = (m.atas || []).findIndex((a: any) => a.url === ata.url);
+                                  if (ataIdx !== -1) handleDeleteAta(ata.meetingId, ataIdx, ata.name);
+                                }}
+                                className="px-3 py-2.5 border border-red-100 hover:border-red-300 hover:text-red-600 text-red-300 rounded-lg text-[10px] transition-all"
+                                title="Excluir ata"
+                              >
+                                <Trash2 size={15} />
+                              </button>
+                            )}
                           </div>
                         </div>
                       ))}
