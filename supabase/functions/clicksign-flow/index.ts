@@ -65,8 +65,8 @@ serve(async (req) => {
     const deadlineDate = new Date()
     deadlineDate.setDate(deadlineDate.getDate() + 30)
 
-    // 2. Cria documento no ClickSign
-    const docPath = `/Atas/${(meetingDate || 'sem-data').replace(/\//g, '-')}_${ataName.replace(/[^a-zA-Z0-9._-]/g, '_')}`
+    // 2. Cria documento no ClickSign — path único com timestamp para evitar conflito
+    const docPath = `/Atas/${Date.now()}_${ataName.replace(/[^a-zA-Z0-9._-]/g, '_').substring(0, 40)}`
     console.log(`[clicksign-flow] Criando documento ClickSign: ${docPath}`)
 
     const createDocResp = await fetch(`${CLICKSIGN_BASE}/documents?access_token=${CLICKSIGN_TOKEN}`, {
@@ -119,26 +119,35 @@ serve(async (req) => {
       }
 
       // Vincula o signatário ao documento
+      const listBody = JSON.stringify({
+        list: {
+          document_key: documentKey,
+          signer_key: signerKey,
+          sign_as: 'sign',
+          refusable: false,
+          message: `Você foi convidado a assinar a ata da reunião "${meetingTitle}".`,
+        }
+      })
       const listResp = await fetch(`${CLICKSIGN_BASE}/lists?access_token=${CLICKSIGN_TOKEN}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          list: {
-            document_key: documentKey,
-            signer_key: signerKey,
-            sign_as: 'sign',
-            message: `Você foi convidado a assinar a ata da reunião "${meetingTitle}".`,
-          }
-        })
+        body: listBody,
       })
+      const listText = await listResp.text()
+      console.log(`[clicksign-flow] lists status: ${listResp.status} | body: ${listText.substring(0, 300)}`)
+
       if (!listResp.ok) {
-        const errText = await listResp.text()
-        console.error(`[clicksign-flow] Erro ao vincular signatário: ${errText}`)
-        return ok({ error: `Erro ao vincular ${participant.name} ao documento (${listResp.status}): ${errText}` })
+        return ok({ error: `Erro ao vincular ${participant.name} ao documento (${listResp.status}): ${listText}` })
+      }
+
+      // Verifica se a chave do list foi retornada (confirma associação)
+      const listData = JSON.parse(listText)
+      if (!listData.list?.key && !listData.key) {
+        console.warn(`[clicksign-flow] List criado mas sem chave: ${listText}`)
       }
 
       signersAdded++
-      console.log(`[clicksign-flow] Signatário adicionado: ${participant.email}`)
+      console.log(`[clicksign-flow] Signatário vinculado com sucesso: ${participant.email}`)
     }
 
     if (signersAdded === 0) {
