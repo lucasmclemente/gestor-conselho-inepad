@@ -1,6 +1,6 @@
 # CLAUDE.md — GovCorp | INEPAD Consultoria
 > Arquivo de contexto do projeto. Cole nas Project Instructions do Claude.
-> Última atualização: 08/06/2026
+> Última atualização: 08/06/2026 (v2)
 
 ---
 
@@ -18,11 +18,13 @@
 
 Plataforma corporativa que gerencia o ciclo completo de reuniões de Conselhos Deliberativos e Consultivos:
 
-- **Convocações oficiais** — disparo automático de e-mails com pauta e logística
+- **Convocações oficiais** — disparo automático de e-mails com pauta e logística + anexo de calendário (`.ics` com RSVP)
+- **Programação anual** — secretaria programa as reuniões do ano em lote (frequência mensal/bimestral/trimestral/semestral, lista de datas editável) e dispara convites de calendário (`.ics` multi-evento) para reservar a agenda dos conselheiros
 - **Ordem do Dia** — controle de pautas com cronômetro em tempo real e alertas de estouro
 - **Deliberações** — sistema formal de votação (Favor / Contra / Abstenção) com painel de votantes elegíveis
 - **Plano de Ação Global** — consolidado de iniciativas entre reuniões, com filtros e atualizações em lote
 - **Atas** — upload seguro com links assinados (7 dias) e disparo automático para participantes
+- **Dashboard de governança** — KPIs clicáveis (drill-down) com barra de progresso, gráficos de status/produtividade, próximas reuniões programadas (contagem regressiva) e pendências prioritárias
 - **Auditoria** — logs automáticos e imutáveis de todas as ações do sistema
 - **Cadastro de Membros** — via Edge Function segura com criação no Auth + tabela members
 
@@ -202,11 +204,33 @@ GESTOR-CONSELHO-INEPAD/
 | Função | Descrição | JWT Verify |
 |---|---|---|
 | `create-user` | Cria usuário no Auth + upsert em members + log | OFF (verifica Bearer token manualmente) |
-| `send-invitation` | Convocação oficial por e-mail | ON (verificação em código + config.toml) |
+| `send-invitation` | Convocação oficial por e-mail + anexa convite de calendário (`.ics` RSVP) | ON (verificação em código + config.toml) |
+| `send-calendar-invites` | Envia 1 e-mail com `.ics` multi-evento (todas as reuniões do ano) para reservar a agenda dos participantes (RSVP) | ON (verificação em código + config.toml) |
 | `send-minute-notification` | Ata + relatório de pendências por responsável | ON (verificação em código + config.toml) |
 | `clicksign-flow` | Envia ata para assinatura digital no ClickSign + adiciona signatários | OFF |
 | `clicksign-check` | Verifica status da assinatura + baixa PDF assinado + atualiza banco | OFF (verifica Bearer token manualmente) |
 | `clicksign-webhook` | Recebe notificação do ClickSign ao concluir assinaturas + atualiza ata automaticamente | — (público, sem auth) |
+
+> **Código compartilhado:** `supabase/functions/_shared/ics.ts` — gerador de `.ics` (iCalendar/RFC 5545) com RSVP, usado por `send-invitation` e `send-calendar-invites`. Converte horário de Brasília (UTC−3) para UTC. Empacotado automaticamente no deploy de cada função que o importa.
+
+### Programação anual de reuniões — fluxo
+```
+Secretária clica "Programar Ano" (lista de reuniões)
+        ↓
+Modal: título base + 1ª data + horário + tipo + frequência + quantidade
+        ↓
+"Gerar prévia" → lista de datas EDITÁVEL (ajusta/remove cada uma)
+        ↓
+Seleciona participantes (pré-preenchidos com membros do cliente)
+        ↓
+Confirmar → insert em lote na tabela meetings (status 'Agendada')
+        ↓
+[se "Enviar convites" marcado] send-calendar-invites → e-mail com .ics multi-evento
+        ↓
+Dashboard: seção "Próximas Reuniões Programadas" reflete as novas datas
+```
+
+> Duração assumida no `.ics`: **120 min** por reunião (não há campo de duração no cadastro). Convite vai como **anexo** `.ics` (método REQUEST) — RSVP nativo no corpo do e-mail não é suportado pelo Resend.
 
 ### Integração ClickSign — fluxo completo
 ```
@@ -349,6 +373,13 @@ Vercel deploy automático em produção
 git checkout develop
 ```
 
+> ⚠️ **Edge Functions NÃO sobem com a Vercel.** O merge para `main` só publica o frontend. Quando uma Edge Function muda, é preciso deployá-la manualmente no Supabase de cada ambiente:
+> ```bash
+> supabase login            # uma vez (abre o navegador)
+> supabase functions deploy <nome> --project-ref <ref>
+> ```
+> Refs: produção = `jrtrrubtjbinnddqdbta` (GovCorp-INEPAD); develop = projeto de homologação (ver memória do projeto). Funções que importam `_shared/` empacotam o compartilhado automaticamente. Não requer Docker.
+
 ---
 
 ## 12. PENDÊNCIAS — PRÓXIMA SPRINT
@@ -360,7 +391,16 @@ git checkout develop
 - Módulo de relatórios em PDF (Dashboard)
 - ✅ Integração ClickSign para assinatura digital de atas (implementada e funcionando em develop)
 - ✅ Gestão de clientes individuais pelo SuperAdmin (logo e ClickSign por cliente)
+- ✅ Programação anual de reuniões em lote + convites de calendário (`.ics` RSVP) — em produção
+- ✅ Melhorias de UX no dashboard (KPIs clicáveis, progresso, próximas reuniões, empty states) — em produção
 - Refatorar `App.tsx` em componentes (pasta `components/` já existe)
+
+### 🟣 Programação anual de reuniões (implementado em 08/06/2026)
+- Botão "Programar Ano" na lista de reuniões (apenas Adm/Sec/SuperAdmin)
+- Modal: título base, frequência (mensal/bimestral/trimestral/semestral), quantidade, prévia de datas editável, seleção de participantes
+- Cria reuniões em lote (`status: 'Agendada'`) e opcionalmente envia convites `.ics` (RSVP) via `send-calendar-invites`
+- Dashboard ganhou seção "Próximas Reuniões Programadas" (contagem regressiva, clique abre a reunião)
+- Convocação individual (`send-invitation`) passou a anexar `.ics` também
 
 ### 🔵 SuperAdmin — Gestão de Clientes (implementado em 08/06/2026)
 - SuperAdmin vê grid com todos os clientes na aba "Contas de Clientes"
@@ -391,4 +431,4 @@ git checkout main && git merge develop && git push origin main && git checkout d
 
 ---
 
-*Atualizado em 08/06/2026 — integração ClickSign completa (flow + check + webhook); gestão de clientes individuais pelo SuperAdmin; tabela `clients` documentada.*
+*Atualizado em 08/06/2026 (v2) — programação anual de reuniões em lote; convites de calendário `.ics` (RSVP) via `send-calendar-invites` e anexo na convocação individual; gerador compartilhado `_shared/ics.ts`; melhorias de UX no dashboard (KPIs clicáveis, próximas reuniões); nota sobre deploy manual de Edge Functions. Versão anterior: integração ClickSign completa; gestão de clientes individuais pelo SuperAdmin.*
