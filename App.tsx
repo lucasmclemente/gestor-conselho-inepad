@@ -1226,7 +1226,7 @@ const App = () => {
                   <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
                     <div className="p-4 border-b border-slate-50 bg-slate-50/50 flex justify-between items-center">
                       <h3 className="text-xs font-bold uppercase text-slate-500 tracking-widest italic flex items-center gap-2"><CalendarClock size={16} className="text-amber-600" /> Próximas Reuniões Programadas</h3>
-                      {canEdit && upcomingMeetings.length === 0 && (<button onClick={openScheduleModal} className="text-[10px] font-bold uppercase tracking-widest text-amber-600 hover:text-amber-700 flex items-center gap-1 transition-colors"><CalendarPlus size={12} /> Programar Ano</button>)}
+                      {canEdit && (<button onClick={openScheduleModal} className="text-[10px] font-bold uppercase tracking-widest text-amber-600 hover:text-amber-700 flex items-center gap-1 transition-colors"><CalendarPlus size={12} /> Programar Ano</button>)}
                     </div>
                     {upcomingMeetings.length === 0 ? (
                       <div className="p-8 text-center"><CalendarClock size={28} className="text-slate-200 mx-auto mb-2" /><p className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Nenhuma reunião programada{canEdit ? ' — use "Programar Ano" para reservar a agenda' : ''}</p></div>
