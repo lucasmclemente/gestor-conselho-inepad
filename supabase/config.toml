@@ -434,6 +434,12 @@ verify_jwt = false
 import_map = "./functions/send-weekly-reminder/deno.json"
 entrypoint = "./functions/send-weekly-reminder/index.ts"
 
+[functions.send-calendar-invites]
+enabled = true
+verify_jwt = true
+import_map = "./functions/send-calendar-invites/deno.json"
+entrypoint = "./functions/send-calendar-invites/index.ts"
+
 [functions.clicksign-flow]
 enabled = true
 verify_jwt = true

@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2"
+import { buildICS, icsToBase64, ICSAttendee } from "../_shared/ics.ts"
 
 const ALLOWED_ORIGINS = [
   'https://conselho.inepadconsulting.com',
@@ -84,6 +85,32 @@ serve(async (req) => {
         </div>
       ` : ''
 
+    // Gera o convite de calendário (.ics com RSVP) para reservar a agenda dos convocados
+    let attachments: any[] | undefined
+    if (meetingData.date) {
+      const locationParts = [meetingData.type, meetingData.address, meetingData.link].filter(Boolean)
+      const attendees: ICSAttendee[] = (recipients || []).map((email: string) => ({ email }))
+      const ics = buildICS(
+        [{
+          uid: `${meetingData.id || crypto.randomUUID()}@conselho.inepadconsulting.com`,
+          title: meetingData.title || 'Reunião do Conselho',
+          date: meetingData.date,
+          time: meetingData.time || '09:00',
+          durationMin: 120,
+          location: locationParts.join(' • '),
+          description: 'Convocação oficial do Conselho. Confirme sua presença respondendo a este convite.',
+        }],
+        attendees,
+        { name: 'Governança INEPAD', email: 'conselho@inepadconsulting.com' },
+        'REQUEST',
+      )
+      attachments = [{
+        filename: 'convocacao.ics',
+        content: icsToBase64(ics),
+        content_type: 'text/calendar; method=REQUEST; charset=UTF-8',
+      }]
+    }
+
     const res = await fetch('https://api.resend.com/emails', {
       method: 'POST',
       headers: {
@@ -94,6 +121,7 @@ serve(async (req) => {
         from: 'Governança INEPAD <conselho@inepadconsulting.com>',
         to: recipients,
         subject: `CONVOCAÇÃO OFICIAL: ${meetingData.title}`,
+        ...(attachments ? { attachments } : {}),
         html: `
           <div style="font-family: sans-serif; max-width: 600px; margin: auto; border: 1px solid #e2e8f0; border-radius: 12px; overflow: hidden;">
             <div style="background: #0f172a; padding: 30px; text-align: center;">

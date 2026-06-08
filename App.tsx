@@ -3,7 +3,7 @@ import { generateMeetingPDF } from './services/generateMeetingPDF';
 import { generateAtaPDF } from './services/generateAtaPDF';
 import { createClient } from '@supabase/supabase-js';
 import {
-  LayoutDashboard, Calendar, ChevronRight, UserPlus,
+  LayoutDashboard, Calendar, CalendarPlus, CalendarClock, ChevronRight, UserPlus,
   Clock, CheckCircle2, AlertCircle, FileText, Send, X, Trash2,
   Upload, Save, Lock, Target, FileCheck, BarChart3,
   PieChart as PieIcon, LogIn, User, Key, LogOut, UserCheck,
@@ -54,7 +54,18 @@ const App = () => {
     participants: [], pautas: [], materiais: [], deliberacoes: [], acoes: [], atas: []
   };
   const [currentMeeting, setCurrentMeeting] = useState<any>(blankMeeting);
-  
+
+  // Programação anual de reuniões em lote
+  const [isScheduleOpen, setIsScheduleOpen] = useState(false);
+  const [isScheduling, setIsScheduling] = useState(false);
+  const [scheduleForm, setScheduleForm] = useState({
+    baseTitle: 'Reunião Ordinária do Conselho',
+    startDate: '', time: '09:00', type: 'Híbrida', link: '', address: '',
+    freq: 'mensal', count: 12, sendInvites: true,
+  });
+  const [scheduleDates, setScheduleDates] = useState<string[]>([]);
+  const [scheduleParticipants, setScheduleParticipants] = useState<any[]>([]);
+
   const [editingPart, setEditingPart] = useState<number | null>(null);
   const [editingPauta, setEditingPauta] = useState<number | null>(null);
   const [tmpPart, setTmpPart] = useState({ name: '', email: '', isExternal: false });
@@ -322,6 +333,90 @@ const App = () => {
       setView('list');
       addLog('Salvamento', `Reunião: ${currentMeeting.title}`);
       alert("Sucesso na gravação!");
+    }
+  };
+
+  // ── Programação anual de reuniões ──────────────────────────────────────────
+  const FREQ_MONTHS: Record<string, number> = { mensal: 1, bimestral: 2, trimestral: 3, semestral: 6 };
+
+  // Soma N meses a uma data 'YYYY-MM-DD', mantendo o dia (com clamp no fim do mês)
+  const addMonths = (dateStr: string, n: number): string => {
+    const [y, m, d] = dateStr.split('-').map(Number);
+    const target = new Date(y, (m - 1) + n, 1);
+    const lastDay = new Date(target.getFullYear(), target.getMonth() + 1, 0).getDate();
+    target.setDate(Math.min(d, lastDay));
+    return `${target.getFullYear()}-${String(target.getMonth() + 1).padStart(2, '0')}-${String(target.getDate()).padStart(2, '0')}`;
+  };
+
+  const formatMonthYear = (dateStr: string): string => {
+    if (!dateStr) return '';
+    const dt = new Date(dateStr + 'T00:00:00');
+    const mes = dt.toLocaleDateString('pt-BR', { month: 'long' });
+    return `${mes.charAt(0).toUpperCase() + mes.slice(1)}/${dt.getFullYear()}`;
+  };
+
+  const openScheduleModal = () => {
+    if (!canEdit) return;
+    const internos = (users || []).filter((u: any) => u.email).map((u: any) => ({ name: u.name, email: u.email, isExternal: false }));
+    setScheduleParticipants(internos);
+    setScheduleForm({ baseTitle: 'Reunião Ordinária do Conselho', startDate: '', time: '09:00', type: 'Híbrida', link: '', address: '', freq: 'mensal', count: 12, sendInvites: true });
+    setScheduleDates([]);
+    setIsScheduleOpen(true);
+  };
+
+  // Gera a prévia de datas a partir da data inicial + frequência + quantidade
+  const generateScheduleDates = () => {
+    if (!scheduleForm.startDate) return alert('Informe a data da primeira reunião.');
+    const step = FREQ_MONTHS[scheduleForm.freq] || 1;
+    const qtd = Math.max(1, Math.min(24, Number(scheduleForm.count) || 1));
+    const dates = Array.from({ length: qtd }, (_, i) => addMonths(scheduleForm.startDate, step * i));
+    setScheduleDates(dates);
+  };
+
+  const scheduleYear = async () => {
+    if (!canEdit) return;
+    const dates = scheduleDates.filter(Boolean);
+    if (dates.length === 0) return alert('Gere ao menos uma data antes de confirmar.');
+    if (!scheduleForm.baseTitle.trim()) return alert('Informe o título base das reuniões.');
+    setIsScheduling(true);
+    try {
+      const rows = dates.map((d) => ({
+        title: `${scheduleForm.baseTitle.trim()} — ${formatMonthYear(d)}`,
+        status: 'Agendada',
+        date: d,
+        time: scheduleForm.time || null,
+        type: scheduleForm.type,
+        link: scheduleForm.link,
+        address: scheduleForm.address,
+        participants: scheduleParticipants,
+        pautas: [], materiais: [], deliberacoes: [], acoes: [], atas: [],
+        client_id: currentUser.client_id,
+      }));
+      const { data, error } = await supabase.from('meetings').insert(rows).select();
+      if (error) throw error;
+      const created = data || [];
+      setMeetings((prev) => [...created, ...prev]);
+      addLog('Programação Anual', `${created.length} reuniões programadas.`);
+
+      if (scheduleForm.sendInvites) {
+        const recipients = scheduleParticipants.map((p: any) => p.email).filter(Boolean);
+        if (recipients.length > 0) {
+          try {
+            await supabase.functions.invoke('send-calendar-invites', {
+              body: { meetings: created, recipients, clientName: clientProfile?.name || currentUser.client_id },
+            });
+            addLog('Convites Calendário', `Convites de calendário enviados a ${recipients.length} participante(s).`);
+          } catch (e: any) {
+            alert('Reuniões criadas, mas houve erro ao enviar os convites de calendário: ' + (e?.message || e));
+          }
+        }
+      }
+      alert(`✅ ${created.length} reuniões programadas!` + (scheduleForm.sendInvites ? ' Convites de calendário enviados aos participantes.' : ''));
+      setIsScheduleOpen(false);
+    } catch (e: any) {
+      alert('Erro ao programar reuniões: ' + (e?.message || e));
+    } finally {
+      setIsScheduling(false);
     }
   };
 
@@ -675,6 +770,14 @@ const App = () => {
       }),
     };
   }, [meetings, dashboardFilter]);
+
+  // Próximas reuniões programadas (futuras, ainda não concluídas) — previsão na dashboard
+  const upcomingMeetings = useMemo(() => {
+    const today = new Date(); today.setHours(0, 0, 0, 0);
+    return meetings
+      .filter((m: any) => m.date && m.status !== 'Concluída' && new Date(m.date + 'T00:00:00') >= today)
+      .sort((a: any, b: any) => (a.date || '').localeCompare(b.date || ''));
+  }, [meetings]);
 
   // Verifica status da assinatura no ClickSign e atualiza a ata manualmente
   const handleCheckSignature = async (ataIndex: number) => {
@@ -1120,6 +1223,35 @@ const App = () => {
                       <div><p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest flex items-center gap-1">Em Atraso <ChevronRight size={12} className="opacity-0 group-hover:opacity-100 transition-opacity" /></p><p className={`text-2xl font-bold mt-1 ${dashStats.atrasadas > 0 ? 'text-red-600' : 'text-slate-800'}`}>{dashStats.atrasadas}</p></div>
                     </button>
                   </div>
+                  <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+                    <div className="p-4 border-b border-slate-50 bg-slate-50/50 flex justify-between items-center">
+                      <h3 className="text-xs font-bold uppercase text-slate-500 tracking-widest italic flex items-center gap-2"><CalendarClock size={16} className="text-amber-600" /> Próximas Reuniões Programadas</h3>
+                      {canEdit && upcomingMeetings.length === 0 && (<button onClick={openScheduleModal} className="text-[10px] font-bold uppercase tracking-widest text-amber-600 hover:text-amber-700 flex items-center gap-1 transition-colors"><CalendarPlus size={12} /> Programar Ano</button>)}
+                    </div>
+                    {upcomingMeetings.length === 0 ? (
+                      <div className="p-8 text-center"><CalendarClock size={28} className="text-slate-200 mx-auto mb-2" /><p className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Nenhuma reunião programada{canEdit ? ' — use "Programar Ano" para reservar a agenda' : ''}</p></div>
+                    ) : (
+                      <div className="p-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                        {upcomingMeetings.slice(0, 6).map((m: any) => {
+                          const dt = new Date(m.date + 'T00:00:00');
+                          const dias = Math.ceil((dt.getTime() - new Date(new Date().setHours(0, 0, 0, 0)).getTime()) / 86400000);
+                          return (
+                            <button key={m.id} onClick={() => { setCurrentMeeting(m); setView('details'); setTab('info'); setActiveMenu('reunioes'); }} className="group flex items-center gap-4 p-4 rounded-lg border border-slate-200 hover:border-amber-400 hover:shadow-md transition-all text-left">
+                              <div className="flex flex-col items-center justify-center w-14 h-14 rounded-lg bg-slate-900 text-white shrink-0">
+                                <span className="text-xl font-bold leading-none">{String(dt.getDate()).padStart(2, '0')}</span>
+                                <span className="text-[9px] font-bold uppercase text-amber-500 tracking-wider">{dt.toLocaleDateString('pt-BR', { month: 'short' }).replace('.', '')}</span>
+                              </div>
+                              <div className="min-w-0 flex-1">
+                                <p className="text-sm font-bold text-slate-800 italic truncate group-hover:text-amber-600 transition-colors">{m.title}</p>
+                                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">{m.time ? m.time + ' • ' : ''}{m.type}</p>
+                                <span className={`inline-block mt-1.5 px-2 py-0.5 rounded-full text-[9px] font-bold uppercase ${dias <= 7 ? 'bg-amber-100 text-amber-700' : 'bg-slate-100 text-slate-500'}`}>{dias === 0 ? 'Hoje' : dias === 1 ? 'Amanhã' : `Em ${dias} dias`}</span>
+                              </div>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
                   <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 lg:h-[350px]">
                     <div className="bg-slate-900 p-6 rounded-xl shadow-xl flex flex-col h-[320px] lg:h-full"><h3 className="text-xs font-bold uppercase text-amber-500 mb-4 tracking-widest italic">Status das Ações</h3><div className="flex-1 min-h-0">
                       {dashStats.totalActions === 0 ? (
@@ -1175,7 +1307,7 @@ const App = () => {
               {activeMenu === 'reunioes' && (
                 view === 'list' ? (
                   <div className="space-y-6 animate-in fade-in">
-                    <div className="flex justify-between items-center gap-4 bg-white p-4 rounded-xl border border-slate-200 shadow-sm"><h1 className="text-2xl font-bold text-slate-800 tracking-tight italic">Conselho Deliberativo</h1>{canEdit && (<button onClick={() => { setCurrentMeeting(blankMeeting); setView('details'); setTab('info'); }} className="bg-amber-600 hover:bg-amber-700 text-white px-6 py-3 rounded-lg font-bold text-xs uppercase flex items-center justify-center gap-2 transition-all shadow-md tracking-widest">+ Nova Reunião</button>)}</div>
+                    <div className="flex justify-between items-center gap-4 bg-white p-4 rounded-xl border border-slate-200 shadow-sm"><h1 className="text-2xl font-bold text-slate-800 tracking-tight italic">Conselho Deliberativo</h1>{canEdit && (<div className="flex items-center gap-3"><button onClick={openScheduleModal} className="bg-slate-900 hover:bg-slate-800 text-amber-500 px-5 py-3 rounded-lg font-bold text-xs uppercase flex items-center justify-center gap-2 transition-all shadow-md tracking-widest"><CalendarPlus size={16} /> Programar Ano</button><button onClick={() => { setCurrentMeeting(blankMeeting); setView('details'); setTab('info'); }} className="bg-amber-600 hover:bg-amber-700 text-white px-6 py-3 rounded-lg font-bold text-xs uppercase flex items-center justify-center gap-2 transition-all shadow-md tracking-widest">+ Nova Reunião</button></div>)}</div>
                     <div className="grid gap-4">{meetings.map((m) => (<div key={m.id} onClick={() => { setCurrentMeeting(m); setView('details'); setTab('info'); }} className="bg-white p-6 rounded-xl border border-slate-200 flex justify-between items-center group cursor-pointer hover:border-amber-500 hover:shadow-md transition-all shadow-sm"><div className="flex items-center gap-4"><div className="p-3 bg-slate-100 text-slate-500 rounded-lg group-hover:bg-amber-100 group-hover:text-amber-700 transition-all"><Calendar size={24} /></div><div><h3 className="font-bold text-lg text-slate-800 group-hover:text-amber-600 transition-all italic">{m.title}</h3><p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">{m.status} • {m.date || 'DATA N/D'}</p></div></div><div className="flex items-center gap-3">{canEdit && (<button onClick={(e) => { e.stopPropagation(); deleteMeeting(m.id, m.title); }} className="p-3 text-slate-200 hover:text-red-600 rounded-lg"><Trash2 size={20} /></button>)}<ChevronRight size={20} className="text-slate-300 group-hover:text-amber-500 transition-all" /></div></div>))}</div>
                   </div>
                 ) : (
@@ -2201,6 +2333,129 @@ const App = () => {
         </div>
       </main>
       {isConvocationOpen && <ConvocationModal />}
+      {isScheduleOpen && (
+        <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-md z-[100] flex items-center justify-center p-4">
+          <div className="bg-white w-full max-w-3xl rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[92vh] animate-in zoom-in-95">
+            <div className="p-6 border-b flex justify-between items-center bg-slate-50">
+              <div>
+                <h3 className="text-xl font-bold text-slate-800 italic flex items-center gap-2"><CalendarPlus size={20} className="text-amber-600" /> Programar Reuniões do Ano</h3>
+                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Crie as reuniões em lote e reserve a agenda dos conselheiros</p>
+              </div>
+              <button onClick={() => setIsScheduleOpen(false)} className="p-2 hover:bg-slate-200 rounded-full transition-all text-slate-400"><X size={20} /></button>
+            </div>
+
+            <div className="flex-1 overflow-y-auto p-6 space-y-6 bg-slate-50/30">
+              {/* Configuração */}
+              <div className="bg-white rounded-xl border border-slate-200 p-5 space-y-4">
+                <div>
+                  <label className="block text-[10px] font-bold text-slate-400 mb-1 uppercase tracking-widest">Título base das reuniões</label>
+                  <input type="text" value={scheduleForm.baseTitle} onChange={e => setScheduleForm({ ...scheduleForm, baseTitle: e.target.value })} placeholder="Ex: Reunião Ordinária do Conselho" className="w-full p-3 border rounded-lg text-sm font-bold outline-none focus:border-amber-400" />
+                  <p className="text-[9px] text-slate-400 mt-1 italic">O mês/ano é adicionado automaticamente (ex: "{scheduleForm.baseTitle || 'Reunião'} — {formatMonthYear(scheduleForm.startDate) || 'Mês/Ano'}").</p>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                  <div>
+                    <label className="block text-[10px] font-bold text-slate-400 mb-1 uppercase tracking-widest">1ª reunião</label>
+                    <input type="date" value={scheduleForm.startDate} onChange={e => setScheduleForm({ ...scheduleForm, startDate: e.target.value })} className="w-full p-3 border rounded-lg text-sm font-bold outline-none focus:border-amber-400" />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-bold text-slate-400 mb-1 uppercase tracking-widest">Horário</label>
+                    <input type="time" value={scheduleForm.time} onChange={e => setScheduleForm({ ...scheduleForm, time: e.target.value })} className="w-full p-3 border rounded-lg text-sm font-bold outline-none focus:border-amber-400" />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-bold text-slate-400 mb-1 uppercase tracking-widest">Tipo</label>
+                    <select value={scheduleForm.type} onChange={e => setScheduleForm({ ...scheduleForm, type: e.target.value })} className="w-full p-3 border rounded-lg text-sm font-bold outline-none bg-white focus:border-amber-400">
+                      <option>Híbrida</option><option>Presencial</option><option>Online</option>
+                    </select>
+                  </div>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                  <div>
+                    <label className="block text-[10px] font-bold text-slate-400 mb-1 uppercase tracking-widest">Frequência</label>
+                    <select value={scheduleForm.freq} onChange={e => setScheduleForm({ ...scheduleForm, freq: e.target.value })} className="w-full p-3 border rounded-lg text-sm font-bold outline-none bg-white focus:border-amber-400">
+                      <option value="mensal">Mensal</option><option value="bimestral">Bimestral</option><option value="trimestral">Trimestral</option><option value="semestral">Semestral</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-bold text-slate-400 mb-1 uppercase tracking-widest">Quantidade</label>
+                    <input type="number" min={1} max={24} value={scheduleForm.count} onChange={e => setScheduleForm({ ...scheduleForm, count: Number(e.target.value) })} className="w-full p-3 border rounded-lg text-sm font-bold outline-none focus:border-amber-400" />
+                  </div>
+                  <div className="flex items-end">
+                    <button onClick={generateScheduleDates} className="w-full h-12 bg-slate-900 text-amber-500 rounded-lg text-[10px] font-bold uppercase tracking-widest hover:bg-slate-800 transition-all flex items-center justify-center gap-2"><Calendar size={14} /> Gerar prévia</button>
+                  </div>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-[10px] font-bold text-slate-400 mb-1 uppercase tracking-widest">Link (online/híbrida)</label>
+                    <input type="text" value={scheduleForm.link} onChange={e => setScheduleForm({ ...scheduleForm, link: e.target.value })} placeholder="https://meet..." className="w-full p-3 border rounded-lg text-sm font-bold outline-none focus:border-amber-400" />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-bold text-slate-400 mb-1 uppercase tracking-widest">Endereço (presencial/híbrida)</label>
+                    <input type="text" value={scheduleForm.address} onChange={e => setScheduleForm({ ...scheduleForm, address: e.target.value })} placeholder="Local da reunião" className="w-full p-3 border rounded-lg text-sm font-bold outline-none focus:border-amber-400" />
+                  </div>
+                </div>
+              </div>
+
+              {/* Prévia editável das datas */}
+              {scheduleDates.length > 0 && (
+                <div className="bg-white rounded-xl border border-slate-200 p-5">
+                  <h4 className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-3 flex items-center gap-2"><CalendarClock size={14} className="text-amber-600" /> {scheduleDates.length} datas — ajuste se necessário</h4>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-52 overflow-y-auto pr-1">
+                    {scheduleDates.map((d, i) => (
+                      <div key={i} className="flex items-center gap-2 bg-slate-50 rounded-lg border border-slate-100 p-2">
+                        <span className="text-[10px] font-bold text-slate-400 w-6 text-center">{i + 1}</span>
+                        <input type="date" value={d} onChange={e => { const nd = [...scheduleDates]; nd[i] = e.target.value; setScheduleDates(nd); }} className="flex-1 p-2 border rounded text-sm font-bold outline-none bg-white focus:border-amber-400" />
+                        <button onClick={() => setScheduleDates(scheduleDates.filter((_, idx) => idx !== i))} className="p-1.5 text-slate-300 hover:text-red-500 transition-all"><X size={16} /></button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Participantes */}
+              <div className="bg-white rounded-xl border border-slate-200 p-5">
+                <h4 className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-3 flex items-center gap-2"><UserCheck size={14} className="text-amber-600" /> Participantes ({scheduleParticipants.length} selecionados)</h4>
+                {(users || []).length === 0 ? (
+                  <p className="text-[10px] text-slate-400 italic uppercase tracking-widest">Nenhum membro cadastrado.</p>
+                ) : (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-48 overflow-y-auto pr-1">
+                    {(users || []).map((u: any) => {
+                      const checked = scheduleParticipants.some((p: any) => p.email === u.email);
+                      return (
+                        <label key={u.id} className={`flex items-center gap-3 p-2.5 rounded-lg border cursor-pointer transition-all ${checked ? 'bg-amber-50 border-amber-200' : 'bg-slate-50 border-slate-100 hover:bg-white'}`}>
+                          <input type="checkbox" checked={checked} onChange={() => {
+                            if (checked) setScheduleParticipants(scheduleParticipants.filter((p: any) => p.email !== u.email));
+                            else setScheduleParticipants([...scheduleParticipants, { name: u.name, email: u.email, isExternal: false }]);
+                          }} className="accent-amber-600 w-4 h-4" />
+                          <div className="min-w-0">
+                            <p className="text-sm font-bold text-slate-800 italic truncate">{u.name}</p>
+                            <p className="text-[10px] text-slate-400 truncate">{u.email}</p>
+                          </div>
+                        </label>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+
+              {/* Convites */}
+              <label className="flex items-center gap-3 bg-white rounded-xl border border-slate-200 p-4 cursor-pointer">
+                <input type="checkbox" checked={scheduleForm.sendInvites} onChange={e => setScheduleForm({ ...scheduleForm, sendInvites: e.target.checked })} className="accent-amber-600 w-5 h-5" />
+                <div>
+                  <p className="text-sm font-bold text-slate-800 italic flex items-center gap-2"><Mail size={15} className="text-amber-600" /> Enviar convites de calendário (RSVP) agora</p>
+                  <p className="text-[10px] text-slate-400">Cada participante recebe um e-mail com o anexo .ics para reservar todas as datas na agenda.</p>
+                </div>
+              </label>
+            </div>
+
+            <div className="p-6 border-t bg-white flex flex-col sm:flex-row gap-3">
+              <button onClick={() => setIsScheduleOpen(false)} className="flex-1 border border-slate-200 text-slate-600 py-4 rounded-xl font-bold uppercase text-[10px] tracking-[2px] hover:bg-slate-50 transition-all">Cancelar</button>
+              <button disabled={isScheduling || scheduleDates.length === 0} onClick={scheduleYear} className="flex-[2] bg-amber-600 text-white py-4 rounded-xl font-bold uppercase text-[10px] tracking-[2px] flex items-center justify-center gap-3 hover:bg-amber-700 transition-all shadow-xl disabled:opacity-50">
+                {isScheduling ? 'Processando...' : <><CalendarPlus size={16} /> Programar {scheduleDates.length > 0 ? `${scheduleDates.length} ` : ''}Reuniões</>}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       <input type="file" ref={fileRef} className="hidden" onChange={(e) => handleFileUpload(e, 'materiais')} />
       <input type="file" ref={ataRef} className="hidden" onChange={(e) => handleFileUpload(e, 'atas')} />
     </div>
