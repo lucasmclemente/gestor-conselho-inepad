@@ -569,6 +569,13 @@ const App = () => {
       if (error) throw new Error(error.message);
       if (data?.error) throw new Error(data.error);
       if (data?.signed) {
+        // Atualiza o estado local imediatamente com os dados retornados pela edge function
+        if (data?.updatedAtas) {
+          const localUpdated = { ...currentMeeting, atas: data.updatedAtas };
+          setCurrentMeeting(localUpdated);
+          setMeetings(prev => prev.map(m => m.id === currentMeeting.id ? localUpdated : m));
+        }
+        // Re-fetch do banco para garantir consistência
         const { data: saved } = await supabase.from('meetings').select('*').eq('id', currentMeeting.id).single();
         if (saved) { setCurrentMeeting(saved); setMeetings(prev => prev.map(m => m.id === currentMeeting.id ? saved : m)); }
         if (data?.pdfUpdated) {
@@ -577,7 +584,8 @@ const App = () => {
           alert('✅ Ata marcada como assinada. O PDF assinado não estava disponível ainda — tente novamente em alguns minutos.');
         }
       } else {
-        alert(`Status atual: ${data?.message ?? data?.status ?? 'aguardando assinaturas'}`);
+        const pending = data?.pending != null ? `\n${data.pending} de ${data.total} assinatura(s) pendente(s).` : '';
+        alert(`Status atual: ${data?.status ?? 'aguardando assinaturas'}${pending}`);
       }
     } catch (err: any) {
       alert('Erro ao verificar: ' + err.message);
