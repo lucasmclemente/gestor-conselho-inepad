@@ -1,6 +1,6 @@
 # CLAUDE.md — GovCorp | INEPAD Consultoria
 > Arquivo de contexto do projeto. Cole nas Project Instructions do Claude.
-> Última atualização: 28/05/2026
+> Última atualização: 08/06/2026
 
 ---
 
@@ -107,9 +107,17 @@ GESTOR-CONSELHO-INEPAD/
 | materiais | jsonb | Array de {name, url, uploadedAt} |
 | deliberacoes | jsonb | Array de {title, voters[], votes{}} |
 | acoes | jsonb | Array de {id, title, resp, date, status, obs} |
-| atas | jsonb | Array de {name, url, uploadedAt} |
+| atas | jsonb | Array de {name, url, uploadedAt, clicksign_key?, clicksign_status?, clicksign_signed_url?, clicksign_signed_at?} |
 | created_at | timestamptz | |
 | client_id | text | Isolamento multi-tenant |
+
+### Tabela: `clients`
+| Coluna | Tipo | Observação |
+|---|---|---|
+| client_id | text | PK — identificador do tenant (ex: "INEPAD") |
+| name | text | Nome comercial da empresa |
+| logo_url | text | URL pública do logo (Storage bucket `client-logos`) |
+| clicksign_enabled | boolean | Se o add-on de assinatura digital está ativo para este cliente |
 
 ### Tabela: `audit_logs`
 | Coluna | Tipo | Observação |
@@ -196,7 +204,41 @@ GESTOR-CONSELHO-INEPAD/
 | `create-user` | Cria usuário no Auth + upsert em members + log | OFF (verifica Bearer token manualmente) |
 | `send-invitation` | Convocação oficial por e-mail | ON (verificação em código + config.toml) |
 | `send-minute-notification` | Ata + relatório de pendências por responsável | ON (verificação em código + config.toml) |
-| `clicksign-flow` | Integração ClickSign (em desenvolvimento) | OFF |
+| `clicksign-flow` | Envia ata para assinatura digital no ClickSign + adiciona signatários | OFF |
+| `clicksign-check` | Verifica status da assinatura + baixa PDF assinado + atualiza banco | OFF (verifica Bearer token manualmente) |
+| `clicksign-webhook` | Recebe notificação do ClickSign ao concluir assinaturas + atualiza ata automaticamente | — (público, sem auth) |
+
+### Integração ClickSign — fluxo completo
+```
+Admin clica "Enviar para Assinatura Digital"
+        ↓
+clicksign-flow: cria documento + lista de assinatura + adiciona signatários
+        ↓
+Banco atualizado: ata.clicksign_key, ata.clicksign_status = 'pending'
+        ↓
+[ClickSign notifica via webhook quando todos assinam]
+        ↓
+clicksign-webhook: baixa PDF assinado → upload Storage → atualiza ata no banco
+        OU
+Admin clica "Verificar Status da Assinatura"
+        ↓
+clicksign-check: consulta ClickSign → se 'closed', baixa PDF → atualiza banco
+        ↓
+Frontend: atualiza estado local imediatamente (sem depender só do re-fetch)
+```
+
+### Campos ClickSign na ata (jsonb)
+| Campo | Descrição |
+|---|---|
+| `clicksign_key` | UUID do documento no ClickSign |
+| `clicksign_status` | `'pending'` (aguardando) ou `'signed'` (concluído) |
+| `clicksign_signed_url` | URL do PDF assinado no Supabase Storage |
+| `clicksign_signed_at` | ISO timestamp da conclusão |
+
+### Add-on ClickSign por cliente
+- Controlado pelo campo `clicksign_enabled` na tabela `clients`
+- Configurado individualmente por cliente pelo SuperAdmin (em "Contas de Clientes")
+- Clientes sem o add-on não veem o botão de assinatura digital nas atas
 
 ### Código atual da `create-user` (versão com upsert)
 ```typescript
@@ -316,8 +358,14 @@ git checkout develop
 
 ### 🟢 Funcionalidades
 - Módulo de relatórios em PDF (Dashboard)
-- Integração ClickSign para assinatura digital de atas
+- ✅ Integração ClickSign para assinatura digital de atas (implementada e funcionando em develop)
+- ✅ Gestão de clientes individuais pelo SuperAdmin (logo e ClickSign por cliente)
 - Refatorar `App.tsx` em componentes (pasta `components/` já existe)
+
+### 🔵 SuperAdmin — Gestão de Clientes (implementado em 08/06/2026)
+- SuperAdmin vê grid com todos os clientes na aba "Contas de Clientes"
+- Clicar em um cliente abre painel para editar nome, logo e toggle ClickSign individualmente
+- Admins comuns continuam vendo apenas o próprio perfil (sem mudança)
 
 ---
 
@@ -343,4 +391,4 @@ git checkout main && git merge develop && git push origin main && git checkout d
 
 ---
 
-*Atualizado em 28/05/2026 — zero warnings no linter Supabase; plano de ações com multi-responsável e observações.*
+*Atualizado em 08/06/2026 — integração ClickSign completa (flow + check + webhook); gestão de clientes individuais pelo SuperAdmin; tabela `clients` documentada.*
