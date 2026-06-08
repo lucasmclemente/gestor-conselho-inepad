@@ -619,7 +619,11 @@ const App = () => {
     const filteredM = dashboardFilter === 'all' ? meetings : meetings.filter(m => m.id === dashboardFilter);
     const allA = filteredM.flatMap(m => (m.acoes || []).map((a: any) => ({ ...a, mTitle: m.title, mId: m.id })))
       .filter(a => filterResp === 'all' || (a.resps?.length > 0 ? a.resps.includes(filterResp) : a.resp === filterResp))
-      .filter(a => (filterStatus === 'all' || a.status === filterStatus))
+      .filter(a => {
+        if (filterStatus === 'all') return true;
+        if (filterStatus === 'Atrasada') return a.status !== 'Concluída' && a.date && new Date(a.date) < today;
+        return a.status === filterStatus;
+      })
       .filter(a => (filterOrigin === 'all' || a.mId === filterOrigin));
     const count = (st: string) => allA.filter(a => a.status === st).length;
     const atrasadas = allA.filter(a => a.status !== 'Concluída' && a.date && new Date(a.date) < today).length;
@@ -637,6 +641,40 @@ const App = () => {
       barData: filteredM.slice(0, 6).map(m => ({ name: m.date || 'S/D', 'Pautas': m.pautas?.length || 0, 'Ações': m.acoes?.length || 0 }))
     };
   }, [meetings, dashboardFilter, filterResp, filterStatus, filterOrigin]);
+
+  // Estatísticas exclusivas do Dashboard — dependem apenas do filtro de reunião
+  // (não herdam os filtros de Responsável/Status/Origem do Plano de Ação)
+  const dashStats = useMemo(() => {
+    const today = new Date(); today.setHours(0, 0, 0, 0);
+    const filteredM = dashboardFilter === 'all' ? meetings : meetings.filter(m => m.id === dashboardFilter);
+    const allA = filteredM.flatMap(m => (m.acoes || []).map((a: any) => ({ ...a, mTitle: m.title, mId: m.id })));
+    const isOverdue = (a: any) => a.status !== 'Concluída' && a.date && new Date(a.date) < today;
+    const totalActions = allA.length;
+    const concluidas = allA.filter(a => a.status === 'Concluída').length;
+    const atrasadas = allA.filter(isOverdue).length;
+    const emAndamento = allA.filter(a => a.status === 'Em andamento' && !isOverdue(a)).length;
+    const pendentes = allA.filter(a => a.status === 'Pendente' && !isOverdue(a)).length;
+    const pct = totalActions ? Math.round((concluidas / totalActions) * 100) : 0;
+    const fmtDate = (d: string) => d ? new Date(d + 'T00:00:00').toLocaleDateString('pt-BR', { day: '2-digit', month: 'short' }) : 'S/D';
+    return {
+      concluidas, totalActions, pct, atrasadas,
+      delibs: filteredM.flatMap(m => m.deliberacoes || []).length,
+      atas: filteredM.reduce((acc, m) => acc + (m.atas?.length || 0), 0),
+      pieData: [
+        { name: 'Concluída', value: concluidas, color: '#059669' },
+        { name: 'Em Andamento', value: emAndamento, color: '#d97706' },
+        { name: 'Pendente', value: pendentes, color: '#94a3b8' },
+        { name: 'Atrasada', value: atrasadas, color: '#be123c' },
+      ].filter(d => d.value > 0),
+      barData: filteredM.slice(0, 6).map(m => ({ name: fmtDate(m.date), 'Pautas': m.pautas?.length || 0, 'Ações': m.acoes?.length || 0 })),
+      // Pendências em aberto, atrasadas primeiro, depois pelo prazo mais próximo
+      topActions: allA.filter(a => a.status !== 'Concluída').sort((a, b) => {
+        const ao = isOverdue(a) ? 0 : 1, bo = isOverdue(b) ? 0 : 1;
+        if (ao !== bo) return ao - bo;
+        return (a.date || '9999').localeCompare(b.date || '9999');
+      }),
+    };
+  }, [meetings, dashboardFilter]);
 
   // Verifica status da assinatura no ClickSign e atualiza a ata manualmente
   const handleCheckSignature = async (ataIndex: number) => {
@@ -1040,7 +1078,7 @@ const App = () => {
               {activeMenu === 'dashboard' && (
                 <div className="space-y-6 animate-in fade-in">
                   <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-                    <h1 className="text-2xl font-bold text-slate-800 tracking-tight italic">Estratégia {currentUser.client_id}</h1>
+                    <h1 className="text-2xl font-bold text-slate-800 tracking-tight italic">Estratégia {clientProfile?.name || currentUser.client_id}</h1>
                     <div className="flex items-center gap-3 bg-white px-4 py-2 rounded-lg border border-slate-200 w-full sm:w-auto shadow-sm">
                       <Filter size={16} className="text-amber-500" /><select className="text-xs font-bold uppercase outline-none bg-transparent w-full cursor-pointer text-slate-600" value={dashboardFilter} onChange={e => setDashboardFilter(e.target.value)}>
                         <option value="all">Consolidado Geral</option>
@@ -1049,20 +1087,59 @@ const App = () => {
                     </div>
                   </div>
                   <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-                    {[{ l: 'Concluídas', v: stats.concluida, i: <CheckCircle2 />, c: 'amber' }, { l: 'Deliberações', v: stats.delibs, i: <FileText />, c: 'slate' }, { l: 'Atas na Nuvem', v: stats.atas, i: <FileCheck />, c: 'amber' }, { l: 'Em Atraso', v: stats.atrasadas, i: <AlertCircle />, c: 'red' }].map((s, idx) => (
-                      <div key={idx} className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm flex items-start gap-4 transition-all hover:shadow-md">
-                        <div className={`p-3 rounded-lg ${s.c === 'amber' ? 'bg-amber-100 text-amber-600' : s.c === 'red' ? 'bg-red-100 text-red-600' : 'bg-slate-100 text-slate-500'}`}>{s.i}</div>
-                        <div><p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">{s.l}</p><p className="text-2xl font-bold text-slate-800 mt-1">{s.v}</p></div>
+                    {/* Concluídas — barra de progresso + atalho ao Plano de Ação concluído */}
+                    <button onClick={() => { setFilterStatus('Concluída'); setFilterResp('all'); setFilterOrigin('all'); setActiveMenu('plano-acao'); }} className="group bg-white p-6 rounded-xl border border-slate-200 shadow-sm flex flex-col gap-3 text-left transition-all hover:shadow-md hover:border-amber-300">
+                      <div className="flex items-start gap-4">
+                        <div className="p-3 rounded-lg bg-amber-100 text-amber-600"><CheckCircle2 /></div>
+                        <div className="flex-1">
+                          <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest flex items-center gap-1">Concluídas <ChevronRight size={12} className="opacity-0 group-hover:opacity-100 transition-opacity" /></p>
+                          <p className="text-2xl font-bold text-slate-800 mt-1">{dashStats.concluidas}<span className="text-base font-bold text-slate-300">/{dashStats.totalActions}</span></p>
+                        </div>
                       </div>
-                    ))}
+                      <div>
+                        <div className="h-1.5 w-full bg-slate-100 rounded-full overflow-hidden"><div className="h-full bg-emerald-500 rounded-full transition-all" style={{ width: `${dashStats.pct}%` }} /></div>
+                        <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest mt-1.5">{dashStats.pct}% do plano concluído</p>
+                      </div>
+                    </button>
+
+                    {/* Deliberações — informativo */}
+                    <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm flex items-start gap-4 transition-all hover:shadow-md">
+                      <div className="p-3 rounded-lg bg-slate-100 text-slate-500"><FileText /></div>
+                      <div><p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Deliberações</p><p className="text-2xl font-bold text-slate-800 mt-1">{dashStats.delibs}</p></div>
+                    </div>
+
+                    {/* Atas na Nuvem — atalho ao repositório de atas */}
+                    <button onClick={() => setActiveMenu('repositorio-atas')} className="group bg-white p-6 rounded-xl border border-slate-200 shadow-sm flex items-start gap-4 text-left transition-all hover:shadow-md hover:border-amber-300">
+                      <div className="p-3 rounded-lg bg-amber-100 text-amber-600"><FileCheck /></div>
+                      <div><p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest flex items-center gap-1">Atas na Nuvem <ChevronRight size={12} className="opacity-0 group-hover:opacity-100 transition-opacity" /></p><p className="text-2xl font-bold text-slate-800 mt-1">{dashStats.atas}</p></div>
+                    </button>
+
+                    {/* Em Atraso — atalho ao Plano de Ação filtrado por atrasadas */}
+                    <button onClick={() => { setFilterStatus('Atrasada'); setFilterResp('all'); setFilterOrigin('all'); setActiveMenu('plano-acao'); }} className={`group bg-white p-6 rounded-xl border shadow-sm flex items-start gap-4 text-left transition-all hover:shadow-md ${dashStats.atrasadas > 0 ? 'border-red-200 hover:border-red-300' : 'border-slate-200 hover:border-amber-300'}`}>
+                      <div className={`p-3 rounded-lg ${dashStats.atrasadas > 0 ? 'bg-red-100 text-red-600' : 'bg-slate-100 text-slate-400'}`}><AlertCircle /></div>
+                      <div><p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest flex items-center gap-1">Em Atraso <ChevronRight size={12} className="opacity-0 group-hover:opacity-100 transition-opacity" /></p><p className={`text-2xl font-bold mt-1 ${dashStats.atrasadas > 0 ? 'text-red-600' : 'text-slate-800'}`}>{dashStats.atrasadas}</p></div>
+                    </button>
                   </div>
-                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 h-[350px]">
-                    <div className="bg-slate-900 p-6 rounded-xl shadow-xl flex flex-col h-full"><h3 className="text-xs font-bold uppercase text-amber-500 mb-4 tracking-widest italic">Status das Ações</h3><div className="flex-1 min-h-0"><ResponsiveContainer width="100%" height="100%"><PieChart><Pie data={stats.pieData} innerRadius={60} outerRadius={80} dataKey="value" paddingAngle={5}>{stats.pieData.map((e, i) => (<Cell key={i} fill={e.color} stroke="none" />))}</Pie><Tooltip /><Legend wrapperStyle={{ fontSize: '10px', textTransform: 'uppercase' }} /></PieChart></ResponsiveContainer></div></div>
-                    <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm flex flex-col h-full"><h3 className="text-xs font-bold uppercase text-slate-500 mb-4 tracking-widest italic">Produtividade Recente</h3><div className="flex-1 min-h-0"><ResponsiveContainer width="100%" height="100%"><BarChart data={stats.barData}><CartesianGrid vertical={false} stroke="#f1f5f9" /><XAxis dataKey="name" tick={{ fontSize: 10, fontWeight: 600 }} /><YAxis hide /><Tooltip /><Bar dataKey="Pautas" fill="#cbd5e1" radius={[4, 4, 0, 0]} barSize={20} /><Bar dataKey="Ações" fill="#d97706" radius={[4, 4, 0, 0]} barSize={20} /></BarChart></ResponsiveContainer></div></div>
+                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 lg:h-[350px]">
+                    <div className="bg-slate-900 p-6 rounded-xl shadow-xl flex flex-col h-[320px] lg:h-full"><h3 className="text-xs font-bold uppercase text-amber-500 mb-4 tracking-widest italic">Status das Ações</h3><div className="flex-1 min-h-0">
+                      {dashStats.totalActions === 0 ? (
+                        <div className="h-full flex flex-col items-center justify-center text-center gap-2"><ListChecks size={28} className="text-slate-600" /><p className="text-[10px] font-bold uppercase tracking-widest text-slate-500">Nenhuma ação registrada ainda</p></div>
+                      ) : (
+                        <ResponsiveContainer width="100%" height="100%"><PieChart><Pie data={dashStats.pieData} innerRadius={60} outerRadius={80} dataKey="value" paddingAngle={5}>{dashStats.pieData.map((e, i) => (<Cell key={i} fill={e.color} stroke="none" />))}</Pie><Tooltip /><Legend wrapperStyle={{ fontSize: '10px', textTransform: 'uppercase' }} /></PieChart></ResponsiveContainer>
+                      )}
+                    </div></div>
+                    <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm flex flex-col h-[320px] lg:h-full"><h3 className="text-xs font-bold uppercase text-slate-500 mb-4 tracking-widest italic">Produtividade Recente</h3><div className="flex-1 min-h-0">
+                      {dashStats.barData.length === 0 ? (
+                        <div className="h-full flex flex-col items-center justify-center text-center gap-2"><Calendar size={28} className="text-slate-200" /><p className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Nenhuma reunião no período</p></div>
+                      ) : (
+                        <ResponsiveContainer width="100%" height="100%"><BarChart data={dashStats.barData}><CartesianGrid vertical={false} stroke="#f1f5f9" /><XAxis dataKey="name" tick={{ fontSize: 10, fontWeight: 600 }} /><YAxis hide /><Tooltip /><Legend wrapperStyle={{ fontSize: '10px', textTransform: 'uppercase' }} /><Bar dataKey="Pautas" fill="#cbd5e1" radius={[4, 4, 0, 0]} barSize={20} /><Bar dataKey="Ações" fill="#d97706" radius={[4, 4, 0, 0]} barSize={20} /></BarChart></ResponsiveContainer>
+                      )}
+                    </div></div>
                   </div>
                   <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden animate-in fade-in slide-in-from-bottom-2">
                     <div className="p-4 border-b border-slate-50 bg-slate-50/50 flex justify-between items-center">
-                      <h3 className="text-xs font-bold uppercase text-slate-500 tracking-widest italic flex items-center gap-2"><ListChecks size={16} className="text-amber-600" /> Resumo do Plano de Ação</h3>
+                      <h3 className="text-xs font-bold uppercase text-slate-500 tracking-widest italic flex items-center gap-2"><ListChecks size={16} className="text-amber-600" /> Pendências Prioritárias</h3>
+                      <button onClick={() => { setFilterStatus('all'); setFilterResp('all'); setFilterOrigin('all'); setActiveMenu('plano-acao'); }} className="text-[10px] font-bold uppercase tracking-widest text-amber-600 hover:text-amber-700 flex items-center gap-1 transition-colors">Ver todas <ChevronRight size={12} /></button>
                     </div>
                     <div className="overflow-x-auto">
                       <table className="w-full text-left text-sm font-bold italic">
@@ -1070,19 +1147,23 @@ const App = () => {
                           <tr><th className="px-6 py-4">Iniciativa</th><th className="px-6 py-4">Responsável</th><th className="px-6 py-4">Origem</th><th className="px-6 py-4 text-center">Status</th></tr>
                         </thead>
                         <tbody className="divide-y divide-slate-100">
-                          {stats.allActions.length === 0 ? (
-                            <tr><td colSpan={4} className="px-6 py-8 text-center text-slate-400 uppercase text-[10px]">Nenhuma ação pendente</td></tr>
+                          {dashStats.topActions.length === 0 ? (
+                            <tr><td colSpan={4} className="px-6 py-8 text-center text-slate-400 uppercase text-[10px]">Nenhuma pendência em aberto 🎉</td></tr>
                           ) : (
-                            stats.allActions.slice(0, 5).map((acao: any) => (
-                              <tr key={`${acao.mId}-${acao.id}`} className="hover:bg-slate-50 transition-all border-l-4 border-l-transparent hover:border-l-amber-500">
-                                <td className="px-6 py-4 text-slate-800">{acao.title}</td>
-                                <td className="px-6 py-4 text-slate-600">{acao.resp || 'N/D'}</td>
-                                <td className="px-6 py-4 text-slate-400 text-[10px] uppercase tracking-widest">{acao.mTitle}</td>
-                                <td className="px-6 py-4 text-center">
-                                  <span className={`px-3 py-1 rounded-full text-[9px] uppercase font-bold ${acao.status === 'Concluída' ? 'bg-emerald-100 text-emerald-700' : acao.status === 'Em andamento' ? 'bg-amber-100 text-amber-700' : 'bg-slate-100 text-slate-500'}`}>{acao.status}</span>
-                                </td>
-                              </tr>
-                            ))
+                            dashStats.topActions.slice(0, 5).map((acao: any) => {
+                              const isLate = acao.status !== 'Concluída' && acao.date && new Date(acao.date) < new Date(new Date().setHours(0, 0, 0, 0));
+                              const resp = acao.resps?.length > 0 ? acao.resps.join(', ') : (acao.resp || 'N/D');
+                              return (
+                                <tr key={`${acao.mId}-${acao.id}`} className={`hover:bg-slate-50 transition-all border-l-4 ${isLate ? 'border-l-red-500' : 'border-l-transparent hover:border-l-amber-500'}`}>
+                                  <td className="px-6 py-4 text-slate-800">{acao.title}</td>
+                                  <td className="px-6 py-4 text-slate-600">{resp}</td>
+                                  <td className="px-6 py-4 text-slate-400 text-[10px] uppercase tracking-widest">{acao.mTitle}</td>
+                                  <td className="px-6 py-4 text-center">
+                                    <span className={`px-3 py-1 rounded-full text-[9px] uppercase font-bold ${isLate ? 'bg-red-100 text-red-700' : acao.status === 'Em andamento' ? 'bg-amber-100 text-amber-700' : 'bg-slate-100 text-slate-500'}`}>{isLate ? 'Atrasada' : acao.status}</span>
+                                  </td>
+                                </tr>
+                              );
+                            })
                           )}
                         </tbody>
                       </table>
@@ -1736,7 +1817,7 @@ const App = () => {
                     <h1 className="text-2xl font-bold text-slate-800 tracking-tight italic">Plano Global</h1>
                     <div className="flex flex-wrap items-center gap-3 bg-slate-50 p-2 rounded-lg border border-slate-200 w-full md:w-auto">
                       <div className="flex items-center gap-2 bg-white px-3 py-1.5 rounded border border-slate-200"><User size={14} className="text-amber-500" /><select className="text-[10px] font-bold uppercase outline-none bg-transparent cursor-pointer text-slate-600" value={filterResp} onChange={e => setFilterResp(e.target.value)}><option value="all">Responsável</option>{[...new Set(meetings.flatMap((m: any) => (m.acoes || []).flatMap((a: any) => a.resps?.length > 0 ? a.resps : (a.resp ? [a.resp] : []))))].filter(Boolean).map((r: any) => <option key={r} value={r}>{r}</option>)}</select></div>
-                      <div className="flex items-center gap-2 bg-white px-3 py-1.5 rounded border border-slate-200"><Target size={14} className="text-amber-500" /><select className="text-[10px] font-bold uppercase outline-none bg-transparent cursor-pointer text-slate-600" value={filterStatus} onChange={e => setFilterStatus(e.target.value)}><option value="all">Status</option><option value="Pendente">Pendente</option><option value="Em andamento">Em andamento</option><option value="Concluída">Concluída</option></select></div>
+                      <div className="flex items-center gap-2 bg-white px-3 py-1.5 rounded border border-slate-200"><Target size={14} className="text-amber-500" /><select className="text-[10px] font-bold uppercase outline-none bg-transparent cursor-pointer text-slate-600" value={filterStatus} onChange={e => setFilterStatus(e.target.value)}><option value="all">Status</option><option value="Pendente">Pendente</option><option value="Em andamento">Em andamento</option><option value="Concluída">Concluída</option><option value="Atrasada">Atrasada</option></select></div>
                       <div className="flex items-center gap-2 bg-white px-3 py-1.5 rounded border border-slate-200"><Building2 size={14} className="text-amber-500" /><select className="text-[10px] font-bold uppercase outline-none bg-transparent cursor-pointer text-slate-600" value={filterOrigin} onChange={e => setFilterOrigin(e.target.value)}><option value="all">Origem (Reunião)</option>{meetings.map(m => <option key={m.id} value={m.id}>{m.title}</option>)}</select></div>
                     </div>
                   </div>
