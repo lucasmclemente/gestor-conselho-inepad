@@ -73,6 +73,14 @@ const App = () => {
   const [clicksignLoading, setClicksignLoading] = useState(false);
   const logoRef = useRef<HTMLInputElement>(null);
 
+  // SuperAdmin — gestão de clientes
+  const [allClientsList, setAllClientsList] = useState<any[]>([]);
+  const [managedClientId, setManagedClientId] = useState<string | null>(null);
+  const [managedClientProfile, setManagedClientProfile] = useState<any>(null);
+  const [managedClientForm, setManagedClientForm] = useState({ name: '', logo_url: '' });
+  const [savingManagedClient, setSavingManagedClient] = useState(false);
+  const managedLogoRef = useRef<HTMLInputElement>(null);
+
   const [activePautaIndex, setActivePautaIndex] = useState<number | null>(null);
   const [timeElapsed, setTimeElapsed] = useState(0);
   const [isSessionActive, setIsSessionActive] = useState(false);
@@ -189,12 +197,13 @@ const App = () => {
         uQuery = uQuery.eq('client_id', currentUser.client_id);
         lQuery = lQuery.eq('client_id', currentUser.client_id);
       }
-      const [mRes, uRes, lRes, cRes] = await Promise.all([
+      const baseQueries = [
         mQuery.order('created_at', { ascending: false }),
         uQuery.order('name'),
         lQuery.order('log_date', { ascending: false }).limit(50),
         supabase.from('clients').select('*').eq('client_id', currentUser.client_id).maybeSingle()
-      ]);
+      ] as const;
+      const [mRes, uRes, lRes, cRes] = await Promise.all(baseQueries);
       if (mRes.data) setMeetings(mRes.data);
       if (uRes.data) setUsers(uRes.data);
       if (lRes.data) setAuditLogs(lRes.data);
@@ -203,6 +212,20 @@ const App = () => {
         setClientProfileForm({ name: cRes.data.name || '', logo_url: cRes.data.logo_url || '' });
       } else {
         setClientProfileForm({ name: currentUser.client_id, logo_url: '' });
+      }
+      if (isSuper) {
+        const [allClientsRes, allMembersRes] = await Promise.all([
+          supabase.from('clients').select('*'),
+          supabase.from('members').select('client_id')
+        ]);
+        const clientsWithProfile: any[] = allClientsRes.data || [];
+        const knownIds = new Set(clientsWithProfile.map((c: any) => c.client_id));
+        (allMembersRes.data || []).forEach((m: any) => knownIds.add(m.client_id));
+        const fullList = Array.from(knownIds).map(id => {
+          return clientsWithProfile.find((c: any) => c.client_id === id)
+            || { client_id: id, name: id, logo_url: null, clicksign_enabled: false };
+        }).sort((a: any, b: any) => a.client_id.localeCompare(b.client_id));
+        setAllClientsList(fullList);
       }
     } catch (e) { console.error(e); }
     setLoading(false);
@@ -470,6 +493,66 @@ const App = () => {
     if (error) { alert('Erro ao salvar perfil: ' + error.message); }
     else { setClientProfile(data); addLog('Configuração', `Perfil da empresa atualizado: ${data.name}`); alert('✅ Perfil salvo com sucesso!'); }
     setSavingClientProfile(false);
+  };
+
+  // --- GESTÃO DE CLIENTES (SuperAdmin) ---
+  const selectClientForManagement = async (clientId: string) => {
+    if (managedClientId === clientId) {
+      setManagedClientId(null); setManagedClientProfile(null);
+      setManagedClientForm({ name: '', logo_url: '' }); return;
+    }
+    setManagedClientId(clientId);
+    const { data } = await supabase.from('clients').select('*').eq('client_id', clientId).maybeSingle();
+    setManagedClientProfile(data || null);
+    setManagedClientForm({ name: data?.name || clientId, logo_url: data?.logo_url || '' });
+  };
+
+  const saveManagedClientProfile = async () => {
+    if (!managedClientId) return;
+    setSavingManagedClient(true);
+    const payload = {
+      client_id: managedClientId,
+      name: managedClientForm.name || managedClientId,
+      logo_url: managedClientForm.logo_url || '',
+      clicksign_enabled: managedClientProfile?.clicksign_enabled ?? false
+    };
+    const { data, error } = await supabase.from('clients').upsert(payload, { onConflict: 'client_id' }).select().single();
+    if (error) { alert('Erro ao salvar: ' + error.message); }
+    else {
+      setManagedClientProfile(data);
+      setAllClientsList(prev => prev.map((c: any) => c.client_id === managedClientId ? data : c));
+      addLog('Configuração', `Perfil do cliente ${managedClientId} atualizado: ${data.name}`);
+      alert('✅ Perfil salvo com sucesso!');
+    }
+    setSavingManagedClient(false);
+  };
+
+  const toggleManagedClickSign = async () => {
+    if (!managedClientId) return;
+    const newVal = !managedClientProfile?.clicksign_enabled;
+    const payload = {
+      client_id: managedClientId,
+      name: managedClientForm.name || managedClientId,
+      logo_url: managedClientForm.logo_url || '',
+      clicksign_enabled: newVal
+    };
+    const { data, error } = await supabase.from('clients').upsert(payload, { onConflict: 'client_id' }).select().single();
+    if (!error && data) {
+      setManagedClientProfile(data);
+      setAllClientsList(prev => prev.map((c: any) => c.client_id === managedClientId ? data : c));
+      addLog('Configuração', `ClickSign ${newVal ? 'ativado' : 'desativado'} para ${managedClientId}`);
+    }
+  };
+
+  const handleManagedLogoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !managedClientId) return;
+    const ext = file.name.split('.').pop();
+    const fileName = `${managedClientId}/logo.${ext}`;
+    const { error: upError } = await supabase.storage.from('client-logos').upload(fileName, file, { upsert: true });
+    if (upError) { alert('Erro no upload: ' + upError.message); return; }
+    const { data: urlData } = supabase.storage.from('client-logos').getPublicUrl(fileName);
+    setManagedClientForm(prev => ({ ...prev, logo_url: urlData.publicUrl }));
   };
 
   // Retorna o nome do votante que corresponde ao usuário atual (por nome ou por email)
@@ -1817,8 +1900,8 @@ const App = () => {
                     </h1>
                   </div>
 
-                  {/* PERFIL DA EMPRESA */}
-                  {isAdm && (
+                  {/* PERFIL DA EMPRESA — apenas para Admins não-SuperAdmin */}
+                  {isAdm && !isSuper && (
                     <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm space-y-5">
                       <h3 className="text-xs font-bold uppercase text-slate-500 tracking-widest border-b border-slate-100 pb-4 flex items-center gap-2">
                         <Building2 size={16} className="text-amber-600" /> Perfil da Empresa
@@ -1858,32 +1941,94 @@ const App = () => {
                     </div>
                   )}
 
-                  {/* ADD-ON CLICKSIGN — visível apenas para SuperAdmin */}
+                  {/* GESTÃO DE CLIENTES — apenas SuperAdmin */}
                   {isSuper && (
-                    <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm space-y-4">
-                      <h3 className="text-xs font-bold uppercase text-slate-500 tracking-widest border-b border-slate-100 pb-4 flex items-center gap-2">
-                        <PenLine size={16} className="text-amber-600" /> Add-on: Assinatura Digital
-                      </h3>
-                      <div className="flex items-center justify-between p-4 bg-slate-50 rounded-xl border border-slate-200">
-                        <div>
-                          <p className="text-sm font-bold text-slate-800 italic">ClickSign — {clientProfile?.name || currentUser.client_id}</p>
-                          <p className="text-[10px] text-slate-400 font-normal not-italic mt-0.5">Habilita envio de atas para assinatura digital (cobrança adicional)</p>
-                        </div>
-                        <button
-                          onClick={async () => {
-                            const newVal = !clientProfile?.clicksign_enabled;
-                            const payload = { client_id: currentUser.client_id, name: clientProfileForm.name || currentUser.client_id, logo_url: clientProfileForm.logo_url || '', clicksign_enabled: newVal };
-                            const { data, error } = await supabase.from('clients').upsert(payload, { onConflict: 'client_id' }).select().single();
-                            if (!error && data) { setClientProfile(data); addLog('Configuração', `ClickSign ${newVal ? 'ativado' : 'desativado'}: ${data.name || currentUser.client_id}`); }
-                          }}
-                          className={`relative inline-flex h-7 w-12 shrink-0 items-center rounded-full transition-colors duration-200 focus:outline-none ${clientProfile?.clicksign_enabled ? 'bg-amber-600' : 'bg-slate-200'}`}
-                        >
-                          <span className={`inline-block h-5 w-5 transform rounded-full bg-white shadow-md transition-transform duration-200 ${clientProfile?.clicksign_enabled ? 'translate-x-6' : 'translate-x-1'}`} />
-                        </button>
+                    <div className="space-y-4">
+                      <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm">
+                        <h3 className="text-xs font-bold uppercase text-slate-500 tracking-widest border-b border-slate-100 pb-4 flex items-center gap-2 mb-4">
+                          <Building2 size={16} className="text-amber-600" /> Clientes Cadastrados
+                        </h3>
+                        {allClientsList.length === 0 ? (
+                          <p className="text-sm text-slate-400 italic">Nenhum cliente encontrado.</p>
+                        ) : (
+                          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                            {allClientsList.map((c: any) => (
+                              <button
+                                key={c.client_id}
+                                onClick={() => selectClientForManagement(c.client_id)}
+                                className={`flex items-center gap-3 p-3 rounded-xl border text-left transition-all ${managedClientId === c.client_id ? 'border-amber-500 bg-amber-50' : 'border-slate-200 bg-slate-50 hover:border-amber-300'}`}
+                              >
+                                <div className="w-10 h-10 rounded-lg bg-slate-200 flex items-center justify-center overflow-hidden shrink-0">
+                                  {c.logo_url
+                                    ? <img src={c.logo_url} alt={c.name} className="w-full h-full object-contain p-1" />
+                                    : <Building2 size={18} className="text-slate-400" />}
+                                </div>
+                                <div className="flex-1 min-w-0">
+                                  <p className="text-xs font-bold text-slate-800 truncate italic">{c.name || c.client_id}</p>
+                                  <p className="text-[9px] text-slate-400 uppercase tracking-widest truncate">{c.client_id}</p>
+                                  <div className="flex gap-1.5 mt-1 flex-wrap">
+                                    {c.clicksign_enabled && <span className="text-[8px] bg-amber-100 text-amber-700 border border-amber-200 px-1.5 py-0.5 rounded-full font-bold">ClickSign</span>}
+                                    {!c.name && <span className="text-[8px] bg-slate-100 text-slate-400 border border-slate-200 px-1.5 py-0.5 rounded-full font-bold">Sem perfil</span>}
+                                  </div>
+                                </div>
+                                <ChevronRight size={14} className={`text-slate-300 shrink-0 transition-transform ${managedClientId === c.client_id ? 'rotate-90 text-amber-500' : ''}`} />
+                              </button>
+                            ))}
+                          </div>
+                        )}
                       </div>
-                      {clientProfile?.clicksign_enabled
-                        ? <p className="text-[10px] text-emerald-600 font-bold not-italic flex items-center gap-1.5"><CheckCircle2 size={12} /> Add-on ativo — botão de assinatura digital visível nas atas</p>
-                        : <p className="text-[10px] text-slate-400 font-normal not-italic">Add-on inativo — o cliente não verá a opção de assinatura digital</p>}
+
+                      {/* Painel de edição do cliente selecionado */}
+                      {managedClientId && (
+                        <div className="bg-white p-6 rounded-xl border border-amber-200 shadow-sm space-y-5 animate-in fade-in slide-in-from-top-2">
+                          <h3 className="text-xs font-bold uppercase text-slate-500 tracking-widest border-b border-slate-100 pb-4 flex items-center gap-2">
+                            <Settings size={16} className="text-amber-600" /> Configurações — {managedClientForm.name || managedClientId}
+                          </h3>
+
+                          {/* Perfil */}
+                          <div className="flex flex-col sm:flex-row gap-6 items-start">
+                            <div className="shrink-0">
+                              <div className="w-28 h-28 rounded-xl border-2 border-dashed border-slate-200 bg-slate-50 flex items-center justify-center overflow-hidden">
+                                {managedClientForm.logo_url
+                                  ? <img src={managedClientForm.logo_url} alt="Logo" className="w-full h-full object-contain p-2" />
+                                  : <div className="flex flex-col items-center gap-1 text-slate-300"><Camera size={28} /><span className="text-[9px] font-bold uppercase">Sem logo</span></div>}
+                              </div>
+                              <input ref={managedLogoRef} type="file" accept="image/*" className="hidden" onChange={handleManagedLogoUpload} />
+                              <button onClick={() => managedLogoRef.current?.click()} className="mt-2 w-28 py-1.5 text-[9px] font-bold uppercase tracking-wider text-slate-500 border border-slate-200 rounded-lg hover:border-amber-400 hover:text-amber-600 transition-colors flex items-center justify-center gap-1">
+                                <Upload size={11} /> Carregar logo
+                              </button>
+                            </div>
+                            <div className="flex-1 space-y-4">
+                              <div className="space-y-1">
+                                <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Nome da Empresa</label>
+                                <input type="text" placeholder="Ex: RealFlex Indústria S.A." className="w-full p-3 border border-slate-200 rounded-lg text-sm font-bold outline-none focus:border-amber-500 transition-colors" value={managedClientForm.name} onChange={e => setManagedClientForm(p => ({ ...p, name: e.target.value }))} />
+                              </div>
+                              <button onClick={saveManagedClientProfile} disabled={savingManagedClient} className="px-6 py-3 bg-amber-600 hover:bg-amber-700 text-white rounded-lg font-bold text-[10px] uppercase tracking-widest flex items-center gap-2 transition-all shadow-md disabled:opacity-50">
+                                <Save size={14} /> {savingManagedClient ? 'Salvando...' : 'Salvar Perfil'}
+                              </button>
+                            </div>
+                          </div>
+
+                          {/* Add-on ClickSign */}
+                          <div className="border-t border-slate-100 pt-5 space-y-3">
+                            <h4 className="text-[10px] font-bold uppercase text-slate-400 tracking-widest flex items-center gap-2">
+                              <PenLine size={13} className="text-amber-600" /> Add-on: Assinatura Digital (ClickSign)
+                            </h4>
+                            <div className="flex items-center justify-between p-4 bg-slate-50 rounded-xl border border-slate-200">
+                              <div>
+                                <p className="text-sm font-bold text-slate-800 italic">ClickSign — {managedClientForm.name || managedClientId}</p>
+                                <p className="text-[10px] text-slate-400 font-normal not-italic mt-0.5">Habilita envio de atas para assinatura digital (cobrança adicional)</p>
+                              </div>
+                              <button onClick={toggleManagedClickSign} className={`relative inline-flex h-7 w-12 shrink-0 items-center rounded-full transition-colors duration-200 focus:outline-none ${managedClientProfile?.clicksign_enabled ? 'bg-amber-600' : 'bg-slate-200'}`}>
+                                <span className={`inline-block h-5 w-5 transform rounded-full bg-white shadow-md transition-transform duration-200 ${managedClientProfile?.clicksign_enabled ? 'translate-x-6' : 'translate-x-1'}`} />
+                              </button>
+                            </div>
+                            {managedClientProfile?.clicksign_enabled
+                              ? <p className="text-[10px] text-emerald-600 font-bold not-italic flex items-center gap-1.5"><CheckCircle2 size={12} /> Add-on ativo — botão de assinatura digital visível nas atas</p>
+                              : <p className="text-[10px] text-slate-400 font-normal not-italic">Add-on inativo — o cliente não verá a opção de assinatura digital</p>}
+                          </div>
+                        </div>
+                      )}
                     </div>
                   )}
 
