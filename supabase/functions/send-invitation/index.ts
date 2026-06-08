@@ -58,8 +58,14 @@ serve(async (req) => {
   }
 
   try {
-    const { meetingData, recipients } = await req.json()
+    const { meetingData, recipients, organizer: organizerInput } = await req.json()
     const RESEND_API_KEY = Deno.env.get('RESEND_API_KEY')
+
+    // Organizador do convite: e-mail real de quem está convocando (recebe as respostas
+    // RSVP). Fallback para a conta de envio caso não seja informado.
+    const organizer = organizerInput?.email
+      ? { name: organizerInput.name || organizerInput.email, email: organizerInput.email }
+      : { name: 'Governança INEPAD', email: 'conselho@inepadconsulting.com' }
 
     // Geramos o HTML das Pautas (Ordem do Dia)
     const pautasHtml = meetingData.pautas && meetingData.pautas.length > 0
@@ -101,7 +107,7 @@ serve(async (req) => {
           description: 'Convocação oficial do Conselho. Confirme sua presença respondendo a este convite.',
         }],
         attendees,
-        { name: 'Governança INEPAD', email: 'conselho@inepadconsulting.com' },
+        organizer,
         'REQUEST',
       )
       attachments = [{
@@ -120,6 +126,7 @@ serve(async (req) => {
       body: JSON.stringify({
         from: 'Governança INEPAD <conselho@inepadconsulting.com>',
         to: recipients,
+        reply_to: organizer.email,
         subject: `CONVOCAÇÃO OFICIAL: ${meetingData.title}`,
         ...(attachments ? { attachments } : {}),
         html: `

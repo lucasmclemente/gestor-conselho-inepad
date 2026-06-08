@@ -70,7 +70,7 @@ serve(async (req) => {
   }
 
   try {
-    const { meetings, recipients, clientName } = await req.json()
+    const { meetings, recipients, clientName, organizer: organizerInput } = await req.json()
     const RESEND_API_KEY = Deno.env.get('RESEND_API_KEY')
 
     if (!Array.isArray(meetings) || meetings.length === 0) {
@@ -84,7 +84,11 @@ serve(async (req) => {
       })
     }
 
-    const organizer = { name: 'Governança INEPAD', email: 'conselho@inepadconsulting.com' }
+    // Organizador do convite: e-mail real de quem está programando as reuniões (recebe
+    // as respostas RSVP). Fallback para a conta de envio caso não seja informado.
+    const organizer = organizerInput?.email
+      ? { name: organizerInput.name || organizerInput.email, email: organizerInput.email }
+      : { name: 'Governança INEPAD', email: 'conselho@inepadconsulting.com' }
 
     // Destinatários como participantes (RSVP) do calendário
     const attendees: ICSAttendee[] = recipients.map((email: string) => ({ email }))
@@ -128,6 +132,7 @@ serve(async (req) => {
       body: JSON.stringify({
         from: 'Governança INEPAD <conselho@inepadconsulting.com>',
         to: recipients,
+        reply_to: organizer.email,
         subject: `Agenda de Reuniões do Conselho${year ? ` — ${year}` : ''}`,
         attachments: [
           {

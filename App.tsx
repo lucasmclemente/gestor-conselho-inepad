@@ -403,7 +403,7 @@ const App = () => {
         if (recipients.length > 0) {
           try {
             await supabase.functions.invoke('send-calendar-invites', {
-              body: { meetings: created, recipients, clientName: clientProfile?.name || currentUser.client_id },
+              body: { meetings: created, recipients, clientName: clientProfile?.name || currentUser.client_id, organizer: { name: currentUser.name, email: currentUser.email } },
             });
             addLog('Convites Calendário', `Convites de calendário enviados a ${recipients.length} participante(s).`);
           } catch (e: any) {
@@ -978,7 +978,7 @@ const App = () => {
             if (emails.length === 0) return alert("Erro: Não há participantes com e-mail.");
             setIsSendingEmail(true);
             try {
-              await supabase.functions.invoke('send-invitation', { body: { meetingData: currentMeeting, recipients: emails } });
+              await supabase.functions.invoke('send-invitation', { body: { meetingData: currentMeeting, recipients: emails, organizer: { name: currentUser.name, email: currentUser.email } } });
               addLog('Convocação', `E-mails enviados.`);
               alert("Convocações enviadas!");
               setIsConvocationOpen(false);
