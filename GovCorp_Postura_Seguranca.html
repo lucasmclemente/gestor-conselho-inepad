@@ -1,0 +1,489 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Postura de Segurança — GovCorp INEPAD</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    font-family: 'Inter', 'Helvetica Neue', Arial, sans-serif;
+    background: #f1f5f9;
+    color: #1e293b;
+    font-size: 13px;
+    line-height: 1.6;
+  }
+
+  .page {
+    max-width: 800px;
+    margin: 32px auto;
+    background: #fff;
+    box-shadow: 0 4px 24px rgba(0,0,0,0.10);
+    border-radius: 4px;
+    overflow: hidden;
+  }
+
+  /* ── HEADER ── */
+  .header {
+    background: #0f172a;
+    padding: 36px 40px 28px;
+    border-bottom: 4px solid #b45309;
+  }
+  .header-tag {
+    display: inline-block;
+    background: #b45309;
+    color: #fff;
+    font-size: 9px;
+    font-weight: 700;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    padding: 3px 10px;
+    border-radius: 2px;
+    margin-bottom: 14px;
+  }
+  .header h1 {
+    color: #fff;
+    font-size: 22px;
+    font-weight: 700;
+    letter-spacing: -0.5px;
+    margin-bottom: 6px;
+  }
+  .header h2 {
+    color: #94a3b8;
+    font-size: 13px;
+    font-weight: 400;
+    margin-bottom: 4px;
+  }
+  .header-meta {
+    display: flex;
+    gap: 24px;
+    margin-top: 20px;
+  }
+  .header-meta-item {
+    color: #64748b;
+    font-size: 11px;
+  }
+  .header-meta-item strong {
+    color: #94a3b8;
+    display: block;
+    font-size: 9px;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    margin-bottom: 2px;
+  }
+
+  /* ── BODY ── */
+  .body { padding: 36px 40px; }
+
+  /* ── SECTION ── */
+  .section { margin-bottom: 32px; }
+  .section-title {
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 1.5px;
+    text-transform: uppercase;
+    color: #64748b;
+    padding-bottom: 8px;
+    border-bottom: 1px solid #e2e8f0;
+    margin-bottom: 14px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .section-title::before {
+    content: '';
+    display: inline-block;
+    width: 3px;
+    height: 14px;
+    background: #b45309;
+    border-radius: 2px;
+  }
+
+  /* ── LEAD TEXT ── */
+  .lead {
+    color: #475569;
+    line-height: 1.7;
+    margin-bottom: 14px;
+  }
+
+  /* ── TABLES ── */
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12.5px;
+  }
+  thead tr {
+    background: #0f172a;
+    color: #fff;
+  }
+  thead th {
+    padding: 9px 12px;
+    text-align: left;
+    font-weight: 600;
+    font-size: 11px;
+    letter-spacing: 0.3px;
+  }
+  tbody tr:nth-child(even) { background: #f8fafc; }
+  tbody tr:hover { background: #f1f5f9; }
+  tbody td {
+    padding: 8px 12px;
+    border-bottom: 1px solid #f1f5f9;
+    vertical-align: top;
+    color: #334155;
+  }
+  tbody td:first-child { font-weight: 500; }
+
+  /* ── CHECK LIST ── */
+  .check-list { display: flex; flex-direction: column; gap: 0; border: 1px solid #e2e8f0; border-radius: 6px; overflow: hidden; }
+  .check-item {
+    display: grid;
+    grid-template-columns: 200px 1fr;
+    border-bottom: 1px solid #f1f5f9;
+  }
+  .check-item:last-child { border-bottom: none; }
+  .check-key {
+    padding: 9px 14px;
+    font-weight: 600;
+    font-size: 12px;
+    color: #1e293b;
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    background: #f8fafc;
+  }
+  .check-key .icon { color: #059669; font-size: 13px; flex-shrink: 0; margin-top: 1px; }
+  .check-val {
+    padding: 9px 14px;
+    color: #475569;
+    font-size: 12px;
+    line-height: 1.5;
+  }
+
+  /* ── AMBER BOX ── */
+  .amber-box {
+    background: #fff7ed;
+    border: 1px solid #fed7aa;
+    border-left: 4px solid #b45309;
+    border-radius: 6px;
+    padding: 16px 18px;
+    margin-bottom: 14px;
+  }
+  .amber-box-title {
+    font-weight: 700;
+    font-size: 11px;
+    color: #92400e;
+    text-transform: uppercase;
+    letter-spacing: 0.8px;
+    margin-bottom: 10px;
+  }
+  .amber-box table thead tr { background: #b45309; }
+
+  /* ── BADGE ── */
+  .badge {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 9999px;
+    font-size: 10px;
+    font-weight: 600;
+  }
+  .badge-green { background: #dcfce7; color: #166534; }
+  .badge-yellow { background: #fef9c3; color: #854d0e; }
+  .badge-gray { background: #f1f5f9; color: #475569; }
+
+  /* ── FOOTER ── */
+  .footer {
+    background: #f8fafc;
+    border-top: 1px solid #e2e8f0;
+    padding: 16px 40px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 10px;
+    color: #94a3b8;
+  }
+  .footer-brand { font-weight: 700; color: #64748b; }
+
+  /* ── CONFIDENTIAL BAND ── */
+  .confidential-band {
+    background: #0f172a;
+    color: #475569;
+    text-align: center;
+    font-size: 9px;
+    font-weight: 600;
+    letter-spacing: 3px;
+    text-transform: uppercase;
+    padding: 6px;
+  }
+
+  /* ── PRINT ── */
+  @media print {
+    body { background: #fff; }
+    .page { margin: 0; box-shadow: none; border-radius: 0; max-width: 100%; }
+    .no-print { display: none; }
+  }
+</style>
+</head>
+<body>
+
+<!-- Print button (hidden on print) -->
+<div class="no-print" style="text-align:center;padding:16px 0 0;">
+  <button onclick="window.print()" style="background:#0f172a;color:#fff;border:none;padding:10px 24px;border-radius:6px;font-size:13px;font-weight:600;cursor:pointer;letter-spacing:0.5px;">
+    ⬇ Salvar como PDF (Ctrl+P → Salvar como PDF)
+  </button>
+</div>
+
+<div class="page">
+
+  <!-- CONFIDENTIAL BAND -->
+  <div class="confidential-band">Confidencial — uso restrito</div>
+
+  <!-- HEADER -->
+  <div class="header">
+    <div class="header-tag">Relatório Técnico de Segurança</div>
+    <h1>Postura de Segurança — GovCorp</h1>
+    <h2>Plataforma de Gestão de Conselhos | INEPAD Consultoria</h2>
+    <div class="header-meta">
+      <div class="header-meta-item"><strong>Data</strong>10/06/2026</div>
+      <div class="header-meta-item"><strong>Versão</strong>1.1 — Onboarding de clientes</div>
+      <div class="header-meta-item"><strong>Status</strong>Auditoria concluída</div>
+      <div class="header-meta-item"><strong>Vulnerabilidades abertas</strong>0</div>
+    </div>
+  </div>
+
+  <div class="body">
+
+    <!-- SUMÁRIO EXECUTIVO -->
+    <div class="section">
+      <div class="section-title">Sumário Executivo</div>
+      <p class="lead">
+        O GovCorp é uma plataforma SaaS multi-tenant para gestão do ciclo completo de reuniões de Conselhos
+        Deliberativos e Consultivos. Este relatório documenta os controles de segurança implementados e o
+        resultado da auditoria técnica conduzida antes do início dos testes com clientes parceiros.
+      </p>
+      <p class="lead">
+        Todos os itens críticos e médios identificados foram corrigidos. O sistema não possui
+        vulnerabilidades conhecidas em aberto na data deste relatório.
+      </p>
+    </div>
+
+    <!-- CONTROLE DE ACESSO -->
+    <div class="section">
+      <div class="section-title">1. Controle de Acesso e Identidade</div>
+      <table>
+        <thead>
+          <tr>
+            <th style="width:200px">Mecanismo</th>
+            <th>Implementação</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr><td>Autenticação</td><td>Supabase Auth nativo — JWT assinado pelo servidor com expiração de 1 hora</td></tr>
+          <tr><td>Autorização</td><td>Role lida do JWT (<code>user_metadata</code>) — não editável pelo usuário final</td></tr>
+          <tr><td>Isolamento multi-tenant</td><td><code>client_id</code> enforçado por Row Level Security em todas as tabelas</td></tr>
+          <tr><td>Cadastro de usuários</td><td>Exclusivamente via Edge Function autenticada — sem auto-registro público</td></tr>
+          <tr><td>Força de senha</td><td>Mínimo 8 caracteres com letras e números (enforçado em Auth e frontend)</td></tr>
+          <tr><td>Registro público</td><td>Desabilitado em produção e homologação</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <!-- RLS -->
+    <div class="section">
+      <div class="section-title">2. Row Level Security (RLS)</div>
+      <p class="lead">
+        Todas as tabelas possuem RLS ativa. Nenhuma policy utiliza a role <em>public</em>.
+        Todos os checks de papel leem do JWT — não da tabela <code>members</code> —
+        eliminando vetores de escalada de privilégios via manipulação de banco.
+      </p>
+      <table>
+        <thead>
+          <tr><th style="width:160px">Tabela</th><th>Garantia</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>members</td>
+            <td>Usuário acessa apenas membros do próprio <code>client_id</code>; isolamento enforçado com <code>WITH CHECK</code></td>
+          </tr>
+          <tr>
+            <td>meetings</td>
+            <td>Conselheiro não pode criar/editar/excluir reuniões via chamada direta à API; role verificada no JWT</td>
+          </tr>
+          <tr>
+            <td>audit_logs</td>
+            <td>UPDATE e DELETE bloqueados por RLS em nível de banco — logs são tecnicamente imutáveis</td>
+          </tr>
+          <tr>
+            <td>server_audit_logs</td>
+            <td>Leitura restrita exclusivamente à role SuperAdmin via JWT</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <!-- EDGE FUNCTIONS -->
+    <div class="section">
+      <div class="section-title">3. API e Edge Functions</div>
+      <table>
+        <thead>
+          <tr><th style="width:200px">Função</th><th>Controles Aplicados</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>create-user</td>
+            <td>JWT obrigatório + verificação de papel (Administrador/SuperAdmin) + isolamento por <code>client_id</code></td>
+          </tr>
+          <tr>
+            <td>send-invitation</td>
+            <td>JWT obrigatório + escaping HTML em todos os campos + CORS restrito por whitelist</td>
+          </tr>
+          <tr>
+            <td>send-minute-notification</td>
+            <td>JWT obrigatório + escaping HTML em todos os campos + CORS restrito por whitelist</td>
+          </tr>
+          <tr>
+            <td>send-calendar-invites</td>
+            <td>JWT obrigatório + CORS restrito por whitelist. Gera convites de calendário (<code>.ics</code>) no servidor</td>
+          </tr>
+          <tr>
+            <td>analyze-minutes</td>
+            <td>JWT obrigatório + chave Gemini armazenada como secret do servidor (ausente no bundle JS)</td>
+          </tr>
+          <tr>
+            <td>clicksign-flow / clicksign-check</td>
+            <td>Verificação de Bearer token + comunicação servidor-a-servidor com o ClickSign (token de API como secret)</td>
+          </tr>
+          <tr>
+            <td>clicksign-webhook</td>
+            <td>Endpoint de retorno do ClickSign — autenticado por assinatura <code>HMAC-SHA256</code> (cabeçalho <code>Content-Hmac</code>); rejeita requisições sem assinatura válida</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <!-- SUB-PROCESSADORES / LGPD -->
+    <div class="section">
+      <div class="section-title">4. Sub-processadores e Tratamento de Dados (LGPD)</div>
+      <p class="lead">
+        O GovCorp utiliza os seguintes provedores para operar. Nenhum dado de conselho é
+        compartilhado com terceiros além dos listados, e cada um atua estritamente na
+        finalidade indicada.
+      </p>
+      <table>
+        <thead>
+          <tr><th style="width:150px">Provedor</th><th style="width:150px">Finalidade</th><th>Dados tratados</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>Supabase</td><td>Banco de dados, autenticação e armazenamento</td><td>Todos os dados da aplicação (isolados por <code>client_id</code>)</td></tr>
+          <tr><td>Vercel</td><td>Hospedagem do front-end</td><td>Não armazena dados de negócio — entrega de interface estática via HTTPS/CDN</td></tr>
+          <tr><td>Resend</td><td>Envio de e-mails (convocações, atas, convites)</td><td>Nome, e-mail e dados da reunião contidos na mensagem</td></tr>
+          <tr><td>ClickSign</td><td>Assinatura digital de atas (opcional, por cliente)</td><td>Documento da ata + nome/e-mail dos signatários. Ativado individualmente via <code>clicksign_enabled</code></td></tr>
+          <tr><td>Google (Gemini)</td><td>Análise opcional de atas por IA</td><td>Texto da ata enviado sob demanda; chave de API mantida como secret do servidor</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <!-- PROTEÇÃO DE DADOS -->
+    <div class="section">
+      <div class="section-title">5. Proteção de Dados e Secrets</div>
+      <div class="check-list">
+        <div class="check-item">
+          <div class="check-key"><span class="icon">✓</span>Chaves de API externas</div>
+          <div class="check-val">Gemini e Resend armazenadas como Supabase Secrets no servidor. Ausentes no bundle JavaScript entregue ao browser.</div>
+        </div>
+        <div class="check-item">
+          <div class="check-key"><span class="icon">✓</span>Arquivos e atas</div>
+          <div class="check-val">Acesso via Signed URLs com expiração de 7 dias — sem links públicos permanentes.</div>
+        </div>
+        <div class="check-item">
+          <div class="check-key"><span class="icon">✓</span>Injeção de HTML</div>
+          <div class="check-val"><code>escapeHtml()</code> e <code>safeUrl()</code> aplicados em todos os campos de entrada do usuário renderizados nos e-mails.</div>
+        </div>
+        <div class="check-item">
+          <div class="check-key"><span class="icon">✓</span>CORS</div>
+          <div class="check-val">Whitelist de origens explícita em todas as Edge Functions. Nenhum endpoint aceita <code>*</code>.</div>
+        </div>
+        <div class="check-item">
+          <div class="check-key"><span class="icon">✓</span>Senhas</div>
+          <div class="check-val">Nunca armazenadas em texto plano. Hash gerenciado pelo Supabase Auth (bcrypt).</div>
+        </div>
+        <div class="check-item">
+          <div class="check-key"><span class="icon">✓</span>process_audit_log</div>
+          <div class="check-val"><code>SECURITY DEFINER</code> com <code>SET search_path = ''</code> e <code>EXECUTE</code> revogado de <code>PUBLIC</code>, <code>anon</code> e <code>authenticated</code>. Executada exclusivamente por triggers internos — não exposta via API REST. Zero warnings no linter do Supabase.</div>
+        </div>
+        <div class="check-item">
+          <div class="check-key"><span class="icon">✓</span>Webhook ClickSign</div>
+          <div class="check-val">Assinatura <code>HMAC-SHA256</code> validada em todas as requisições (cabeçalho <code>Content-Hmac</code>) contra secret do servidor. Requisições sem assinatura válida são rejeitadas (401) — <em>fail-closed</em>.</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- AUDITORIA -->
+    <div class="section">
+      <div class="section-title">6. Trilha de Auditoria</div>
+      <p class="lead">
+        Todas as ações relevantes — login, criação de reunião, upload de ata, cadastro de membros,
+        convocações — são registradas automaticamente em <code>audit_logs</code>. As políticas RLS
+        garantem que registros existentes não possam ser alterados ou removidos por nenhum usuário,
+        incluindo administradores. A tabela aceita apenas INSERT por usuários autenticados.
+      </p>
+    </div>
+
+    <!-- O QUE NÃO ESTÁ IMPLEMENTADO -->
+    <div class="section">
+      <div class="section-title">7. Transparência — O que não está implementado</div>
+      <div class="amber-box">
+        <div class="amber-box-title">⚠ Itens fora de escopo desta fase</div>
+        <p style="color:#92400e;font-size:12px;margin-bottom:12px;line-height:1.6;">
+          Esta seção existe por transparência técnica. Equipes de segurança valorizam saber
+          exatamente o que foi e o que não foi endereçado.
+        </p>
+        <table>
+          <thead>
+            <tr><th style="width:220px">Item</th><th>Status</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>MFA obrigatório</td><td>Não configurado — usuários podem ativar voluntariamente no Supabase</td></tr>
+            <tr><td>Pen test por terceiro</td><td>Não realizado nesta fase; planejado para antes do lançamento geral</td></tr>
+            <tr><td>Rate limiting customizado</td><td>Depende dos limites padrão do Supabase (30 req/5min por IP)</td></tr>
+            <tr><td>Cabeçalhos CSP / HSTS</td><td>Gerenciados pela Vercel via HTTPS enforçado — fora do escopo da aplicação</td></tr>
+            <tr><td>IP allowlist</td><td>Não configurado</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- INFRAESTRUTURA -->
+    <div class="section">
+      <div class="section-title">8. Infraestrutura e Ambientes</div>
+      <table>
+        <thead>
+          <tr><th style="width:140px">Camada</th><th style="width:180px">Tecnologia</th><th>Observação</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>Front-end</td><td>React + TypeScript</td><td>Deploy via Vercel — HTTPS enforçado, CDN global</td></tr>
+          <tr><td>Back-end</td><td>Supabase (PostgreSQL)</td><td>Dois projetos isolados: produção e homologação</td></tr>
+          <tr><td>Autenticação</td><td>Supabase Auth</td><td>JWT com expiração de 1 hora, refresh token rotation ativo</td></tr>
+          <tr><td>Funções serverless</td><td>Deno Edge Functions</td><td>Isoladas por função, sem estado compartilhado</td></tr>
+          <tr><td>Armazenamento</td><td>Supabase Storage</td><td>Acesso via Signed URLs com TTL de 7 dias</td></tr>
+          <tr><td>E-mail transacional</td><td>Resend API</td><td>Chave armazenada como secret do servidor</td></tr>
+          <tr><td>Assinatura digital</td><td>ClickSign API</td><td>Opcional por cliente. Token como secret; retorno via webhook autenticado por HMAC</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+  </div><!-- /body -->
+
+  <!-- FOOTER -->
+  <div class="footer">
+    <span class="footer-brand">GovCorp — INEPAD Consultoria</span>
+    <span>Relatório gerado em 10/06/2026</span>
+    <span>Confidencial — uso restrito</span>
+  </div>
+
+</div><!-- /page -->
+
+</body>
+</html>
