@@ -1388,7 +1388,20 @@ const App = () => {
                             )}
                           </div>
                         </div>
-                        <div className="bg-white p-6 md:p-8 rounded-xl border border-slate-200 shadow-sm space-y-6 h-fit"><h3 className="text-xs font-bold uppercase text-slate-500 tracking-widest border-b border-slate-50 pb-4">Logística</h3><div className="space-y-4"><div><label className="block text-[10px] font-bold text-slate-400 mb-1 uppercase tracking-widest">Data</label><input type="date" value={currentMeeting.date} className="w-full p-3 border rounded-lg text-sm font-bold" onChange={e => setCurrentMeeting({ ...currentMeeting, date: e.target.value })} readOnly={!canEdit} /></div><div><label className="block text-[10px] font-bold text-slate-400 mb-1 uppercase tracking-widest">Horário</label><input type="time" value={currentMeeting.time} className="w-full p-3 border rounded-lg text-sm font-bold" onChange={e => setCurrentMeeting({ ...currentMeeting, time: e.target.value })} readOnly={!canEdit} /></div></div></div>
+                        <div className="bg-white p-6 md:p-8 rounded-xl border border-slate-200 shadow-sm space-y-6 h-fit">
+                          <h3 className="text-xs font-bold uppercase text-slate-500 tracking-widest border-b border-slate-50 pb-4">Logística</h3>
+                          <div className="space-y-4">
+                            <div><label className="block text-[10px] font-bold text-slate-400 mb-1 uppercase tracking-widest">Data</label><input type="date" value={currentMeeting.date || ''} className="w-full p-3 border rounded-lg text-sm font-bold" onChange={e => setCurrentMeeting({ ...currentMeeting, date: e.target.value })} readOnly={!canEdit} /></div>
+                            <div><label className="block text-[10px] font-bold text-slate-400 mb-1 uppercase tracking-widest">Horário</label><input type="time" value={currentMeeting.time || ''} className="w-full p-3 border rounded-lg text-sm font-bold" onChange={e => setCurrentMeeting({ ...currentMeeting, time: e.target.value })} readOnly={!canEdit} /></div>
+                            <div><label className="block text-[10px] font-bold text-slate-400 mb-1 uppercase tracking-widest">Tipo</label><select value={currentMeeting.type || 'Híbrida'} className="w-full p-3 border rounded-lg text-sm font-bold bg-white outline-none" onChange={e => { const t = e.target.value; setCurrentMeeting({ ...currentMeeting, type: t, link: t === 'Presencial' ? '' : currentMeeting.link, address: t === 'Online' ? '' : currentMeeting.address }); }} disabled={!canEdit}><option>Híbrida</option><option>Presencial</option><option>Online</option></select></div>
+                            {(currentMeeting.type === 'Online' || currentMeeting.type === 'Híbrida') && (
+                              <div><label className="block text-[10px] font-bold text-slate-400 mb-1 uppercase tracking-widest">Link da reunião</label><input type="text" value={currentMeeting.link || ''} placeholder="https://meet..." className="w-full p-3 border rounded-lg text-sm font-bold" onChange={e => setCurrentMeeting({ ...currentMeeting, link: e.target.value })} readOnly={!canEdit} /></div>
+                            )}
+                            {(currentMeeting.type === 'Presencial' || currentMeeting.type === 'Híbrida') && (
+                              <div><label className="block text-[10px] font-bold text-slate-400 mb-1 uppercase tracking-widest">Endereço</label><input type="text" value={currentMeeting.address || ''} placeholder="Local da reunião" className="w-full p-3 border rounded-lg text-sm font-bold" onChange={e => setCurrentMeeting({ ...currentMeeting, address: e.target.value })} readOnly={!canEdit} /></div>
+                            )}
+                          </div>
+                        </div>
                       </div>
                     )}
 
@@ -2363,7 +2376,7 @@ const App = () => {
                   </div>
                   <div>
                     <label className="block text-[10px] font-bold text-slate-400 mb-1 uppercase tracking-widest">Tipo</label>
-                    <select value={scheduleForm.type} onChange={e => setScheduleForm({ ...scheduleForm, type: e.target.value })} className="w-full p-3 border rounded-lg text-sm font-bold outline-none bg-white focus:border-amber-400">
+                    <select value={scheduleForm.type} onChange={e => { const t = e.target.value; setScheduleForm({ ...scheduleForm, type: t, link: t === 'Presencial' ? '' : scheduleForm.link, address: t === 'Online' ? '' : scheduleForm.address }); }} className="w-full p-3 border rounded-lg text-sm font-bold outline-none bg-white focus:border-amber-400">
                       <option>Híbrida</option><option>Presencial</option><option>Online</option>
                     </select>
                   </div>
@@ -2383,16 +2396,22 @@ const App = () => {
                     <button onClick={generateScheduleDates} className="w-full h-12 bg-slate-900 text-amber-500 rounded-lg text-[10px] font-bold uppercase tracking-widest hover:bg-slate-800 transition-all flex items-center justify-center gap-2"><Calendar size={14} /> Gerar prévia</button>
                   </div>
                 </div>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-[10px] font-bold text-slate-400 mb-1 uppercase tracking-widest">Link (online/híbrida)</label>
-                    <input type="text" value={scheduleForm.link} onChange={e => setScheduleForm({ ...scheduleForm, link: e.target.value })} placeholder="https://meet..." className="w-full p-3 border rounded-lg text-sm font-bold outline-none focus:border-amber-400" />
+                {(scheduleForm.type === 'Online' || scheduleForm.type === 'Presencial' || scheduleForm.type === 'Híbrida') && (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    {(scheduleForm.type === 'Online' || scheduleForm.type === 'Híbrida') && (
+                      <div>
+                        <label className="block text-[10px] font-bold text-slate-400 mb-1 uppercase tracking-widest">Link da reunião</label>
+                        <input type="text" value={scheduleForm.link} onChange={e => setScheduleForm({ ...scheduleForm, link: e.target.value })} placeholder="https://meet..." className="w-full p-3 border rounded-lg text-sm font-bold outline-none focus:border-amber-400" />
+                      </div>
+                    )}
+                    {(scheduleForm.type === 'Presencial' || scheduleForm.type === 'Híbrida') && (
+                      <div>
+                        <label className="block text-[10px] font-bold text-slate-400 mb-1 uppercase tracking-widest">Endereço</label>
+                        <input type="text" value={scheduleForm.address} onChange={e => setScheduleForm({ ...scheduleForm, address: e.target.value })} placeholder="Local da reunião" className="w-full p-3 border rounded-lg text-sm font-bold outline-none focus:border-amber-400" />
+                      </div>
+                    )}
                   </div>
-                  <div>
-                    <label className="block text-[10px] font-bold text-slate-400 mb-1 uppercase tracking-widest">Endereço (presencial/híbrida)</label>
-                    <input type="text" value={scheduleForm.address} onChange={e => setScheduleForm({ ...scheduleForm, address: e.target.value })} placeholder="Local da reunião" className="w-full p-3 border rounded-lg text-sm font-bold outline-none focus:border-amber-400" />
-                  </div>
-                </div>
+                )}
               </div>
 
               {/* Prévia editável das datas */}
