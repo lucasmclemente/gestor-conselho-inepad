@@ -91,6 +91,8 @@ const App = () => {
   const [managedClientForm, setManagedClientForm] = useState({ name: '', logo_url: '' });
   const [savingManagedClient, setSavingManagedClient] = useState(false);
   const managedLogoRef = useRef<HTMLInputElement>(null);
+  const [newClientForm, setNewClientForm] = useState({ client_id: '', name: '' });
+  const [creatingClient, setCreatingClient] = useState(false);
 
   const [activePautaIndex, setActivePautaIndex] = useState<number | null>(null);
   const [timeElapsed, setTimeElapsed] = useState(0);
@@ -637,6 +639,26 @@ const App = () => {
       setAllClientsList(prev => prev.map((c: any) => c.client_id === managedClientId ? data : c));
       addLog('Configuração', `ClickSign ${newVal ? 'ativado' : 'desativado'} para ${managedClientId}`);
     }
+  };
+
+  // Cria um novo cliente (tenant) — apenas SuperAdmin
+  const createClient = async () => {
+    if (!isSuper) return;
+    const cid = newClientForm.client_id.trim().toUpperCase();
+    const name = newClientForm.name.trim();
+    if (!cid) return alert('Informe o identificador (Client ID).');
+    if (!/^[A-Z0-9_]+$/.test(cid)) return alert('O Client ID deve conter apenas letras, números e _ (sem espaços ou acentos).');
+    if (allClientsList.some((c: any) => c.client_id === cid)) return alert(`Já existe um cliente com o identificador "${cid}".`);
+    setCreatingClient(true);
+    const payload = { client_id: cid, name: name || cid, logo_url: '', clicksign_enabled: false };
+    const { data, error } = await supabase.from('clients').insert(payload).select().single();
+    if (error) { alert('Erro ao criar cliente: ' + error.message); setCreatingClient(false); return; }
+    setAllClientsList(prev => [...prev, data].sort((a: any, b: any) => (a.name || a.client_id).localeCompare(b.name || b.client_id)));
+    addLog('Cadastro', `Cliente criado: ${cid}`);
+    setNewClientForm({ client_id: '', name: '' });
+    setCreatingClient(false);
+    alert(`✅ Cliente "${data.name}" criado!\n\nAgora clique no cliente acima para adicionar a logo e o ClickSign, e cadastre o Administrador dele em "Cadastrar Novo Membro".`);
+    selectClientForManagement(cid);
   };
 
   const handleManagedLogoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -2202,6 +2224,28 @@ const App = () => {
                             ))}
                           </div>
                         )}
+                      </div>
+
+                      {/* Cadastrar novo cliente */}
+                      <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm space-y-4">
+                        <h3 className="text-xs font-bold uppercase text-slate-500 tracking-widest border-b border-slate-100 pb-4 flex items-center gap-2">
+                          <Building2 size={16} className="text-amber-600" /> Cadastrar Novo Cliente
+                        </h3>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                          <div className="space-y-1">
+                            <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Identificador (Client ID)</label>
+                            <input type="text" placeholder="Ex: EMPRESA_XYZ" className="w-full p-3 border border-slate-200 rounded-lg text-sm font-bold outline-none focus:border-amber-500 transition-colors" value={newClientForm.client_id} onChange={e => setNewClientForm(p => ({ ...p, client_id: e.target.value.toUpperCase() }))} />
+                            <p className="text-[9px] text-slate-400 font-normal">Apenas letras, números e _ (sem espaços/acentos). Não pode ser alterado depois.</p>
+                          </div>
+                          <div className="space-y-1">
+                            <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Nome da Empresa</label>
+                            <input type="text" placeholder="Ex: Empresa XYZ S.A." className="w-full p-3 border border-slate-200 rounded-lg text-sm font-bold outline-none focus:border-amber-500 transition-colors" value={newClientForm.name} onChange={e => setNewClientForm(p => ({ ...p, name: e.target.value }))} />
+                          </div>
+                        </div>
+                        <button onClick={createClient} disabled={creatingClient} className="w-full sm:w-auto px-8 py-3 bg-slate-900 hover:bg-slate-800 text-amber-500 rounded-lg font-bold text-[10px] uppercase tracking-widest flex items-center justify-center gap-2 transition-all shadow-md disabled:opacity-50">
+                          <Building2 size={16} /> {creatingClient ? 'Criando...' : 'Criar Cliente'}
+                        </button>
+                        <p className="text-[10px] text-slate-400 font-normal">Após criar, clique no cliente acima para adicionar a logo e o ClickSign, e cadastre o Administrador dele em "Cadastrar Novo Membro".</p>
                       </div>
 
                       {/* Painel de edição do cliente selecionado */}
