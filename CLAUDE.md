@@ -170,13 +170,14 @@ GESTOR-CONSELHO-INEPAD/
 | Meetings isolation | SELECT | Qualquer autenticado vê reuniões do próprio client; SuperAdmin vê tudo |
 | Apenas Adm e Sec gerem reuniões | ALL | Administrador/Secretário/SuperAdmin gerenciam — role lido do JWT |
 
-### RLS Policies ativas — `members` (main)
+### RLS Policies ativas — `members` (ambos os projetos)
 | Policy | Comando | Descrição |
 |---|---|---|
-| Admins can manage their own client members | ALL | Administrador/SuperAdmin gerenciam membros do próprio client |
-| Members isolation by client_id | ALL | Isolamento por client_id com WITH CHECK |
-| Privacidade de membros | SELECT | Isolamento via `internal.get_my_client_id()` (lê JWT) |
-| Users can view colleagues | SELECT | Membros veem colegas do mesmo client |
+| Admins can manage their own client members | ALL | **Única política de escrita** — apenas Administrador/SuperAdmin gerenciam membros (Adm do próprio client; Super de todos). Role lido do JWT |
+| Privacidade de membros / Members can view their own data | SELECT | Leitura isolada por client_id (lê JWT) |
+| Users can view colleagues | SELECT | Membros veem colegas do mesmo client; SuperAdmin vê todos |
+
+> ⚠️ A política `Members isolation by client_id` (ALL, sem checagem de role) foi **removida** em 10/06/2026 nos dois ambientes: por ser permissiva e OR-combinada, ela permitia que qualquer usuário do tenant (ex: Conselheiro) gravasse/apagasse membros do próprio client via API. Escrita de `members` agora exige Administrador/SuperAdmin. Criação de membros continua via Edge Function `create-user` (service role, ignora RLS).
 
 ### RLS Policies ativas — `audit_logs` (main)
 | Policy | Comando | Descrição |
