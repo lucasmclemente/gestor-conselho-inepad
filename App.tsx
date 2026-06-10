@@ -93,6 +93,7 @@ const App = () => {
   const managedLogoRef = useRef<HTMLInputElement>(null);
   const [newClientForm, setNewClientForm] = useState({ client_id: '', name: '' });
   const [creatingClient, setCreatingClient] = useState(false);
+  const [deletingClient, setDeletingClient] = useState(false);
 
   const [activePautaIndex, setActivePautaIndex] = useState<number | null>(null);
   const [timeElapsed, setTimeElapsed] = useState(0);
@@ -136,19 +137,32 @@ const App = () => {
     const { data: authData } = await supabase.auth.getUser();
     const user = authData?.user;
     const meta = user?.user_metadata;
+    let profile: any = null;
     if (meta?.role && meta?.client_id) {
-      setCurrentUser({
+      profile = {
         id: userId,
         name: meta.name || user?.email || '',
         email: user?.email ?? '',
         role: meta.role,
         client_id: meta.client_id
-      });
+      };
     } else {
       // Fallback para tabela members (compatibilidade com usuários sem metadata)
       const { data } = await supabase.from('members').select('id, name, email, role, client_id').eq('id', userId).single();
-      if (data) setCurrentUser(data);
+      if (data) profile = data;
     }
+    if (!profile) return;
+    // Bloqueia o acesso se a conta da empresa estiver inativa (SuperAdmin nunca é bloqueado)
+    if (profile.role !== 'SuperAdmin') {
+      const { data: cli } = await supabase.from('clients').select('active').eq('client_id', profile.client_id).maybeSingle();
+      if (cli && cli.active === false) {
+        await supabase.auth.signOut();
+        setCurrentUser(null);
+        alert('Acesso indisponível: a conta da sua empresa está inativa. Entre em contato com o suporte da INEPAD.');
+        return;
+      }
+    }
+    setCurrentUser(profile);
   };
 
   useEffect(() => { if (currentUser) fetchInitialData(); }, [currentUser]);
@@ -659,6 +673,51 @@ const App = () => {
     setCreatingClient(false);
     alert(`✅ Cliente "${data.name}" criado!\n\nAgora clique no cliente acima para adicionar a logo e o ClickSign, e cadastre o Administrador dele em "Cadastrar Novo Membro".`);
     selectClientForManagement(cid);
+  };
+
+  // Ativa/inativa a conta da empresa (reversível) — apenas SuperAdmin
+  const toggleManagedActive = async () => {
+    if (!managedClientId) return;
+    const newVal = !(managedClientProfile?.active ?? true);
+    if (!newVal && !window.confirm(`Inativar a conta de "${managedClientForm.name || managedClientId}"?\n\nOs usuários dessa empresa não conseguirão mais acessar o sistema (os dados são preservados e você pode reativar a qualquer momento).`)) return;
+    const payload = {
+      client_id: managedClientId,
+      name: managedClientForm.name || managedClientId,
+      logo_url: managedClientForm.logo_url || '',
+      clicksign_enabled: managedClientProfile?.clicksign_enabled ?? false,
+      active: newVal,
+    };
+    const { data, error } = await supabase.from('clients').upsert(payload, { onConflict: 'client_id' }).select().single();
+    if (!error && data) {
+      setManagedClientProfile(data);
+      setAllClientsList(prev => prev.map((c: any) => c.client_id === managedClientId ? data : c));
+      addLog('Configuração', `Cliente ${managedClientId} ${newVal ? 'reativado' : 'inativado'}`);
+    } else if (error) { alert('Erro: ' + error.message); }
+  };
+
+  // Exclui DEFINITIVAMENTE a empresa e todos os seus dados/logins — apenas SuperAdmin
+  const deleteClientAccount = async () => {
+    if (!managedClientId) return;
+    if (managedClientId === currentUser.client_id) return alert('Você não pode excluir a própria empresa.');
+    const typed = window.prompt(`ATENÇÃO — AÇÃO IRREVERSÍVEL.\n\nIsto apaga DEFINITIVAMENTE a empresa "${managedClientForm.name || managedClientId}", incluindo todas as reuniões, atas e os logins dos membros.\n\nDigite o identificador "${managedClientId}" para confirmar:`);
+    if (typed == null) return;
+    if (typed.trim().toUpperCase() !== managedClientId.toUpperCase()) return alert('Identificador não confere. Exclusão cancelada.');
+    setDeletingClient(true);
+    try {
+      const { data, error } = await supabase.functions.invoke('delete-client', { body: { client_id: managedClientId } });
+      if (error) throw new Error(error.message);
+      if (data?.error) throw new Error(data.error);
+      const deletedId = managedClientId;
+      setAllClientsList(prev => prev.filter((c: any) => c.client_id !== deletedId));
+      setUsers(prev => prev.filter((u: any) => u.client_id !== deletedId));
+      setManagedClientId(null); setManagedClientProfile(null); setManagedClientForm({ name: '', logo_url: '' });
+      addLog('Exclusão', `Empresa excluída: ${deletedId}`);
+      alert(`✅ Empresa excluída.` + (data?.summary ? `\n${data.summary}` : ''));
+    } catch (e: any) {
+      alert('Erro ao excluir: ' + (e?.message || e));
+    } finally {
+      setDeletingClient(false);
+    }
   };
 
   const handleManagedLogoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -2204,7 +2263,7 @@ const App = () => {
                               <button
                                 key={c.client_id}
                                 onClick={() => selectClientForManagement(c.client_id)}
-                                className={`flex items-center gap-3 p-3 rounded-xl border text-left transition-all ${managedClientId === c.client_id ? 'border-amber-500 bg-amber-50' : 'border-slate-200 bg-slate-50 hover:border-amber-300'}`}
+                                className={`flex items-center gap-3 p-3 rounded-xl border text-left transition-all ${managedClientId === c.client_id ? 'border-amber-500 bg-amber-50' : 'border-slate-200 bg-slate-50 hover:border-amber-300'} ${c.active === false ? 'opacity-60' : ''}`}
                               >
                                 <div className="w-10 h-10 rounded-lg bg-slate-200 flex items-center justify-center overflow-hidden shrink-0">
                                   {c.logo_url
@@ -2215,6 +2274,7 @@ const App = () => {
                                   <p className="text-xs font-bold text-slate-800 truncate italic">{c.name || c.client_id}</p>
                                   <p className="text-[9px] text-slate-400 uppercase tracking-widest truncate">{c.client_id}</p>
                                   <div className="flex gap-1.5 mt-1 flex-wrap">
+                                    {c.active === false && <span className="text-[8px] bg-red-100 text-red-600 border border-red-200 px-1.5 py-0.5 rounded-full font-bold">Inativo</span>}
                                     {c.clicksign_enabled && <span className="text-[8px] bg-amber-100 text-amber-700 border border-amber-200 px-1.5 py-0.5 rounded-full font-bold">ClickSign</span>}
                                     {!c.name && <span className="text-[8px] bg-slate-100 text-slate-400 border border-slate-200 px-1.5 py-0.5 rounded-full font-bold">Sem perfil</span>}
                                   </div>
@@ -2296,6 +2356,38 @@ const App = () => {
                             {managedClientProfile?.clicksign_enabled
                               ? <p className="text-[10px] text-emerald-600 font-bold not-italic flex items-center gap-1.5"><CheckCircle2 size={12} /> Add-on ativo — botão de assinatura digital visível nas atas</p>
                               : <p className="text-[10px] text-slate-400 font-normal not-italic">Add-on inativo — o cliente não verá a opção de assinatura digital</p>}
+                          </div>
+
+                          {/* Status da conta — ativar/inativar (reversível) */}
+                          <div className="border-t border-slate-100 pt-5 space-y-3">
+                            <h4 className="text-[10px] font-bold uppercase text-slate-400 tracking-widest flex items-center gap-2">
+                              <Lock size={13} className="text-amber-600" /> Status da Conta
+                            </h4>
+                            <div className="flex items-center justify-between p-4 bg-slate-50 rounded-xl border border-slate-200">
+                              <div>
+                                <p className="text-sm font-bold text-slate-800 italic">{(managedClientProfile?.active ?? true) ? 'Conta ativa' : 'Conta inativa'}</p>
+                                <p className="text-[10px] text-slate-400 font-normal not-italic mt-0.5">{(managedClientProfile?.active ?? true) ? 'Os usuários desta empresa têm acesso normal ao sistema.' : 'Os usuários desta empresa estão bloqueados no login (dados preservados).'}</p>
+                              </div>
+                              <button onClick={toggleManagedActive} className={`relative inline-flex h-7 w-12 shrink-0 items-center rounded-full transition-colors duration-200 focus:outline-none ${(managedClientProfile?.active ?? true) ? 'bg-emerald-600' : 'bg-slate-300'}`}>
+                                <span className={`inline-block h-5 w-5 transform rounded-full bg-white shadow-md transition-transform duration-200 ${(managedClientProfile?.active ?? true) ? 'translate-x-6' : 'translate-x-1'}`} />
+                              </button>
+                            </div>
+                          </div>
+
+                          {/* Zona de perigo — exclusão definitiva */}
+                          <div className="border-t border-red-100 pt-5 space-y-3">
+                            <h4 className="text-[10px] font-bold uppercase text-red-500 tracking-widest flex items-center gap-2">
+                              <AlertCircle size={13} /> Zona de Perigo
+                            </h4>
+                            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-4 bg-red-50 rounded-xl border border-red-200">
+                              <div>
+                                <p className="text-sm font-bold text-red-700 italic">Excluir esta empresa</p>
+                                <p className="text-[10px] text-red-500 font-normal not-italic mt-0.5">Apaga definitivamente reuniões, atas, membros e logins. Irreversível.</p>
+                              </div>
+                              <button onClick={deleteClientAccount} disabled={deletingClient} className="shrink-0 px-5 py-2.5 bg-red-600 hover:bg-red-700 text-white rounded-lg font-bold text-[10px] uppercase tracking-widest flex items-center justify-center gap-2 transition-all shadow-md disabled:opacity-50">
+                                <Trash2 size={14} /> {deletingClient ? 'Excluindo...' : 'Excluir definitivamente'}
+                              </button>
+                            </div>
                           </div>
                         </div>
                       )}
