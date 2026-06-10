@@ -4,7 +4,30 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2"
 // Eventos que indicam que TODOS assinaram e o documento está concluído
 const SIGNED_EVENTS = ['auto_close', 'close', 'finalize', 'completed']
 
+// Valida a assinatura HMAC-SHA256 enviada pelo ClickSign no cabeçalho Content-Hmac.
+// O ClickSign assina o corpo bruto da requisição com o secret configurado no painel.
+async function verifyHmac(rawBody: string, header: string | null, secret: string): Promise<boolean> {
+  if (!header) return false
+  // O cabeçalho pode vir como "sha256=<hex>" ou apenas "<hex>"
+  const provided = (header.includes('=') ? header.split('=').pop()! : header).trim().toLowerCase()
+  const key = await crypto.subtle.importKey(
+    'raw',
+    new TextEncoder().encode(secret),
+    { name: 'HMAC', hash: 'SHA-256' },
+    false,
+    ['sign'],
+  )
+  const sigBuffer = await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(rawBody))
+  const expected = [...new Uint8Array(sigBuffer)].map((b) => b.toString(16).padStart(2, '0')).join('')
+  // Comparação em tempo constante
+  if (expected.length !== provided.length) return false
+  let diff = 0
+  for (let i = 0; i < expected.length; i++) diff |= expected.charCodeAt(i) ^ provided.charCodeAt(i)
+  return diff === 0
+}
+
 serve(async (req) => {
+  // Health check público (sem corpo, sem dados sensíveis)
   if (req.method === 'GET') {
     return new Response(JSON.stringify({ ok: true, service: 'clicksign-webhook' }), {
       headers: { 'Content-Type': 'application/json' }, status: 200
@@ -13,16 +36,36 @@ serve(async (req) => {
 
   if (req.method !== 'POST') return new Response('Method Not Allowed', { status: 405 })
 
+  // Lê o corpo BRUTO antes de qualquer parse — o HMAC é calculado sobre os bytes originais
+  const rawBody = await req.text()
+
+  // ── Autenticação do webhook: valida a assinatura HMAC do ClickSign ──
+  const HMAC_SECRET = Deno.env.get('CLICKSIGN_HMAC_SECRET')
+  if (!HMAC_SECRET) {
+    // Fail-closed: sem secret configurado, não confiamos em nenhuma requisição
+    console.error('[clicksign-webhook] CLICKSIGN_HMAC_SECRET não configurado — requisição rejeitada')
+    return new Response(JSON.stringify({ error: 'Webhook secret not configured' }), {
+      headers: { 'Content-Type': 'application/json' }, status: 401
+    })
+  }
+  const hmacHeader = req.headers.get('Content-Hmac') ?? req.headers.get('content-hmac')
+  const isValid = await verifyHmac(rawBody, hmacHeader, HMAC_SECRET)
+  if (!isValid) {
+    console.warn('[clicksign-webhook] Assinatura HMAC inválida ou ausente — requisição rejeitada')
+    return new Response(JSON.stringify({ error: 'Invalid signature' }), {
+      headers: { 'Content-Type': 'application/json' }, status: 401
+    })
+  }
+
   let payload: any
   try {
-    payload = await req.json()
+    payload = JSON.parse(rawBody)
   } catch {
     return new Response('Invalid JSON', { status: 400 })
   }
 
   const event = payload?.event
   console.log(`[clicksign-webhook] Evento recebido: ${event?.name ?? 'desconhecido'}`)
-  console.log(`[clicksign-webhook] Payload: ${JSON.stringify(payload).substring(0, 1000)}`)
 
   if (!event?.name) return new Response('ok', { status: 200 })
 
@@ -48,7 +91,6 @@ serve(async (req) => {
       document.download_url
 
     console.log(`[clicksign-webhook] Processando documento: ${documentKey}`)
-    console.log(`[clicksign-webhook] URL do PDF assinado: ${signedFileUrl ?? 'não disponível'}`)
 
     const supabaseAdmin = createClient(
       Deno.env.get('SUPABASE_URL') ?? '',
