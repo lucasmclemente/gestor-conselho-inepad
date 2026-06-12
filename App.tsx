@@ -16,6 +16,16 @@ const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
 const supabaseKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
 const supabase = createClient(supabaseUrl, supabaseKey);
 
+// Prioridades do Plano de Ação — escala de cor crescente (baixa → urgente)
+const PRIORITIES = ['Baixa', 'Média', 'Importante', 'Urgente'] as const;
+const PRIORITY_STYLES: Record<string, string> = {
+  'Baixa': 'bg-slate-100 text-slate-600 border-slate-200',
+  'Média': 'bg-sky-100 text-sky-700 border-sky-200',
+  'Importante': 'bg-amber-100 text-amber-700 border-amber-200',
+  'Urgente': 'bg-red-100 text-red-700 border-red-200',
+};
+const PRIORITY_WEIGHT: Record<string, number> = { 'Urgente': 0, 'Importante': 1, 'Média': 2, 'Baixa': 3 };
+
 const App = () => {
   const [users, setUsers] = useState<any[]>([]);
   const [meetings, setMeetings] = useState<any[]>([]);
@@ -42,6 +52,7 @@ const App = () => {
   const [filterResp, setFilterResp] = useState('all');
   const [filterStatus, setFilterStatus] = useState('all');
   const [filterOrigin, setFilterOrigin] = useState('all');
+  const [filterPriority, setFilterPriority] = useState('all');
 
   const [isConvocationOpen, setIsConvocationOpen] = useState(false);
   const [isSendingEmail, setIsSendingEmail] = useState(false);
@@ -70,8 +81,8 @@ const App = () => {
   const [editingPauta, setEditingPauta] = useState<number | null>(null);
   const [tmpPart, setTmpPart] = useState({ name: '', email: '', isExternal: false });
   const [tmpPauta, setTmpPauta] = useState({ title: '', resp: '', dur: '' });
-  const [tmpAcao, setTmpAcao] = useState({ title: '', resps: [] as string[], resp: '', date: '', status: 'Pendente', obs: '' });
-  const [tmpGlobalAcao, setTmpGlobalAcao] = useState({ title: '', resps: [] as string[], date: '', meetingId: '', obs: '' });
+  const [tmpAcao, setTmpAcao] = useState({ title: '', resps: [] as string[], resp: '', date: '', status: 'Pendente', obs: '', priority: 'Média' });
+  const [tmpGlobalAcao, setTmpGlobalAcao] = useState({ title: '', resps: [] as string[], date: '', meetingId: '', obs: '', priority: 'Média' });
   const [tmpDelib, setTmpDelib] = useState({ title: '', voters: [] as string[], votes: {} as any });
   const [editingObsKey, setEditingObsKey] = useState<string | null>(null);
   const [obsInputValue, setObsInputValue] = useState('');
@@ -441,14 +452,23 @@ const App = () => {
     if (!tmpGlobalAcao.title || !tmpGlobalAcao.meetingId) return alert("Título e Reunião de Origem são obrigatórios.");
     const targetMeeting = meetings.find(m => m.id === tmpGlobalAcao.meetingId);
     if (!targetMeeting) return;
-    const newAction = { id: Date.now(), title: tmpGlobalAcao.title, resps: tmpGlobalAcao.resps, resp: tmpGlobalAcao.resps[0] || '', date: tmpGlobalAcao.date, obs: tmpGlobalAcao.obs, status: 'Pendente' };
+    const newAction = { id: Date.now(), title: tmpGlobalAcao.title, resps: tmpGlobalAcao.resps, resp: tmpGlobalAcao.resps[0] || '', date: tmpGlobalAcao.date, obs: tmpGlobalAcao.obs, status: 'Pendente', priority: tmpGlobalAcao.priority || 'Média' };
     const updatedActions = [...(targetMeeting.acoes || []), newAction];
     const { error } = await supabase.from('meetings').update({ acoes: updatedActions }).eq('id', targetMeeting.id);
     if (!error) {
       setMeetings(prev => prev.map(m => m.id === targetMeeting.id ? { ...m, acoes: updatedActions } : m));
-      setTmpGlobalAcao({ title: '', resps: [], date: '', meetingId: '', obs: '' });
+      setTmpGlobalAcao({ title: '', resps: [], date: '', meetingId: '', obs: '', priority: 'Média' });
       alert("Ação registrada!");
     }
+  };
+
+  const updateActionPriorityGlobal = async (meetingId: string, actionId: string | number, newPriority: string) => {
+    if (!canEdit) return;
+    const meeting = meetings.find(m => m.id === meetingId);
+    if (!meeting) return;
+    const newAcoes = (meeting.acoes || []).map((a: any) => a.id === actionId ? { ...a, priority: newPriority } : a);
+    const { error } = await supabase.from('meetings').update({ acoes: newAcoes }).eq('id', meetingId);
+    if (!error) setMeetings(prev => prev.map(m => m.id === meetingId ? { ...m, acoes: newAcoes } : m));
   };
 
   const deleteMeeting = async (id: string, title: string) => {
@@ -800,7 +820,10 @@ const App = () => {
         if (filterStatus === 'Atrasada') return a.status !== 'Concluída' && a.date && new Date(a.date) < today;
         return a.status === filterStatus;
       })
-      .filter(a => (filterOrigin === 'all' || a.mId === filterOrigin));
+      .filter(a => (filterOrigin === 'all' || a.mId === filterOrigin))
+      .filter(a => (filterPriority === 'all' || (a.priority || 'Média') === filterPriority))
+      // Ordena por prioridade (Urgente primeiro), depois pelo prazo mais próximo
+      .sort((a, b) => (PRIORITY_WEIGHT[a.priority || 'Média'] - PRIORITY_WEIGHT[b.priority || 'Média']) || ((a.date || '9999').localeCompare(b.date || '9999')));
     const count = (st: string) => allA.filter(a => a.status === st).length;
     const atrasadas = allA.filter(a => a.status !== 'Concluída' && a.date && new Date(a.date) < today).length;
     return {
@@ -816,7 +839,7 @@ const App = () => {
       ],
       barData: filteredM.slice(0, 6).map(m => ({ name: m.date || 'S/D', 'Pautas': m.pautas?.length || 0, 'Ações': m.acoes?.length || 0 }))
     };
-  }, [meetings, dashboardFilter, filterResp, filterStatus, filterOrigin]);
+  }, [meetings, dashboardFilter, filterResp, filterStatus, filterOrigin, filterPriority]);
 
   // Estatísticas exclusivas do Dashboard — dependem apenas do filtro de reunião
   // (não herdam os filtros de Responsável/Status/Origem do Plano de Ação)
@@ -1811,7 +1834,10 @@ const App = () => {
                                     </div>
                                     <p className="text-[10px] text-slate-400 uppercase mt-1 tracking-widest">{a.date}</p>
                                   </div>
-                                  {canEdit && <button onClick={() => setCurrentMeeting({ ...currentMeeting, acoes: (currentMeeting.acoes || []).filter((_: any, idx: any) => idx !== i) })} className="shrink-0"><Trash2 size={18} className="text-slate-200 hover:text-red-500" /></button>}
+                                  <div className="flex items-center gap-2 shrink-0" onClick={e => e.stopPropagation()}>
+                                    <select value={a.priority || 'Média'} onChange={e => setCurrentMeeting({ ...currentMeeting, acoes: (currentMeeting.acoes || []).map((ac: any, idx: any) => idx === i ? { ...ac, priority: e.target.value } : ac) })} className={`px-2.5 py-1 rounded-lg text-[9px] font-bold uppercase cursor-pointer border not-italic ${PRIORITY_STYLES[a.priority || 'Média']}`} disabled={!canEdit}>{PRIORITIES.map(p => <option key={p} value={p}>{p}</option>)}</select>
+                                    {canEdit && <button onClick={() => setCurrentMeeting({ ...currentMeeting, acoes: (currentMeeting.acoes || []).filter((_: any, idx: any) => idx !== i) })} className="shrink-0"><Trash2 size={18} className="text-slate-200 hover:text-red-500" /></button>}
+                                  </div>
                                 </div>
                                 {/* OBS inline editável */}
                                 {canEdit && editingObsKey === meetingObsKey ? (
@@ -1839,7 +1865,7 @@ const App = () => {
                         </div>
                         {canEdit && (
                           <div className="p-5 bg-slate-50 border border-dashed border-slate-300 rounded-xl grid grid-cols-1 sm:grid-cols-12 gap-4 items-end">
-                            <div className="sm:col-span-5"><label className="text-[10px] font-bold text-slate-400 uppercase">Ação</label><input placeholder="Título" className="w-full p-3 border rounded-lg text-sm bg-white font-bold italic" value={tmpAcao.title} onChange={e => setTmpAcao({ ...tmpAcao, title: e.target.value })} /></div>
+                            <div className="sm:col-span-4"><label className="text-[10px] font-bold text-slate-400 uppercase">Ação</label><input placeholder="Título" className="w-full p-3 border rounded-lg text-sm bg-white font-bold italic" value={tmpAcao.title} onChange={e => setTmpAcao({ ...tmpAcao, title: e.target.value })} /></div>
                             <div className="sm:col-span-4 space-y-1">
                               <label className="text-[10px] font-bold text-slate-400 uppercase">Responsáveis</label>
                               <div className="p-2.5 border border-slate-200 rounded-lg bg-white min-h-[46px] flex flex-wrap gap-1.5 items-center">
@@ -1856,9 +1882,10 @@ const App = () => {
                                 </select>
                               </div>
                             </div>
-                            <div className="sm:col-span-3"><label className="text-[10px] font-bold text-slate-400 uppercase">Prazo</label><input type="date" className="w-full p-3 border rounded-lg text-sm bg-white font-bold" value={tmpAcao.date} onChange={e => setTmpAcao({ ...tmpAcao, date: e.target.value })} /></div>
+                            <div className="sm:col-span-2"><label className="text-[10px] font-bold text-slate-400 uppercase">Prazo</label><input type="date" className="w-full p-3 border rounded-lg text-sm bg-white font-bold" value={tmpAcao.date} onChange={e => setTmpAcao({ ...tmpAcao, date: e.target.value })} /></div>
+                            <div className="sm:col-span-2"><label className="text-[10px] font-bold text-slate-400 uppercase">Prioridade</label><select className={`w-full p-3 border rounded-lg text-sm font-bold outline-none ${PRIORITY_STYLES[tmpAcao.priority || 'Média']}`} value={tmpAcao.priority} onChange={e => setTmpAcao({ ...tmpAcao, priority: e.target.value })}>{PRIORITIES.map(p => <option key={p} value={p}>{p}</option>)}</select></div>
                             <div className="sm:col-span-12"><label className="text-[10px] font-bold text-slate-400 uppercase">Observação (opcional)</label><input placeholder="Contexto ou detalhes da ação..." className="w-full p-3 border rounded-lg text-sm bg-white font-normal italic mt-1" value={tmpAcao.obs} onChange={e => setTmpAcao({ ...tmpAcao, obs: e.target.value })} /></div>
-                            <div className="sm:col-span-12"><button onClick={() => { if (tmpAcao.title) { setCurrentMeeting({ ...currentMeeting, acoes: [...(currentMeeting.acoes || []), { ...tmpAcao, resp: tmpAcao.resps[0] || '', id: Date.now() }] }); setTmpAcao({ title: '', resps: [], resp: '', date: '', status: 'Pendente', obs: '' }); } }} className="w-full p-3 bg-emerald-600 text-white rounded-lg flex items-center justify-center shadow-md font-bold uppercase text-[10px] tracking-widest"><Plus size={18} className="mr-2" /> Adicionar Iniciativa</button></div>
+                            <div className="sm:col-span-12"><button onClick={() => { if (tmpAcao.title) { setCurrentMeeting({ ...currentMeeting, acoes: [...(currentMeeting.acoes || []), { ...tmpAcao, resp: tmpAcao.resps[0] || '', id: Date.now() }] }); setTmpAcao({ title: '', resps: [], resp: '', date: '', status: 'Pendente', obs: '', priority: 'Média' }); } }} className="w-full p-3 bg-emerald-600 text-white rounded-lg flex items-center justify-center shadow-md font-bold uppercase text-[10px] tracking-widest"><Plus size={18} className="mr-2" /> Adicionar Iniciativa</button></div>
                           </div>
                         )}
                       </div>
@@ -2044,6 +2071,7 @@ const App = () => {
                     <div className="flex flex-wrap items-center gap-3 bg-slate-50 p-2 rounded-lg border border-slate-200 w-full md:w-auto">
                       <div className="flex items-center gap-2 bg-white px-3 py-1.5 rounded border border-slate-200"><User size={14} className="text-amber-500" /><select className="text-[10px] font-bold uppercase outline-none bg-transparent cursor-pointer text-slate-600" value={filterResp} onChange={e => setFilterResp(e.target.value)}><option value="all">Responsável</option>{[...new Set(meetings.flatMap((m: any) => (m.acoes || []).flatMap((a: any) => a.resps?.length > 0 ? a.resps : (a.resp ? [a.resp] : []))))].filter(Boolean).map((r: any) => <option key={r} value={r}>{r}</option>)}</select></div>
                       <div className="flex items-center gap-2 bg-white px-3 py-1.5 rounded border border-slate-200"><Target size={14} className="text-amber-500" /><select className="text-[10px] font-bold uppercase outline-none bg-transparent cursor-pointer text-slate-600" value={filterStatus} onChange={e => setFilterStatus(e.target.value)}><option value="all">Status</option><option value="Pendente">Pendente</option><option value="Em andamento">Em andamento</option><option value="Concluída">Concluída</option><option value="Atrasada">Atrasada</option></select></div>
+                      <div className="flex items-center gap-2 bg-white px-3 py-1.5 rounded border border-slate-200"><AlertCircle size={14} className="text-amber-500" /><select className="text-[10px] font-bold uppercase outline-none bg-transparent cursor-pointer text-slate-600" value={filterPriority} onChange={e => setFilterPriority(e.target.value)}><option value="all">Prioridade</option>{PRIORITIES.map(p => <option key={p} value={p}>{p}</option>)}</select></div>
                       <div className="flex items-center gap-2 bg-white px-3 py-1.5 rounded border border-slate-200"><Building2 size={14} className="text-amber-500" /><select className="text-[10px] font-bold uppercase outline-none bg-transparent cursor-pointer text-slate-600" value={filterOrigin} onChange={e => setFilterOrigin(e.target.value)}><option value="all">Origem (Reunião)</option>{meetings.map(m => <option key={m.id} value={m.id}>{m.title}</option>)}</select></div>
                     </div>
                   </div>
@@ -2051,11 +2079,11 @@ const App = () => {
                   <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden overflow-x-auto">
                     <table className="w-full text-left text-sm min-w-[1100px] font-bold italic">
                       <thead className="bg-slate-900 text-[10px] font-bold uppercase text-amber-500 tracking-widest">
-                        <tr><th className="px-6 py-4">Iniciativa</th><th className="px-5 py-4">Responsável(is)</th><th className="px-6 py-4">Origem</th><th className="px-6 py-4">Prazo</th><th className="px-6 py-4">Status</th>{canEdit && <th className="px-6 py-4 text-center">Ação</th>}</tr>
+                        <tr><th className="px-6 py-4">Iniciativa</th><th className="px-5 py-4">Responsável(is)</th><th className="px-6 py-4">Origem</th><th className="px-6 py-4">Prazo</th><th className="px-6 py-4 text-center">Prioridade</th><th className="px-6 py-4">Status</th>{canEdit && <th className="px-6 py-4 text-center">Ação</th>}</tr>
                       </thead>
                       <tbody className="divide-y divide-slate-100">
                         {stats.allActions.length === 0 && (
-                          <tr><td colSpan={canEdit ? 6 : 5} className="px-6 py-10 text-center text-slate-400 text-[10px] uppercase tracking-widest">Nenhuma ação registrada</td></tr>
+                          <tr><td colSpan={canEdit ? 7 : 6} className="px-6 py-10 text-center text-slate-400 text-[10px] uppercase tracking-widest">Nenhuma ação registrada</td></tr>
                         )}
                         {stats.allActions.map((acao: any) => {
                           const acaoKey = `${acao.mId}-${acao.id}`;
@@ -2138,6 +2166,7 @@ const App = () => {
 
                               <td className="px-6 py-4 text-slate-400 text-[10px] uppercase tracking-widest">{acao.mTitle}</td>
                               <td className="px-6 py-4"><input type="date" className="bg-transparent border-none outline-none text-[10px] font-bold text-slate-600" value={acao.date || ''} onChange={e => updateActionDateGlobal(acao.mId, acao.id, e.target.value)} disabled={!canEdit} /></td>
+                              <td className="px-6 py-4 text-center"><select value={acao.priority || 'Média'} onChange={e => updateActionPriorityGlobal(acao.mId, acao.id, e.target.value)} className={`px-3 py-1.5 rounded-lg text-[10px] font-bold uppercase cursor-pointer border ${PRIORITY_STYLES[acao.priority || 'Média']}`} disabled={!canEdit}>{PRIORITIES.map(p => <option key={p} value={p}>{p}</option>)}</select></td>
                               <td className="px-6 py-4 text-center"><select value={acao.status} onChange={e => updateActionStatusGlobal(acao.mId, acao.id, e.target.value)} className="px-3 py-1.5 rounded-lg text-[10px] font-bold uppercase bg-amber-50 text-amber-700 cursor-pointer" disabled={!canEdit}><option value="Pendente">Aguardando</option><option value="Em andamento">Execução</option><option value="Concluída">Finalizado</option></select></td>
                               {canEdit && <td className="px-6 py-4 text-center"><button onClick={() => deleteActionGlobal(acao.mId, acao.id)} className="text-slate-200 hover:text-red-600 transition-colors"><Trash2 size={16} /></button></td>}
                             </tr>
@@ -2183,7 +2212,13 @@ const App = () => {
                             </select>
                           </div>
                         </div>
-                        <div className="sm:col-span-9 space-y-1">
+                        <div className="sm:col-span-3 space-y-1">
+                          <label className="text-[10px] font-bold text-slate-400 uppercase">Prioridade</label>
+                          <select className={`w-full p-3 border rounded-lg text-sm font-bold outline-none transition-colors ${PRIORITY_STYLES[tmpGlobalAcao.priority || 'Média']}`} value={tmpGlobalAcao.priority} onChange={e => setTmpGlobalAcao({ ...tmpGlobalAcao, priority: e.target.value })}>
+                            {PRIORITIES.map(p => <option key={p} value={p}>{p}</option>)}
+                          </select>
+                        </div>
+                        <div className="sm:col-span-6 space-y-1">
                           <label className="text-[10px] font-bold text-slate-400 uppercase">Observação (opcional)</label>
                           <input placeholder="Contexto, detalhes ou links relevantes..." className="w-full p-3 border border-slate-200 rounded-lg text-sm bg-white font-normal italic outline-none focus:border-amber-500 transition-colors" value={tmpGlobalAcao.obs} onChange={e => setTmpGlobalAcao({ ...tmpGlobalAcao, obs: e.target.value })} />
                         </div>
