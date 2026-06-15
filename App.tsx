@@ -7,7 +7,7 @@ import {
   Clock, CheckCircle2, AlertCircle, FileText, Send, X, Trash2,
   Upload, Save, Lock, Target, FileCheck, BarChart3,
   PieChart as PieIcon, LogIn, User, Key, LogOut, UserCheck,
-  Mail, UserCog, Settings, Camera, UserCircle, History, Filter, MessageSquare, Download, ExternalLink, ListChecks, Plus, Edit2, Check, Menu, ChevronUp, ChevronDown, Play, Square, Timer, SkipForward, Building2, ChevronLeft, UserMinus, ThumbsUp, ThumbsDown, CircleSlash, MinusCircle, Archive, Search, PenLine, ShieldCheck
+  Mail, UserCog, Settings, Camera, UserCircle, History, Filter, MessageSquare, Download, ExternalLink, ListChecks, Plus, Edit2, Check, Menu, ChevronUp, ChevronDown, Play, Square, Timer, SkipForward, Building2, ChevronLeft, UserMinus, ThumbsUp, ThumbsDown, CircleSlash, MinusCircle, Archive, Search, PenLine, ShieldCheck, Scale
 } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend } from 'recharts';
 
@@ -25,6 +25,25 @@ const PRIORITY_STYLES: Record<string, string> = {
   'Urgente': 'bg-red-100 text-red-700 border-red-200',
 };
 const PRIORITY_WEIGHT: Record<string, number> = { 'Urgente': 0, 'Importante': 1, 'Média': 2, 'Baixa': 3 };
+
+// Calcula o resultado de uma deliberação a partir dos votos (mesma regra da aba da reunião)
+function deliberationResult(d: any) {
+  const voters: string[] = d.voters || [];
+  const votes: Record<string, string> = d.votes || {};
+  const favor = voters.filter(v => votes[v] === 'Favor').length;
+  const contra = voters.filter(v => votes[v] === 'Contra').length;
+  const abst = voters.filter(v => votes[v] === 'Abstenção').length;
+  const voted = favor + contra + abst;
+  const total = voters.length;
+  const pending = total - voted;
+  const allVoted = total > 0 && pending === 0;
+  let label = 'SEM VOTANTES', cls = 'bg-slate-100 text-slate-400';
+  if (total > 0 && !allVoted) { label = 'EM VOTAÇÃO'; cls = 'bg-amber-100 text-amber-700'; }
+  else if (allVoted && favor > contra) { label = 'APROVADA'; cls = 'bg-emerald-100 text-emerald-700'; }
+  else if (allVoted && contra > favor) { label = 'REJEITADA'; cls = 'bg-red-100 text-red-700'; }
+  else if (allVoted) { label = 'EMPATE'; cls = 'bg-slate-100 text-slate-600'; }
+  return { favor, contra, abst, voted, total, pending, allVoted, label, cls };
+}
 
 const App = () => {
   const [users, setUsers] = useState<any[]>([]);
@@ -53,6 +72,8 @@ const App = () => {
   const [filterStatus, setFilterStatus] = useState('all');
   const [filterOrigin, setFilterOrigin] = useState('all');
   const [filterPriority, setFilterPriority] = useState('all');
+  const [delibFilterResult, setDelibFilterResult] = useState('all');
+  const [delibFilterOrigin, setDelibFilterOrigin] = useState('all');
 
   const [isConvocationOpen, setIsConvocationOpen] = useState(false);
   const [isSendingEmail, setIsSendingEmail] = useState(false);
@@ -960,6 +981,30 @@ const App = () => {
       .sort((a: any, b: any) => (a.date || '').localeCompare(b.date || ''));
   }, [meetings]);
 
+  // Consolidado de deliberações de todas as reuniões — área de acompanhamento
+  const delibStats = useMemo(() => {
+    const all = meetings.flatMap((m: any) => (m.deliberacoes || []).map((d: any, idx: number) => {
+      const r = deliberationResult(d);
+      return { ...d, mTitle: m.title, mId: m.id, mDate: m.date, idx, ...r };
+    }));
+    const counts = {
+      total: all.length,
+      aprovadas: all.filter((d: any) => d.label === 'APROVADA').length,
+      rejeitadas: all.filter((d: any) => d.label === 'REJEITADA').length,
+      emVotacao: all.filter((d: any) => d.label === 'EM VOTAÇÃO').length,
+    };
+    const filtered = all
+      .filter((d: any) => delibFilterResult === 'all' || d.label === delibFilterResult)
+      .filter((d: any) => delibFilterOrigin === 'all' || d.mId === delibFilterOrigin)
+      // Em votação primeiro (precisam de atenção), depois por data mais recente
+      .sort((a: any, b: any) => {
+        const aw = a.label === 'EM VOTAÇÃO' ? 0 : 1, bw = b.label === 'EM VOTAÇÃO' ? 0 : 1;
+        if (aw !== bw) return aw - bw;
+        return (b.mDate || '').localeCompare(a.mDate || '');
+      });
+    return { ...counts, list: filtered };
+  }, [meetings, delibFilterResult, delibFilterOrigin]);
+
   // Verifica status da assinatura no ClickSign e atualiza a ata manualmente
   const handleCheckSignature = async (ataIndex: number) => {
     if (!currentMeeting.id) return;
@@ -1321,6 +1366,7 @@ const App = () => {
             { id: 'dashboard', icon: <LayoutDashboard size={18} />, label: 'Dashboard' },
             { id: 'reunioes', icon: <Calendar size={18} />, label: 'Conselho', action: () => setView('list') },
             { id: 'plano-acao', icon: <ListChecks size={18} />, label: 'Plano de Ação' },
+            { id: 'deliberacoes', icon: <Scale size={18} />, label: 'Deliberações' },
             { id: 'repositorio-atas', icon: <Archive size={18} />, label: 'Repositório de Atas' },
             { id: 'usuarios', icon: <UserCog size={18} />, label: isSuper ? 'Contas de Clientes' : 'Membros', adm: true },
             { id: 'auditoria', icon: <History size={18} />, label: 'Auditoria', adm: true }
@@ -2378,6 +2424,68 @@ const App = () => {
                       </div>
                     </div>
                   )}
+                </div>
+              )}
+
+              {/* ==================== ACOMPANHAMENTO DE DELIBERAÇÕES ==================== */}
+              {activeMenu === 'deliberacoes' && (
+                <div className="space-y-6 animate-in fade-in">
+                  <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+                    <h1 className="text-2xl font-bold text-slate-800 tracking-tight italic flex items-center gap-2"><Scale size={22} className="text-amber-600" /> Deliberações</h1>
+                    <div className="flex flex-wrap items-center gap-3 bg-slate-50 p-2 rounded-lg border border-slate-200 w-full md:w-auto">
+                      <div className="flex items-center gap-2 bg-white px-3 py-1.5 rounded border border-slate-200"><Filter size={14} className="text-amber-500" /><select className="text-[10px] font-bold uppercase outline-none bg-transparent cursor-pointer text-slate-600" value={delibFilterResult} onChange={e => setDelibFilterResult(e.target.value)}><option value="all">Resultado</option><option value="APROVADA">Aprovada</option><option value="REJEITADA">Rejeitada</option><option value="EM VOTAÇÃO">Em votação</option><option value="EMPATE">Empate</option><option value="SEM VOTANTES">Sem votantes</option></select></div>
+                      <div className="flex items-center gap-2 bg-white px-3 py-1.5 rounded border border-slate-200"><Building2 size={14} className="text-amber-500" /><select className="text-[10px] font-bold uppercase outline-none bg-transparent cursor-pointer text-slate-600" value={delibFilterOrigin} onChange={e => setDelibFilterOrigin(e.target.value)}><option value="all">Origem (Reunião)</option>{meetings.map(m => <option key={m.id} value={m.id}>{m.title}</option>)}</select></div>
+                    </div>
+                  </div>
+
+                  {/* KPIs clicáveis (filtram por resultado) */}
+                  <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+                    {[
+                      { l: 'Total', v: delibStats.total, f: 'all', c: 'slate', i: <Scale /> },
+                      { l: 'Aprovadas', v: delibStats.aprovadas, f: 'APROVADA', c: 'emerald', i: <ThumbsUp /> },
+                      { l: 'Rejeitadas', v: delibStats.rejeitadas, f: 'REJEITADA', c: 'red', i: <ThumbsDown /> },
+                      { l: 'Em Votação', v: delibStats.emVotacao, f: 'EM VOTAÇÃO', c: 'amber', i: <Clock /> },
+                    ].map((k, idx) => (
+                      <button key={idx} onClick={() => setDelibFilterResult(k.f)} className={`group bg-white p-5 rounded-xl border shadow-sm flex items-center gap-4 text-left transition-all hover:shadow-md ${delibFilterResult === k.f ? 'border-amber-400 ring-1 ring-amber-200' : 'border-slate-200 hover:border-amber-300'}`}>
+                        <div className={`p-3 rounded-lg ${k.c === 'emerald' ? 'bg-emerald-100 text-emerald-600' : k.c === 'red' ? 'bg-red-100 text-red-600' : k.c === 'amber' ? 'bg-amber-100 text-amber-600' : 'bg-slate-100 text-slate-500'}`}>{k.i}</div>
+                        <div><p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">{k.l}</p><p className="text-2xl font-bold text-slate-800 mt-0.5">{k.v}</p></div>
+                      </button>
+                    ))}
+                  </div>
+
+                  {/* Tabela consolidada */}
+                  <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden overflow-x-auto">
+                    <table className="w-full text-left text-sm min-w-[900px] font-bold italic">
+                      <thead className="bg-slate-900 text-[10px] font-bold uppercase text-amber-500 tracking-widest">
+                        <tr><th className="px-6 py-4">Deliberação</th><th className="px-6 py-4">Origem</th><th className="px-6 py-4 text-center">Votação</th><th className="px-6 py-4 text-center">Resultado</th><th className="px-6 py-4 text-center">Reunião</th></tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100">
+                        {delibStats.list.length === 0 ? (
+                          <tr><td colSpan={5} className="px-6 py-10 text-center text-slate-400 text-[10px] uppercase tracking-widest">Nenhuma deliberação encontrada</td></tr>
+                        ) : delibStats.list.map((d: any) => {
+                          const meeting = meetings.find((m: any) => m.id === d.mId);
+                          return (
+                            <tr key={`${d.mId}-${d.idx}`} className="hover:bg-slate-50 transition-all align-top">
+                              <td className="px-6 py-4 text-slate-800 max-w-md"><p className="leading-snug">"{d.title}"</p></td>
+                              <td className="px-6 py-4 text-slate-400 text-[10px] uppercase tracking-widest">{d.mTitle}<br /><span className="text-slate-300">{d.mDate || ''}</span></td>
+                              <td className="px-6 py-4">
+                                <div className="flex items-center justify-center gap-1.5 flex-wrap not-italic">
+                                  <span className="inline-flex items-center gap-1 bg-emerald-50 text-emerald-700 text-[9px] font-bold px-2 py-0.5 rounded-full border border-emerald-100"><ThumbsUp size={9} />{d.favor}</span>
+                                  <span className="inline-flex items-center gap-1 bg-red-50 text-red-700 text-[9px] font-bold px-2 py-0.5 rounded-full border border-red-100"><ThumbsDown size={9} />{d.contra}</span>
+                                  <span className="inline-flex items-center gap-1 bg-slate-50 text-slate-500 text-[9px] font-bold px-2 py-0.5 rounded-full border border-slate-200"><MinusCircle size={9} />{d.abst}</span>
+                                </div>
+                                <p className="text-[9px] text-slate-400 text-center mt-1 not-italic">{d.voted}/{d.total} votaram</p>
+                              </td>
+                              <td className="px-6 py-4 text-center"><span className={`px-3 py-1 rounded-full text-[9px] uppercase font-bold ${d.cls}`}>{d.label}</span></td>
+                              <td className="px-6 py-4 text-center">
+                                <button onClick={() => { if (meeting) { setCurrentMeeting(meeting); setView('details'); setTab('delib'); setActiveMenu('reunioes'); } }} className="text-slate-300 hover:text-amber-600 transition-colors inline-flex" title="Abrir na reunião"><ExternalLink size={16} /></button>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
                 </div>
               )}
 
