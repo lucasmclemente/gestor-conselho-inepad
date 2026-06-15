@@ -912,7 +912,7 @@ const App = () => {
   const stats = useMemo(() => {
     const today = new Date(); today.setHours(0, 0, 0, 0);
     const filteredM = dashboardFilter === 'all' ? meetings : meetings.filter(m => m.id === dashboardFilter);
-    const allA = filteredM.flatMap(m => (m.acoes || []).map((a: any) => ({ ...a, mTitle: m.title, mId: m.id })))
+    const allA = filteredM.flatMap(m => (m.acoes || []).map((a: any) => ({ ...a, mTitle: m.title, mId: m.id, mDate: m.date })))
       .filter(a => filterResp === 'all' || (a.resps?.length > 0 ? a.resps.includes(filterResp) : a.resp === filterResp))
       .filter(a => {
         if (filterStatus === 'all') return true;
@@ -945,7 +945,7 @@ const App = () => {
   const dashStats = useMemo(() => {
     const today = new Date(); today.setHours(0, 0, 0, 0);
     const filteredM = dashboardFilter === 'all' ? meetings : meetings.filter(m => m.id === dashboardFilter);
-    const allA = filteredM.flatMap(m => (m.acoes || []).map((a: any) => ({ ...a, mTitle: m.title, mId: m.id })));
+    const allA = filteredM.flatMap(m => (m.acoes || []).map((a: any) => ({ ...a, mTitle: m.title, mId: m.id, mDate: m.date })));
     const isOverdue = (a: any) => a.status !== 'Concluída' && a.date && new Date(a.date) < today;
     const totalActions = allA.length;
     const concluidas = allA.filter(a => a.status === 'Concluída').length;
@@ -2359,7 +2359,10 @@ const App = () => {
                                 </div>
                               </td>
 
-                              <td className="px-6 py-4 text-slate-400 text-[10px] uppercase tracking-widest">{acao.mTitle}</td>
+                              <td className="px-6 py-4">
+                                <p className="text-slate-500 text-[10px] uppercase tracking-widest leading-snug">{acao.mTitle}</p>
+                                {acao.mDate && <p className="text-[10px] text-slate-400 font-normal not-italic mt-1 flex items-center gap-1"><Calendar size={11} className="text-amber-500" />{new Date(acao.mDate + 'T00:00:00').toLocaleDateString('pt-BR')}</p>}
+                              </td>
                               <td className="px-6 py-4"><input type="date" className="bg-transparent border-none outline-none text-[10px] font-bold text-slate-600" value={acao.date || ''} onChange={e => updateActionDateGlobal(acao.mId, acao.id, e.target.value)} disabled={!canEdit} /></td>
                               <td className="px-6 py-4 text-center"><select value={acao.priority || 'Média'} onChange={e => updateActionPriorityGlobal(acao.mId, acao.id, e.target.value)} className={`px-3 py-1.5 rounded-lg text-[10px] font-bold uppercase cursor-pointer border ${PRIORITY_STYLES[acao.priority || 'Média']}`} disabled={!canEdit}>{PRIORITIES.map(p => <option key={p} value={p}>{p}</option>)}</select></td>
                               <td className="px-6 py-4 text-center"><select value={acao.status} onChange={e => updateActionStatusGlobal(acao.mId, acao.id, e.target.value)} className="px-3 py-1.5 rounded-lg text-[10px] font-bold uppercase bg-amber-50 text-amber-700 cursor-pointer" disabled={!canEdit}><option value="Pendente">Aguardando</option><option value="Em andamento">Execução</option><option value="Concluída">Finalizado</option></select></td>
