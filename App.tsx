@@ -865,14 +865,41 @@ const App = () => {
     const delib = newDelibs[delibIndex];
     const voterName = resolveVoterName(delib.voters || []) || currentUser.name;
     const votes = { ...(delib.votes || {}), [voterName]: voteType };
-    newDelibs[delibIndex] = { ...delib, votes };
+    const updatedDelib = { ...delib, votes };
+    newDelibs[delibIndex] = updatedDelib;
+
+    // Se o voto tornou a deliberação APROVADA e ela ainda não gerou ação, cria uma ação no Plano
+    const result = deliberationResult(updatedDelib);
+    let newAcoes = currentMeeting.acoes || [];
+    let generatedAction = false;
+    if (result.label === 'APROVADA' && !updatedDelib.actionGenerated) {
+      newDelibs[delibIndex] = { ...updatedDelib, actionGenerated: true };
+      newAcoes = [...newAcoes, {
+        id: Date.now(),
+        title: updatedDelib.title,
+        resps: [], resp: '',
+        date: '',
+        obs: `Gerada automaticamente a partir da deliberação aprovada em ${new Date().toLocaleDateString('pt-BR')}.`,
+        status: 'Pendente',
+        priority: 'Média',
+        fromDeliberation: true,
+      }];
+      generatedAction = true;
+    }
+
+    const payload: any = generatedAction ? { deliberacoes: newDelibs, acoes: newAcoes } : { deliberacoes: newDelibs };
     if (currentMeeting.id) {
-      const { error } = await supabase.from('meetings').update({ deliberacoes: newDelibs }).eq('id', currentMeeting.id);
+      const { error } = await supabase.from('meetings').update(payload).eq('id', currentMeeting.id);
       if (error) { alert('Erro ao registrar voto: ' + error.message); return; }
     }
-    setCurrentMeeting({ ...currentMeeting, deliberacoes: newDelibs });
-    setMeetings((prev: any) => prev.map((m: any) => m.id === currentMeeting.id ? { ...m, deliberacoes: newDelibs } : m));
+    const updatedMeeting = { ...currentMeeting, deliberacoes: newDelibs, ...(generatedAction ? { acoes: newAcoes } : {}) };
+    setCurrentMeeting(updatedMeeting);
+    setMeetings((prev: any) => prev.map((m: any) => m.id === currentMeeting.id ? updatedMeeting : m));
     addLog('Votação', `Voto "${voteType}" em: ${delib.title}`);
+    if (generatedAction) {
+      addLog('Plano de Ação', `Ação gerada automaticamente da deliberação aprovada: ${updatedDelib.title}`);
+      alert(`✅ Deliberação aprovada!\n\nUma ação foi criada automaticamente no Plano de Ação:\n"${updatedDelib.title}"`);
+    }
   };
 
   const handleDeleteDelib = async (index: number) => {
