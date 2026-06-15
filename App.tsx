@@ -1588,7 +1588,10 @@ const App = () => {
                                 <tr key={`${acao.mId}-${acao.id}`} className={`hover:bg-slate-50 transition-all border-l-4 ${isLate ? 'border-l-red-500' : 'border-l-transparent hover:border-l-amber-500'}`}>
                                   <td className="px-6 py-4 text-slate-800">{acao.title}</td>
                                   <td className="px-6 py-4 text-slate-600">{resp}</td>
-                                  <td className="px-6 py-4 text-slate-400 text-[10px] uppercase tracking-widest">{acao.mTitle}</td>
+                                  <td className="px-6 py-4">
+                                    <p className="text-slate-500 text-[10px] uppercase tracking-widest leading-snug">{acao.mTitle}</p>
+                                    {acao.mDate && <p className="text-[10px] text-slate-400 font-normal not-italic mt-1 flex items-center gap-1"><Calendar size={11} className="text-amber-500" />{new Date(acao.mDate + 'T00:00:00').toLocaleDateString('pt-BR')}</p>}
+                                  </td>
                                   <td className="px-6 py-4 text-center">
                                     <span className={`px-3 py-1 rounded-full text-[9px] uppercase font-bold ${isLate ? 'bg-red-100 text-red-700' : acao.status === 'Em andamento' ? 'bg-amber-100 text-amber-700' : 'bg-slate-100 text-slate-500'}`}>{isLate ? 'Atrasada' : acao.status}</span>
                                   </td>
