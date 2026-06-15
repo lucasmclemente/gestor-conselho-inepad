@@ -322,7 +322,8 @@ const App = () => {
       const fileExt = file.name.split('.').pop();
       const fileName = `${currentUser.client_id}/${Date.now()}_${Math.floor(Math.random() * 1000)}.${fileExt}`;
       const filePath = `${type}/${fileName}`;
-      await supabase.storage.from('meeting-files').upload(filePath, file);
+      const { error: uploadError } = await supabase.storage.from('meeting-files').upload(filePath, file);
+      if (uploadError) throw uploadError; // aborta antes de salvar registro órfão
       const { data: signedData, error: signedError } = await supabase.storage
         .from('meeting-files')
         .createSignedUrl(filePath, 60 * 60 * 24 * 7);
