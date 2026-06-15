@@ -446,6 +446,12 @@ verify_jwt = false
 import_map = "./functions/delete-client/deno.json"
 entrypoint = "./functions/delete-client/index.ts"
 
+[functions.assistant-materials]
+enabled = true
+verify_jwt = false
+import_map = "./functions/assistant-materials/deno.json"
+entrypoint = "./functions/assistant-materials/index.ts"
+
 [functions.clicksign-flow]
 enabled = true
 verify_jwt = true

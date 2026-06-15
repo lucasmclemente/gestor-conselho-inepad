@@ -106,6 +106,12 @@ const App = () => {
   const [creatingClient, setCreatingClient] = useState(false);
   const [deletingClient, setDeletingClient] = useState(false);
 
+  // Perfil Assistente — gestão de materiais via Edge Function (sem acesso direto às reuniões)
+  const [assistantMeetings, setAssistantMeetings] = useState<any[]>([]);
+  const [assistantSelectedId, setAssistantSelectedId] = useState<string | null>(null);
+  const [assistantLoading, setAssistantLoading] = useState(false);
+  const assistantFileRef = useRef<HTMLInputElement>(null);
+
   const [activePautaIndex, setActivePautaIndex] = useState<number | null>(null);
   const [timeElapsed, setTimeElapsed] = useState(0);
   const [isSessionActive, setIsSessionActive] = useState(false);
@@ -114,6 +120,7 @@ const App = () => {
   const isAdm = currentUser?.role === 'Administrador' || isSuper;
   const isSec = currentUser?.role === 'Secretário';
   const canEdit = isAdm || isSec;
+  const isAssistant = currentUser?.role === 'Assistente';
 
   // --- LOGICA DE SESSÃO ---
   useEffect(() => {
@@ -227,6 +234,16 @@ const App = () => {
   const fetchInitialData = async () => {
     setLoading(true);
     try {
+      // Assistente: sem acesso a reuniões/membros/logs — só perfil do cliente + materiais via Edge Function
+      if (isAssistant) {
+        const { data: cli } = await supabase.from('clients').select('*').eq('client_id', currentUser.client_id).maybeSingle();
+        if (cli) { setClientProfile(cli); setClientProfileForm({ name: cli.name || '', logo_url: cli.logo_url || '' }); }
+        else { setClientProfileForm({ name: currentUser.client_id, logo_url: '' }); }
+        setActiveMenu('materiais-assistente');
+        await loadAssistantMeetings();
+        setLoading(false);
+        return;
+      }
       let mQuery = supabase.from('meetings').select('*');
       let uQuery = supabase.from('members').select('id, name, email, role, client_id, created_at');
       let lQuery = supabase.from('audit_logs').select('*');
@@ -740,6 +757,66 @@ const App = () => {
     }
   };
 
+  // --- PERFIL ASSISTENTE: materiais via Edge Function ---
+  const loadAssistantMeetings = async () => {
+    setAssistantLoading(true);
+    try {
+      const { data, error } = await supabase.functions.invoke('assistant-materials', { body: { action: 'list' } });
+      if (error) throw new Error(error.message);
+      if (data?.error) throw new Error(data.error);
+      setAssistantMeetings(data?.meetings || []);
+    } catch (e: any) {
+      console.error('Erro ao carregar materiais:', e?.message || e);
+    } finally {
+      setAssistantLoading(false);
+    }
+  };
+
+  const assistantUploadMaterial = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !assistantSelectedId) return;
+    setAssistantLoading(true);
+    try {
+      const ext = file.name.split('.').pop();
+      const path = `materiais/${currentUser.client_id}/${Date.now()}_${Math.floor(Math.random() * 1000)}.${ext}`;
+      const { error: upErr } = await supabase.storage.from('meeting-files').upload(path, file);
+      if (upErr) throw upErr;
+      const { data: signed, error: signErr } = await supabase.storage.from('meeting-files').createSignedUrl(path, 60 * 60 * 24 * 7);
+      if (signErr) throw signErr;
+      const { data, error } = await supabase.functions.invoke('assistant-materials', {
+        body: { action: 'add', meetingId: assistantSelectedId, material: { name: file.name, url: signed.signedUrl, path } },
+      });
+      if (error) throw new Error(error.message);
+      if (data?.error) throw new Error(data.error);
+      await loadAssistantMeetings();
+      addLog('Upload', `Material enviado (assistente): ${file.name}`);
+      alert('✅ Material enviado!');
+    } catch (e: any) {
+      alert('Erro ao enviar material: ' + (e?.message || e));
+    } finally {
+      setAssistantLoading(false);
+      if (e.target) e.target.value = '';
+    }
+  };
+
+  const assistantDeleteMaterial = async (meetingId: string, material: any) => {
+    if (!window.confirm(`Remover o material "${material.name}"?`)) return;
+    setAssistantLoading(true);
+    try {
+      const { data, error } = await supabase.functions.invoke('assistant-materials', {
+        body: { action: 'delete', meetingId, path: material.path, url: material.url },
+      });
+      if (error) throw new Error(error.message);
+      if (data?.error) throw new Error(data.error);
+      await loadAssistantMeetings();
+      addLog('Exclusão', `Material removido (assistente): ${material.name}`);
+    } catch (e: any) {
+      alert('Erro ao remover material: ' + (e?.message || e));
+    } finally {
+      setAssistantLoading(false);
+    }
+  };
+
   const handleManagedLogoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file || !managedClientId) return;
@@ -1238,14 +1315,16 @@ const App = () => {
           )}
         </div>
         <nav className="flex-1 px-3 py-4 space-y-1 text-[10px] font-bold uppercase tracking-widest">
-          {[
+          {(isAssistant ? [
+            { id: 'materiais-assistente', icon: <Upload size={18} />, label: 'Materiais' },
+          ] : [
             { id: 'dashboard', icon: <LayoutDashboard size={18} />, label: 'Dashboard' },
             { id: 'reunioes', icon: <Calendar size={18} />, label: 'Conselho', action: () => setView('list') },
             { id: 'plano-acao', icon: <ListChecks size={18} />, label: 'Plano de Ação' },
             { id: 'repositorio-atas', icon: <Archive size={18} />, label: 'Repositório de Atas' },
             { id: 'usuarios', icon: <UserCog size={18} />, label: isSuper ? 'Contas de Clientes' : 'Membros', adm: true },
             { id: 'auditoria', icon: <History size={18} />, label: 'Auditoria', adm: true }
-          ].map((item) => (
+          ]).map((item) => (
             (!item.adm || isAdm) && (
               <button key={item.id} onClick={() => { setActiveMenu(item.id); if (item.action) item.action(); setIsMobileMenuOpen(false); }} className={`w-full flex items-center gap-3 rounded-lg transition-all ${activeMenu === item.id ? 'bg-amber-600 text-white shadow-sm' : 'hover:bg-slate-700 hover:text-white'} ${isSidebarCollapsed ? 'justify-center p-3' : 'px-4 py-3'}`}>
                 <span className="shrink-0">{item.icon}</span>
@@ -1282,6 +1361,75 @@ const App = () => {
             <div className="flex items-center justify-center h-full text-amber-600 font-bold uppercase animate-pulse">Sincronizando...</div>
           ) : (
             <>
+              {activeMenu === 'materiais-assistente' && (
+                <div className="space-y-6 animate-in fade-in">
+                  <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex justify-between items-center gap-4">
+                    <div>
+                      <h1 className="text-2xl font-bold text-slate-800 tracking-tight italic">Materiais das Reuniões</h1>
+                      <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1">Envie e gerencie os documentos de apoio</p>
+                    </div>
+                    <button onClick={loadAssistantMeetings} className="text-[10px] font-bold uppercase tracking-widest text-amber-600 hover:text-amber-700 flex items-center gap-1"><History size={12} /> Atualizar</button>
+                  </div>
+
+                  {assistantLoading && assistantMeetings.length === 0 ? (
+                    <div className="text-center text-amber-600 font-bold uppercase animate-pulse py-10">Carregando...</div>
+                  ) : assistantMeetings.length === 0 ? (
+                    <div className="bg-white p-10 rounded-xl border border-slate-200 text-center text-slate-400 text-[10px] uppercase tracking-widest">Nenhuma reunião disponível</div>
+                  ) : (
+                    <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                      <div className="lg:col-span-1 space-y-2">
+                        {assistantMeetings.map((m: any) => (
+                          <button key={m.id} onClick={() => setAssistantSelectedId(m.id)} className={`w-full text-left p-4 rounded-xl border transition-all flex items-center justify-between gap-2 ${assistantSelectedId === m.id ? 'border-amber-500 bg-amber-50' : 'border-slate-200 bg-white hover:border-amber-300'}`}>
+                            <div className="min-w-0">
+                              <p className="text-sm font-bold text-slate-800 italic truncate">{m.title}</p>
+                              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">{m.date || 'Sem data'} • {(m.materiais || []).length} doc(s)</p>
+                            </div>
+                            <ChevronRight size={16} className={`shrink-0 ${assistantSelectedId === m.id ? 'text-amber-500' : 'text-slate-300'}`} />
+                          </button>
+                        ))}
+                      </div>
+                      <div className="lg:col-span-2">
+                        {!assistantSelectedId ? (
+                          <div className="bg-white p-10 rounded-xl border border-dashed border-slate-300 text-center text-slate-400 text-[10px] uppercase tracking-widest h-full flex items-center justify-center">Selecione uma reunião para ver e enviar materiais</div>
+                        ) : (() => {
+                          const sel = assistantMeetings.find((m: any) => m.id === assistantSelectedId);
+                          const mats = sel?.materiais || [];
+                          return (
+                            <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm space-y-4">
+                              <div className="flex justify-between items-center border-b border-slate-50 pb-4 gap-3">
+                                <h3 className="text-xs font-bold uppercase text-slate-600 tracking-widest truncate">{sel?.title}</h3>
+                                <button onClick={() => assistantFileRef.current?.click()} disabled={assistantLoading} className="bg-amber-600 hover:bg-amber-700 text-white px-4 py-2 rounded-lg text-[10px] font-bold uppercase flex items-center gap-2 transition-all shadow-md disabled:opacity-50 shrink-0"><Upload size={14} /> {assistantLoading ? 'Enviando...' : 'Enviar material'}</button>
+                              </div>
+                              {mats.length === 0 ? (
+                                <div className="text-center text-slate-400 text-[10px] uppercase tracking-widest py-8">Nenhum material enviado ainda</div>
+                              ) : (
+                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                  {mats.map((m: any, i: number) => {
+                                    const mine = m.uploadedBy === currentUser.id;
+                                    return (
+                                      <div key={i} className="p-4 bg-white border border-slate-200 rounded-xl flex items-center gap-3 group">
+                                        <FileText size={20} className="text-amber-600 shrink-0" />
+                                        <div className="flex-1 min-w-0">
+                                          <p className="text-xs font-bold italic truncate">{m.name}</p>
+                                          <p className="text-[9px] text-slate-400 uppercase tracking-widest truncate">{m.uploadedByName ? `por ${m.uploadedByName}` : 'documento'}</p>
+                                        </div>
+                                        <a href={m.url} target="_blank" rel="noreferrer" className="text-slate-400 hover:text-amber-600 shrink-0"><ExternalLink size={14} /></a>
+                                        {mine && <button onClick={() => assistantDeleteMaterial(sel.id, m)} className="text-slate-200 hover:text-red-500 shrink-0" title="Remover (enviado por você)"><Trash2 size={15} /></button>}
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+                              )}
+                              <p className="text-[9px] text-slate-400 not-italic">Você só pode remover materiais enviados por você.</p>
+                            </div>
+                          );
+                        })()}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
               {activeMenu === 'dashboard' && (
                 <div className="space-y-6 animate-in fade-in">
                   <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
@@ -2452,6 +2600,7 @@ const App = () => {
                           <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Papel (Role)</label>
                           <select className="w-full p-3 border border-slate-200 rounded-lg text-sm font-bold outline-none focus:border-amber-500 transition-colors bg-white" value={newUserForm.role} onChange={e => setnewUserForm({ ...newUserForm, role: e.target.value })}>
                             <option value="Conselheiro">Conselheiro</option>
+                            <option value="Assistente">Assistente (só materiais)</option>
                             <option value="Secretário">Secretário</option>
                             <option value="Administrador">Administrador</option>
                             {isSuper && <option value="SuperAdmin">SuperAdmin</option>}
@@ -2648,6 +2797,7 @@ const App = () => {
       )}
       <input type="file" ref={fileRef} className="hidden" onChange={(e) => handleFileUpload(e, 'materiais')} />
       <input type="file" ref={ataRef} className="hidden" onChange={(e) => handleFileUpload(e, 'atas')} />
+      <input type="file" ref={assistantFileRef} className="hidden" onChange={assistantUploadMaterial} />
     </div>
   );
 };
