@@ -452,6 +452,12 @@ verify_jwt = false
 import_map = "./functions/assistant-materials/deno.json"
 entrypoint = "./functions/assistant-materials/index.ts"
 
+[functions.register-vote]
+enabled = true
+verify_jwt = false
+import_map = "./functions/register-vote/deno.json"
+entrypoint = "./functions/register-vote/index.ts"
+
 [functions.clicksign-flow]
 enabled = true
 verify_jwt = true

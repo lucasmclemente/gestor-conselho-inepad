@@ -74,6 +74,10 @@ const App = () => {
   const [filterPriority, setFilterPriority] = useState('all');
   const [delibFilterResult, setDelibFilterResult] = useState('all');
   const [delibFilterOrigin, setDelibFilterOrigin] = useState('all');
+  const [isExtraDelibOpen, setIsExtraDelibOpen] = useState(false);
+  const [extraDelibForm, setExtraDelibForm] = useState({ title: '', voters: [] as string[] });
+  const [extraCreating, setExtraCreating] = useState(false);
+  const [votingDelibId, setVotingDelibId] = useState<number | null>(null);
 
   const [isConvocationOpen, setIsConvocationOpen] = useState(false);
   const [isSendingEmail, setIsSendingEmail] = useState(false);
@@ -859,46 +863,122 @@ const App = () => {
     return match?.name ?? null;
   };
 
+  // Versão genérica (para deliberações extraordinárias — usa os participantes informados)
+  const resolveVoterNameIn = (participants: any[], voters: string[]): string | null => {
+    if (voters.includes(currentUser?.name)) return currentUser.name;
+    const match = (participants || []).find((p: any) => p.email === currentUser?.email && voters.includes(p.name));
+    return match?.name ?? null;
+  };
+
+  // ─── DELIBERAÇÕES EXTRAORDINÁRIAS (fora de reunião) ───
+  const isExtraContainer = (m: any) => m?.type === 'Extraordinária';
+  const findExtraContainer = () => meetings.find((m: any) => isExtraContainer(m) && m.client_id === currentUser?.client_id);
+
+  // Garante o contêiner (reunião oculta) que guarda as deliberações extraordinárias do cliente
+  const ensureExtraContainer = async () => {
+    const internos = (users || []).filter((u: any) => u.email).map((u: any) => ({ name: u.name, email: u.email, isExternal: false }));
+    let container = findExtraContainer();
+    if (container) {
+      if (JSON.stringify(container.participants || []) !== JSON.stringify(internos)) {
+        await supabase.from('meetings').update({ participants: internos }).eq('id', container.id);
+        container = { ...container, participants: internos };
+        setMeetings((prev: any) => prev.map((m: any) => m.id === container!.id ? container : m));
+      }
+      return container;
+    }
+    const row = {
+      title: 'Deliberações Extraordinárias', status: 'Extraordinária', type: 'Extraordinária',
+      date: null, time: null, link: '', address: '',
+      participants: internos, pautas: [], materiais: [], deliberacoes: [], acoes: [], atas: [],
+      client_id: currentUser.client_id,
+    };
+    const { data, error } = await supabase.from('meetings').insert([row]).select();
+    if (error) { alert('Erro ao preparar a área de deliberações extraordinárias: ' + error.message); return null; }
+    setMeetings((prev: any) => [data[0], ...prev]);
+    return data[0];
+  };
+
+  const openExtraDelibModal = () => {
+    if (!canEdit) return;
+    setExtraDelibForm({ title: '', voters: (users || []).map((u: any) => u.name) });
+    setIsExtraDelibOpen(true);
+  };
+
+  const createExtraDeliberation = async () => {
+    if (!canEdit) return;
+    if (!extraDelibForm.title.trim()) return alert('Informe o título da deliberação.');
+    if (extraDelibForm.voters.length === 0) return alert('Selecione ao menos um conselheiro votante.');
+    setExtraCreating(true);
+    try {
+      const container = await ensureExtraContainer();
+      if (!container) return;
+      const newDelib = { id: Date.now(), title: extraDelibForm.title.trim(), voters: extraDelibForm.voters, votes: {}, extra: true };
+      const newDelibs = [...(container.deliberacoes || []), newDelib];
+      const { error } = await supabase.from('meetings').update({ deliberacoes: newDelibs }).eq('id', container.id);
+      if (error) throw new Error(error.message);
+      setMeetings((prev: any) => prev.map((m: any) => m.id === container.id ? { ...container, deliberacoes: newDelibs } : m));
+      addLog('Deliberação', `Deliberação extraordinária criada: ${newDelib.title}`);
+      setExtraDelibForm({ title: '', voters: [] });
+      setIsExtraDelibOpen(false);
+      setVotingDelibId(newDelib.id);
+    } catch (e: any) {
+      alert('Erro ao criar deliberação: ' + (e?.message || e));
+    } finally {
+      setExtraCreating(false);
+    }
+  };
+
+  // Voto em deliberação extraordinária — via Edge Function segura (qualquer votante elegível)
+  const handleExtraVote = async (delibId: number, voteType: 'Favor' | 'Contra' | 'Abstenção') => {
+    const container = findExtraContainer();
+    if (!container) return;
+    const { data, error } = await supabase.functions.invoke('register-vote', {
+      body: { meetingId: container.id, delibId, voteType },
+    });
+    if (error || data?.error) { alert('Erro ao registrar voto: ' + (error?.message || data?.error)); return; }
+    setMeetings((prev: any) => prev.map((m: any) => m.id === container.id ? { ...container, deliberacoes: data.deliberacoes, ...(data.acoes ? { acoes: data.acoes } : {}) } : m));
+    addLog('Votação', `Voto "${voteType}" (extraordinária)`);
+    if (data.generatedAction) alert('✅ Deliberação aprovada! Uma ação foi criada no Plano de Ação.');
+  };
+
+  const updateExtraDelibVoters = async (delibId: number, newVoters: string[]) => {
+    if (!canEdit) return;
+    const container = findExtraContainer();
+    if (!container) return;
+    const newDelibs = (container.deliberacoes || []).map((d: any) => d.id === delibId ? { ...d, voters: newVoters } : d);
+    const { error } = await supabase.from('meetings').update({ deliberacoes: newDelibs }).eq('id', container.id);
+    if (error) { alert('Erro: ' + error.message); return; }
+    setMeetings((prev: any) => prev.map((m: any) => m.id === container.id ? { ...container, deliberacoes: newDelibs } : m));
+  };
+
+  const deleteExtraDeliberation = async (delibId: number) => {
+    if (!canEdit) return;
+    if (!window.confirm('Excluir esta deliberação extraordinária?')) return;
+    const container = findExtraContainer();
+    if (!container) return;
+    const newDelibs = (container.deliberacoes || []).filter((d: any) => d.id !== delibId);
+    const { error } = await supabase.from('meetings').update({ deliberacoes: newDelibs }).eq('id', container.id);
+    if (error) { alert('Erro: ' + error.message); return; }
+    setMeetings((prev: any) => prev.map((m: any) => m.id === container.id ? { ...container, deliberacoes: newDelibs } : m));
+    setVotingDelibId(null);
+    addLog('Exclusão', 'Deliberação extraordinária removida.');
+  };
+
   // --- LÓGICA DE VOTAÇÃO ---
   const handleRegisterVote = async (delibIndex: number, voteType: 'Favor' | 'Contra' | 'Abstenção') => {
-    const newDelibs = [...(currentMeeting.deliberacoes || [])];
-    const delib = newDelibs[delibIndex];
-    const voterName = resolveVoterName(delib.voters || []) || currentUser.name;
-    const votes = { ...(delib.votes || {}), [voterName]: voteType };
-    const updatedDelib = { ...delib, votes };
-    newDelibs[delibIndex] = updatedDelib;
-
-    // Se o voto tornou a deliberação APROVADA e ela ainda não gerou ação, cria uma ação no Plano
-    const result = deliberationResult(updatedDelib);
-    let newAcoes = currentMeeting.acoes || [];
-    let generatedAction = false;
-    if (result.label === 'APROVADA' && !updatedDelib.actionGenerated) {
-      newDelibs[delibIndex] = { ...updatedDelib, actionGenerated: true };
-      newAcoes = [...newAcoes, {
-        id: Date.now(),
-        title: updatedDelib.title,
-        resps: [], resp: '',
-        date: '',
-        obs: `Gerada automaticamente a partir da deliberação aprovada em ${new Date().toLocaleDateString('pt-BR')}.`,
-        status: 'Pendente',
-        priority: 'Média',
-        fromDeliberation: true,
-      }];
-      generatedAction = true;
-    }
-
-    const payload: any = generatedAction ? { deliberacoes: newDelibs, acoes: newAcoes } : { deliberacoes: newDelibs };
-    if (currentMeeting.id) {
-      const { error } = await supabase.from('meetings').update(payload).eq('id', currentMeeting.id);
-      if (error) { alert('Erro ao registrar voto: ' + error.message); return; }
-    }
-    const updatedMeeting = { ...currentMeeting, deliberacoes: newDelibs, ...(generatedAction ? { acoes: newAcoes } : {}) };
+    if (!currentMeeting.id) { alert('Salve a reunião antes de registrar votos.'); return; }
+    const delibTitle = (currentMeeting.deliberacoes || [])[delibIndex]?.title || '';
+    // Voto registrado via Edge Function segura (permite voto individual de qualquer votante elegível)
+    const { data, error } = await supabase.functions.invoke('register-vote', {
+      body: { meetingId: currentMeeting.id, delibIndex, voteType },
+    });
+    if (error || data?.error) { alert('Erro ao registrar voto: ' + (error?.message || data?.error)); return; }
+    const updatedMeeting = { ...currentMeeting, deliberacoes: data.deliberacoes, ...(data.acoes ? { acoes: data.acoes } : {}) };
     setCurrentMeeting(updatedMeeting);
     setMeetings((prev: any) => prev.map((m: any) => m.id === currentMeeting.id ? updatedMeeting : m));
-    addLog('Votação', `Voto "${voteType}" em: ${delib.title}`);
-    if (generatedAction) {
-      addLog('Plano de Ação', `Ação gerada automaticamente da deliberação aprovada: ${updatedDelib.title}`);
-      alert(`✅ Deliberação aprovada!\n\nUma ação foi criada automaticamente no Plano de Ação:\n"${updatedDelib.title}"`);
+    addLog('Votação', `Voto "${voteType}" em: ${delibTitle}`);
+    if (data.generatedAction) {
+      alert(`✅ Deliberação aprovada!\n\nUma ação foi criada automaticamente no Plano de Ação:\n"${delibTitle}"`);
     }
   };
 
@@ -1013,7 +1093,7 @@ const App = () => {
   const delibStats = useMemo(() => {
     const all = meetings.flatMap((m: any) => (m.deliberacoes || []).map((d: any, idx: number) => {
       const r = deliberationResult(d);
-      return { ...d, mTitle: m.title, mId: m.id, mDate: m.date, idx, ...r };
+      return { ...d, mTitle: m.title, mId: m.id, mDate: m.date, idx, extra: m.type === 'Extraordinária', delibId: d.id, ...r };
     }));
     const counts = {
       total: all.length,
@@ -1637,7 +1717,7 @@ const App = () => {
                 view === 'list' ? (
                   <div className="space-y-6 animate-in fade-in">
                     <div className="flex justify-between items-center gap-4 bg-white p-4 rounded-xl border border-slate-200 shadow-sm"><h1 className="text-2xl font-bold text-slate-800 tracking-tight italic">Conselho Deliberativo</h1>{canEdit && (<div className="flex items-center gap-3"><button onClick={openScheduleModal} className="bg-slate-900 hover:bg-slate-800 text-amber-500 px-5 py-3 rounded-lg font-bold text-xs uppercase flex items-center justify-center gap-2 transition-all shadow-md tracking-widest"><CalendarPlus size={16} /> Programar Ano</button><button onClick={() => { setCurrentMeeting(blankMeeting); setView('details'); setTab('info'); }} className="bg-amber-600 hover:bg-amber-700 text-white px-6 py-3 rounded-lg font-bold text-xs uppercase flex items-center justify-center gap-2 transition-all shadow-md tracking-widest">+ Nova Reunião</button></div>)}</div>
-                    <div className="grid gap-4">{meetings.map((m) => (<div key={m.id} onClick={() => { setCurrentMeeting(m); setView('details'); setTab('info'); }} className="bg-white p-6 rounded-xl border border-slate-200 flex justify-between items-center group cursor-pointer hover:border-amber-500 hover:shadow-md transition-all shadow-sm"><div className="flex items-center gap-4"><div className="p-3 bg-slate-100 text-slate-500 rounded-lg group-hover:bg-amber-100 group-hover:text-amber-700 transition-all"><Calendar size={24} /></div><div><h3 className="font-bold text-lg text-slate-800 group-hover:text-amber-600 transition-all italic">{m.title}</h3><p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">{m.status} • {m.date || 'DATA N/D'}</p></div></div><div className="flex items-center gap-3">{canEdit && (<button onClick={(e) => { e.stopPropagation(); deleteMeeting(m.id, m.title); }} className="p-3 text-slate-200 hover:text-red-600 rounded-lg"><Trash2 size={20} /></button>)}<ChevronRight size={20} className="text-slate-300 group-hover:text-amber-500 transition-all" /></div></div>))}</div>
+                    <div className="grid gap-4">{meetings.filter((m: any) => !isExtraContainer(m)).map((m) => (<div key={m.id} onClick={() => { setCurrentMeeting(m); setView('details'); setTab('info'); }} className="bg-white p-6 rounded-xl border border-slate-200 flex justify-between items-center group cursor-pointer hover:border-amber-500 hover:shadow-md transition-all shadow-sm"><div className="flex items-center gap-4"><div className="p-3 bg-slate-100 text-slate-500 rounded-lg group-hover:bg-amber-100 group-hover:text-amber-700 transition-all"><Calendar size={24} /></div><div><h3 className="font-bold text-lg text-slate-800 group-hover:text-amber-600 transition-all italic">{m.title}</h3><p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">{m.status} • {m.date || 'DATA N/D'}</p></div></div><div className="flex items-center gap-3">{canEdit && (<button onClick={(e) => { e.stopPropagation(); deleteMeeting(m.id, m.title); }} className="p-3 text-slate-200 hover:text-red-600 rounded-lg"><Trash2 size={20} /></button>)}<ChevronRight size={20} className="text-slate-300 group-hover:text-amber-500 transition-all" /></div></div>))}</div>
                   </div>
                 ) : (
                   <div className="animate-in fade-in duration-300 pb-20">
@@ -2465,7 +2545,10 @@ const App = () => {
               {activeMenu === 'deliberacoes' && (
                 <div className="space-y-6 animate-in fade-in">
                   <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
-                    <h1 className="text-2xl font-bold text-slate-800 tracking-tight italic flex items-center gap-2"><Scale size={22} className="text-amber-600" /> Deliberações</h1>
+                    <div className="flex items-center gap-3 flex-wrap">
+                      <h1 className="text-2xl font-bold text-slate-800 tracking-tight italic flex items-center gap-2"><Scale size={22} className="text-amber-600" /> Deliberações</h1>
+                      {canEdit && <button onClick={openExtraDelibModal} className="bg-slate-900 hover:bg-slate-800 text-amber-500 px-4 py-2 rounded-lg font-bold text-[10px] uppercase flex items-center gap-2 transition-all shadow-md tracking-widest"><Plus size={14} /> Deliberação Extraordinária</button>}
+                    </div>
                     <div className="flex flex-wrap items-center gap-3 bg-slate-50 p-2 rounded-lg border border-slate-200 w-full md:w-auto">
                       <div className="flex items-center gap-2 bg-white px-3 py-1.5 rounded border border-slate-200"><Filter size={14} className="text-amber-500" /><select className="text-[10px] font-bold uppercase outline-none bg-transparent cursor-pointer text-slate-600" value={delibFilterResult} onChange={e => setDelibFilterResult(e.target.value)}><option value="all">Resultado</option><option value="APROVADA">Aprovada</option><option value="REJEITADA">Rejeitada</option><option value="EM VOTAÇÃO">Em votação</option><option value="EMPATE">Empate</option><option value="SEM VOTANTES">Sem votantes</option></select></div>
                       <div className="flex items-center gap-2 bg-white px-3 py-1.5 rounded border border-slate-200"><Building2 size={14} className="text-amber-500" /><select className="text-[10px] font-bold uppercase outline-none bg-transparent cursor-pointer text-slate-600" value={delibFilterOrigin} onChange={e => setDelibFilterOrigin(e.target.value)}><option value="all">Origem (Reunião)</option>{meetings.map(m => <option key={m.id} value={m.id}>{m.title}{m.date ? ` — ${new Date(m.date + 'T00:00:00').toLocaleDateString('pt-BR')}` : ''}</option>)}</select></div>
@@ -2491,7 +2574,7 @@ const App = () => {
                   <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden overflow-x-auto">
                     <table className="w-full text-left text-sm min-w-[900px] font-bold italic">
                       <thead className="bg-slate-900 text-[10px] font-bold uppercase text-amber-500 tracking-widest">
-                        <tr><th className="px-6 py-4">Deliberação</th><th className="px-6 py-4">Origem</th><th className="px-6 py-4 text-center">Votação</th><th className="px-6 py-4 text-center">Resultado</th><th className="px-6 py-4 text-center">Reunião</th></tr>
+                        <tr><th className="px-6 py-4">Deliberação</th><th className="px-6 py-4">Origem</th><th className="px-6 py-4 text-center">Votação</th><th className="px-6 py-4 text-center">Resultado</th><th className="px-6 py-4 text-center">Abrir</th></tr>
                       </thead>
                       <tbody className="divide-y divide-slate-100">
                         {delibStats.list.length === 0 ? (
@@ -2501,7 +2584,11 @@ const App = () => {
                           return (
                             <tr key={`${d.mId}-${d.idx}`} className="hover:bg-slate-50 transition-all align-top">
                               <td className="px-6 py-4 text-slate-800 max-w-md"><p className="leading-snug">"{d.title}"</p></td>
-                              <td className="px-6 py-4 text-slate-400 text-[10px] uppercase tracking-widest">{d.mTitle}<br /><span className="text-slate-300">{d.mDate || ''}</span></td>
+                              <td className="px-6 py-4 text-[10px] uppercase tracking-widest">
+                                {d.extra
+                                  ? <span className="inline-flex items-center gap-1 bg-slate-900 text-amber-400 px-2 py-0.5 rounded-full not-italic font-bold"><Scale size={10} /> Extraordinária</span>
+                                  : <><span className="text-slate-400">{d.mTitle}</span><br /><span className="text-slate-300 normal-case">{d.mDate || ''}</span></>}
+                              </td>
                               <td className="px-6 py-4">
                                 <div className="flex items-center justify-center gap-1.5 flex-wrap not-italic">
                                   <span className="inline-flex items-center gap-1 bg-emerald-50 text-emerald-700 text-[9px] font-bold px-2 py-0.5 rounded-full border border-emerald-100"><ThumbsUp size={9} />{d.favor}</span>
@@ -2512,7 +2599,11 @@ const App = () => {
                               </td>
                               <td className="px-6 py-4 text-center"><span className={`px-3 py-1 rounded-full text-[9px] uppercase font-bold ${d.cls}`}>{d.label}</span></td>
                               <td className="px-6 py-4 text-center">
-                                <button onClick={() => { if (meeting) { setCurrentMeeting(meeting); setView('details'); setTab('delib'); setActiveMenu('reunioes'); } }} className="text-slate-300 hover:text-amber-600 transition-colors inline-flex" title="Abrir na reunião"><ExternalLink size={16} /></button>
+                                {d.extra ? (
+                                  <button onClick={() => setVotingDelibId(d.delibId)} className="bg-slate-900 hover:bg-slate-800 text-amber-500 px-3 py-1.5 rounded-lg text-[9px] font-bold uppercase inline-flex items-center gap-1 transition-all" title="Abrir votação"><ThumbsUp size={11} /> Votar</button>
+                                ) : (
+                                  <button onClick={() => { if (meeting) { setCurrentMeeting(meeting); setView('details'); setTab('delib'); setActiveMenu('reunioes'); } }} className="text-slate-300 hover:text-amber-600 transition-colors inline-flex" title="Abrir na reunião"><ExternalLink size={16} /></button>
+                                )}
                               </td>
                             </tr>
                           );
@@ -2937,6 +3028,120 @@ const App = () => {
           </div>
         </div>
       )}
+      {/* Modal: criar deliberação extraordinária */}
+      {isExtraDelibOpen && (
+        <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-md z-[100] flex items-center justify-center p-4">
+          <div className="bg-white w-full max-w-lg rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh] animate-in zoom-in-95">
+            <div className="p-6 border-b flex justify-between items-center bg-slate-50">
+              <div>
+                <h3 className="text-xl font-bold text-slate-800 italic flex items-center gap-2"><Scale size={20} className="text-amber-600" /> Nova Deliberação Extraordinária</h3>
+                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Votação fora de reunião, com registro</p>
+              </div>
+              <button onClick={() => setIsExtraDelibOpen(false)} className="p-2 hover:bg-slate-200 rounded-full transition-all text-slate-400"><X size={20} /></button>
+            </div>
+            <div className="flex-1 overflow-y-auto p-6 space-y-5 bg-slate-50/30">
+              <div className="space-y-1">
+                <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Proposição</label>
+                <textarea rows={3} value={extraDelibForm.title} onChange={e => setExtraDelibForm({ ...extraDelibForm, title: e.target.value })} placeholder="Descreva a proposição a ser votada..." className="w-full p-3 border border-slate-200 rounded-lg text-sm font-bold italic outline-none focus:border-amber-500 resize-none" />
+              </div>
+              <div className="space-y-2">
+                <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Conselheiros votantes ({extraDelibForm.voters.length})</label>
+                {(users || []).length === 0 ? <p className="text-[10px] text-slate-400 italic">Nenhum membro cadastrado.</p> : (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-52 overflow-y-auto pr-1">
+                    {(users || []).map((u: any) => {
+                      const checked = extraDelibForm.voters.includes(u.name);
+                      return (
+                        <label key={u.id} className={`flex items-center gap-3 p-2.5 rounded-lg border cursor-pointer transition-all ${checked ? 'bg-amber-50 border-amber-200' : 'bg-white border-slate-100 hover:bg-slate-50'}`}>
+                          <input type="checkbox" checked={checked} onChange={() => setExtraDelibForm(f => ({ ...f, voters: checked ? f.voters.filter(n => n !== u.name) : [...f.voters, u.name] }))} className="accent-amber-600 w-4 h-4" />
+                          <div className="min-w-0"><p className="text-sm font-bold text-slate-800 italic truncate">{u.name}</p><p className="text-[10px] text-slate-400 truncate">{u.email}</p></div>
+                        </label>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            </div>
+            <div className="p-6 border-t bg-white flex gap-3">
+              <button onClick={() => setIsExtraDelibOpen(false)} className="flex-1 border border-slate-200 text-slate-600 py-3 rounded-xl font-bold uppercase text-[10px] tracking-[2px] hover:bg-slate-50">Cancelar</button>
+              <button disabled={extraCreating} onClick={createExtraDeliberation} className="flex-[2] bg-amber-600 text-white py-3 rounded-xl font-bold uppercase text-[10px] tracking-[2px] flex items-center justify-center gap-2 hover:bg-amber-700 shadow-xl disabled:opacity-50"><Plus size={16} /> {extraCreating ? 'Criando...' : 'Criar e Abrir Votação'}</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal: votação de deliberação extraordinária */}
+      {votingDelibId != null && (() => {
+        const container = findExtraContainer();
+        const d = container?.deliberacoes?.find((x: any) => x.id === votingDelibId);
+        if (!d) return null;
+        const r = deliberationResult(d);
+        const voters: string[] = d.voters || [];
+        const votes: Record<string, string> = d.votes || {};
+        const myName = resolveVoterNameIn(container.participants || [], voters);
+        const myVote = myName ? votes[myName] : undefined;
+        const availableToAdd = (users || []).filter((u: any) => !voters.includes(u.name));
+        return (
+          <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-md z-[100] flex items-center justify-center p-4">
+            <div className="bg-white w-full max-w-xl rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[92vh] animate-in zoom-in-95">
+              <div className="p-6 border-b flex justify-between items-start bg-slate-50 gap-3">
+                <div className="min-w-0">
+                  <span className="inline-flex items-center gap-1 bg-slate-900 text-amber-400 px-2 py-0.5 rounded-full text-[9px] font-bold uppercase mb-2"><Scale size={10} /> Extraordinária</span>
+                  <h3 className="text-base font-bold text-slate-800 italic leading-snug">"{d.title}"</h3>
+                </div>
+                <button onClick={() => setVotingDelibId(null)} className="p-2 hover:bg-slate-200 rounded-full text-slate-400 shrink-0"><X size={20} /></button>
+              </div>
+              <div className="flex-1 overflow-y-auto p-6 space-y-5 bg-slate-50/30">
+                <div className="flex items-center justify-between bg-white border border-slate-200 rounded-xl p-4">
+                  <div className="flex gap-2">
+                    <span className="inline-flex items-center gap-1 bg-emerald-50 text-emerald-700 text-[10px] font-bold px-2.5 py-1 rounded-full border border-emerald-100"><ThumbsUp size={11} />{r.favor}</span>
+                    <span className="inline-flex items-center gap-1 bg-red-50 text-red-700 text-[10px] font-bold px-2.5 py-1 rounded-full border border-red-100"><ThumbsDown size={11} />{r.contra}</span>
+                    <span className="inline-flex items-center gap-1 bg-slate-50 text-slate-500 text-[10px] font-bold px-2.5 py-1 rounded-full border border-slate-200"><MinusCircle size={11} />{r.abst}</span>
+                  </div>
+                  <span className={`px-3 py-1 rounded-full text-[9px] uppercase font-bold ${r.cls}`}>{r.label}</span>
+                </div>
+
+                {myName ? (
+                  <div className="bg-white border border-slate-200 rounded-xl p-4">
+                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-2">Seu voto ({myName})</p>
+                    <div className="flex gap-2">
+                      <button onClick={() => handleExtraVote(d.id, 'Favor')} className={`flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg text-[10px] font-bold uppercase transition-all ${myVote === 'Favor' ? 'bg-emerald-600 text-white' : 'bg-white border border-slate-200 text-slate-500 hover:border-emerald-300 hover:text-emerald-600'}`}><ThumbsUp size={13} /> Favor</button>
+                      <button onClick={() => handleExtraVote(d.id, 'Contra')} className={`flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg text-[10px] font-bold uppercase transition-all ${myVote === 'Contra' ? 'bg-red-600 text-white' : 'bg-white border border-slate-200 text-slate-500 hover:border-red-300 hover:text-red-600'}`}><ThumbsDown size={13} /> Contra</button>
+                      <button onClick={() => handleExtraVote(d.id, 'Abstenção')} className={`flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg text-[10px] font-bold uppercase transition-all ${myVote === 'Abstenção' ? 'bg-slate-600 text-white' : 'bg-white border border-slate-200 text-slate-500 hover:border-slate-400'}`}><CircleSlash size={13} /> Abster</button>
+                    </div>
+                  </div>
+                ) : (
+                  <p className="text-[10px] text-slate-400 italic bg-white border border-slate-200 rounded-xl p-4">Você não está na lista de votantes desta deliberação.</p>
+                )}
+
+                <div className="bg-white border border-slate-200 rounded-xl p-4 space-y-1">
+                  <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">Votantes ({r.voted}/{r.total})</p>
+                  {voters.length === 0 && <p className="text-[10px] text-slate-300 italic">Nenhum votante.</p>}
+                  {voters.map((v) => (
+                    <div key={v} className="flex items-center justify-between gap-2 py-1.5 border-b border-slate-50 last:border-0">
+                      <span className="text-sm font-bold text-slate-700 italic flex items-center gap-2"><span className="w-5 h-5 rounded-full bg-slate-900 text-amber-400 flex items-center justify-center text-[8px] font-black shrink-0">{v[0]}</span>{v}</span>
+                      <div className="flex items-center gap-2 shrink-0">
+                        <span className={`text-[9px] font-bold uppercase px-2 py-0.5 rounded-full ${votes[v] === 'Favor' ? 'bg-emerald-100 text-emerald-700' : votes[v] === 'Contra' ? 'bg-red-100 text-red-700' : votes[v] === 'Abstenção' ? 'bg-slate-100 text-slate-600' : 'bg-amber-50 text-amber-600 border border-amber-100'}`}>{votes[v] || 'Pendente'}</span>
+                        {canEdit && <button onClick={() => updateExtraDelibVoters(d.id, voters.filter(x => x !== v))} className="text-slate-300 hover:text-red-500" title="Remover votante"><X size={13} /></button>}
+                      </div>
+                    </div>
+                  ))}
+                  {canEdit && availableToAdd.length > 0 && (
+                    <select className="mt-2 w-full p-2 border border-slate-200 rounded-lg text-[10px] font-bold uppercase text-slate-500 bg-white outline-none cursor-pointer" value="" onChange={e => { if (e.target.value) updateExtraDelibVoters(d.id, [...voters, e.target.value]); }}>
+                      <option value="">+ Adicionar votante</option>
+                      {availableToAdd.map((u: any) => <option key={u.id} value={u.name}>{u.name}</option>)}
+                    </select>
+                  )}
+                </div>
+              </div>
+              <div className="p-6 border-t bg-white flex gap-3">
+                {canEdit && <button onClick={() => deleteExtraDeliberation(d.id)} className="px-4 py-3 border border-red-200 text-red-600 rounded-xl font-bold uppercase text-[10px] tracking-widest hover:bg-red-50 flex items-center gap-2"><Trash2 size={14} /> Excluir</button>}
+                <button onClick={() => setVotingDelibId(null)} className="flex-1 bg-slate-900 text-white py-3 rounded-xl font-bold uppercase text-[10px] tracking-[2px] hover:bg-slate-800">Concluir</button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
       <input type="file" ref={fileRef} className="hidden" onChange={(e) => handleFileUpload(e, 'materiais')} />
       <input type="file" ref={ataRef} className="hidden" onChange={(e) => handleFileUpload(e, 'atas')} />
       <input type="file" ref={assistantFileRef} className="hidden" onChange={assistantUploadMaterial} />
