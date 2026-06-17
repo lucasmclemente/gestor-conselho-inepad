@@ -93,7 +93,13 @@ serve(async (req) => {
     const deadlineDate = new Date()
     deadlineDate.setDate(deadlineDate.getDate() + 30)
     const deadlineStr = deadlineDate.toLocaleDateString('pt-BR', { day: '2-digit', month: 'long', year: 'numeric' })
-    const docPath = `/Atas/${Date.now()}_${ataName.replace(/[^a-zA-Z0-9._-]/g, '_').substring(0, 40)}`
+    // Garante extensão .pdf no fim: remove a extensão original, sanitiza/trunca só o
+    // nome-base e acrescenta ".pdf" (truncar com a extensão junto quebrava o MIME no ClickSign)
+    const safeBase = (ataName || 'ata')
+      .replace(/\.[^.]*$/, '')
+      .replace(/[^a-zA-Z0-9._-]/g, '_')
+      .substring(0, 40)
+    const docPath = `/Atas/${Date.now()}_${safeBase}.pdf`
 
     const createDocResp = await fetch(`${CLICKSIGN_BASE}/documents?access_token=${CLICKSIGN_TOKEN}`, {
       method: 'POST',
