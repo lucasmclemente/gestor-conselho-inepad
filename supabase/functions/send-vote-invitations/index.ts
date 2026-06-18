@@ -66,9 +66,9 @@ serve(async (req) => {
   }
 
   try {
-    const { meetingId, delibId, appOrigin } = await req.json()
+    const { meetingId, delibId, delibIndex, appOrigin } = await req.json()
     const RESEND_API_KEY = Deno.env.get('RESEND_API_KEY')
-    if (!meetingId || delibId == null) return new Response(JSON.stringify({ error: 'Parâmetros ausentes.' }), { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
+    if (!meetingId || (delibId == null && delibIndex == null)) return new Response(JSON.stringify({ error: 'Parâmetros ausentes.' }), { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
 
     const admin = createClient(Deno.env.get('SUPABASE_URL') ?? '', Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '', { auth: { autoRefreshToken: false, persistSession: false } })
 
@@ -77,7 +77,8 @@ serve(async (req) => {
     if (!meeting) return new Response(JSON.stringify({ error: 'Deliberação não encontrada.' }), { status: 404, headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
     if (!isSuper && meeting.client_id !== clientId) return new Response(JSON.stringify({ error: 'Sem permissão.' }), { status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
 
-    const delib = (meeting.deliberacoes || []).find((d: any) => d.id === delibId)
+    const delibs = meeting.deliberacoes || []
+    const delib = (delibId != null) ? delibs.find((d: any) => d.id === delibId) : delibs[delibIndex]
     if (!delib) return new Response(JSON.stringify({ error: 'Deliberação não encontrada.' }), { status: 404, headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
 
     const voterNames: string[] = delib.voters || []
@@ -88,7 +89,7 @@ serve(async (req) => {
     const emailByName = new Map((members || []).map((m: any) => [m.name, m.email]))
 
     const origin = (typeof appOrigin === 'string' && /^https?:\/\//.test(appOrigin)) ? appOrigin.replace(/\/$/, '') : 'https://conselho.inepadconsulting.com'
-    const redirectTo = `${origin}/?vote=${delibId}`
+    const redirectTo = `${origin}/?vmeet=${meetingId}` + (delibId != null ? `&vdelib=${delibId}` : '')
 
     let sent = 0
     const skipped: string[] = []

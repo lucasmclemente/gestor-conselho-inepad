@@ -79,8 +79,14 @@ const App = () => {
   const [extraCreating, setExtraCreating] = useState(false);
   const [votingDelibId, setVotingDelibId] = useState<number | null>(null);
   const [sendingVoteInvites, setSendingVoteInvites] = useState(false);
-  const [pendingVoteId, setPendingVoteId] = useState<number | null>(() => {
-    try { const v = new URLSearchParams(window.location.search).get('vote'); return v ? Number(v) : null; } catch { return null; }
+  const [pendingVote, setPendingVote] = useState<{ meetingId: string; delibId: number | null } | null>(() => {
+    try {
+      const p = new URLSearchParams(window.location.search);
+      const vmeet = p.get('vmeet');
+      if (!vmeet) return null;
+      const vd = p.get('vdelib');
+      return { meetingId: vmeet, delibId: vd ? Number(vd) : null };
+    } catch { return null; }
   });
 
   const [isConvocationOpen, setIsConvocationOpen] = useState(false);
@@ -968,14 +974,13 @@ const App = () => {
     addLog('Exclusão', 'Deliberação extraordinária removida.');
   };
 
-  // Envia convite de voto por e-mail (magic link) aos votantes da deliberação extraordinária
-  const sendVoteInvitations = async (delibId: number) => {
-    const container = findExtraContainer();
-    if (!container) return;
+  // Envia convite de voto por e-mail (magic link) aos votantes — reuniões e extraordinárias
+  const sendVoteInvitationsCore = async (meetingId: string, ident: { delibId?: number; delibIndex?: number }) => {
+    if (!meetingId) { alert('Salve a reunião antes de enviar convites de voto.'); return; }
     setSendingVoteInvites(true);
     try {
       const { data, error } = await supabase.functions.invoke('send-vote-invitations', {
-        body: { meetingId: container.id, delibId, appOrigin: window.location.origin },
+        body: { meetingId, ...ident, appOrigin: window.location.origin },
       });
       if (error || data?.error) throw new Error(error?.message || data?.error);
       addLog('Convite de Voto', `Convites de voto por e-mail enviados (${data.sent}).`);
@@ -988,18 +993,29 @@ const App = () => {
       setSendingVoteInvites(false);
     }
   };
+  // Atalho para o modal de deliberação extraordinária
+  const sendVoteInvitations = (delibId: number) => {
+    const container = findExtraContainer();
+    if (container) sendVoteInvitationsCore(container.id, { delibId });
+  };
 
-  // Deep-link: ao chegar via magic link (?vote=<id>), abre a votação assim que os dados carregarem
+  // Deep-link: ao chegar via magic link (?vmeet=&vdelib=), abre a votação quando os dados carregarem
   useEffect(() => {
-    if (pendingVoteId == null || !currentUser) return;
-    const container = meetings.find((m: any) => isExtraContainer(m) && m.client_id === currentUser.client_id);
-    if (container?.deliberacoes?.some((d: any) => d.id === pendingVoteId)) {
+    if (!pendingVote || !currentUser) return;
+    const meeting = meetings.find((m: any) => m.id === pendingVote.meetingId);
+    if (!meeting) return; // aguarda o carregamento das reuniões
+    if (isExtraContainer(meeting)) {
       setActiveMenu('deliberacoes');
-      setVotingDelibId(pendingVoteId);
-      setPendingVoteId(null);
-      try { window.history.replaceState({}, '', window.location.pathname); } catch { /* ignore */ }
+      if (pendingVote.delibId != null) setVotingDelibId(pendingVote.delibId);
+    } else {
+      setCurrentMeeting(meeting);
+      setView('details');
+      setTab('delib');
+      setActiveMenu('reunioes');
     }
-  }, [pendingVoteId, currentUser, meetings]);
+    setPendingVote(null);
+    try { window.history.replaceState({}, '', window.location.pathname); } catch { /* ignore */ }
+  }, [pendingVote, currentUser, meetings]);
 
   // --- LÓGICA DE VOTAÇÃO ---
   const handleRegisterVote = async (delibIndex: number, voteType: 'Favor' | 'Contra' | 'Abstenção') => {
@@ -1990,6 +2006,7 @@ const App = () => {
                                   <p className="text-sm text-slate-800 flex-1 leading-relaxed">"{d.title}"</p>
                                   <div className="flex items-center gap-2 shrink-0">
                                     <span className={`text-[9px] font-black px-2.5 py-1 rounded-full uppercase tracking-wider ${resultCls}`}>{resultLabel}</span>
+                                    {canEdit && currentMeeting.id && voters.length > 0 && <button onClick={e => { e.stopPropagation(); sendVoteInvitationsCore(currentMeeting.id, { delibIndex: i }); }} disabled={sendingVoteInvites} className="p-1.5 text-slate-300 hover:text-amber-600 transition-colors rounded-lg hover:bg-amber-50 disabled:opacity-50" title="Convidar votantes por e-mail"><Mail size={15} /></button>}
                                     {canEdit && <button onClick={e => { e.stopPropagation(); handleDeleteDelib(i); }} className="p-1.5 text-slate-200 hover:text-red-500 transition-colors rounded-lg hover:bg-red-50"><Trash2 size={15} /></button>}
                                   </div>
                                 </div>
