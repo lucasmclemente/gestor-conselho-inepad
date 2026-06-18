@@ -95,7 +95,7 @@ export async function generateAtaPDF(
 
   const maxRows = Math.max(presentes.length, ausentes.length, 1);
   const presBody: [string, string][] = Array.from({ length: maxRows }, (_, i) => [
-    presentes[i]?.name ?? '',
+    presentes[i] ? `${presentes[i].name}${presentes[i].online ? ' (Online)' : ''}` : '',
     ausentes[i]?.name  ?? '',
   ]);
 

@@ -7,7 +7,7 @@ import {
   Clock, CheckCircle2, AlertCircle, FileText, Send, X, Trash2,
   Upload, Save, Lock, Target, FileCheck, BarChart3,
   PieChart as PieIcon, LogIn, User, Key, LogOut, UserCheck,
-  Mail, UserCog, Settings, Camera, UserCircle, History, Filter, MessageSquare, Download, ExternalLink, ListChecks, Plus, Edit2, Check, Menu, ChevronUp, ChevronDown, Play, Square, Timer, SkipForward, Building2, ChevronLeft, UserMinus, ThumbsUp, ThumbsDown, CircleSlash, MinusCircle, Archive, Search, PenLine, ShieldCheck, Scale
+  Mail, UserCog, Settings, Camera, UserCircle, History, Filter, MessageSquare, Download, ExternalLink, ListChecks, Plus, Edit2, Check, Menu, ChevronUp, ChevronDown, Play, Square, Timer, SkipForward, Building2, ChevronLeft, UserMinus, ThumbsUp, ThumbsDown, CircleSlash, MinusCircle, Archive, Search, PenLine, ShieldCheck, Scale, Monitor, MapPin
 } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend } from 'recharts';
 
@@ -1904,11 +1904,26 @@ const App = () => {
                                     <p className={`text-sm ${p.present === false ? 'text-slate-400 line-through' : 'text-slate-800'}`}>
                                       {p.name} {p.isExternal && <span className="text-[8px] bg-amber-100 text-amber-700 px-1 rounded uppercase ml-2 border border-amber-200">Convidado</span>}
                                       {p.present === false && <span className="text-[8px] bg-red-100 text-red-500 px-1.5 py-0.5 rounded uppercase ml-2 border border-red-200 not-italic">Ausente</span>}
+                                      {p.present !== false && currentMeeting.type === 'Híbrida' && (p.online
+                                        ? <span className="inline-flex items-center gap-0.5 text-[8px] bg-sky-100 text-sky-700 px-1.5 py-0.5 rounded uppercase ml-2 border border-sky-200 not-italic"><Monitor size={9} /> Online</span>
+                                        : <span className="inline-flex items-center gap-0.5 text-[8px] bg-emerald-50 text-emerald-700 px-1.5 py-0.5 rounded uppercase ml-2 border border-emerald-200 not-italic"><MapPin size={9} /> Presencial</span>)}
                                     </p>
                                     <p className="text-[10px] text-slate-400 italic">{p.email}</p>
                                   </div>
                                 </div>
                                 <div className="flex items-center gap-1">
+                                  {canEdit && p.present !== false && currentMeeting.type === 'Híbrida' && (
+                                    <button
+                                      onClick={() => {
+                                        const newParts = (currentMeeting.participants || []).map((pt: any, idx: any) => idx === i ? { ...pt, online: !pt.online } : pt);
+                                        setCurrentMeeting({ ...currentMeeting, participants: newParts });
+                                      }}
+                                      className={`p-2 rounded-lg transition-all ${p.online ? 'text-sky-500 hover:bg-sky-100' : 'text-slate-300 hover:text-sky-500 hover:bg-sky-50'}`}
+                                      title={p.online ? 'Marcar como presencial' : 'Marcar como online'}
+                                    >
+                                      {p.online ? <Monitor size={15} /> : <MapPin size={15} />}
+                                    </button>
+                                  )}
                                   {canEdit && (
                                     <button
                                       onClick={() => {
