@@ -476,6 +476,12 @@ verify_jwt = false
 import_map = "./functions/vote-page/deno.json"
 entrypoint = "./functions/vote-page/index.ts"
 
+[functions.vote-by-token]
+enabled = true
+verify_jwt = false
+import_map = "./functions/vote-by-token/deno.json"
+entrypoint = "./functions/vote-by-token/index.ts"
+
 [functions.clicksign-flow]
 enabled = true
 verify_jwt = true

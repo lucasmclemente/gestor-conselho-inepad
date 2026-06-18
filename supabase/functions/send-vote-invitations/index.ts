@@ -92,9 +92,9 @@ serve(async (req) => {
     const { data: members } = await admin.from('members').select('name, email').eq('client_id', meeting.client_id)
     for (const m of (members || [])) { if (m?.name && m?.email && !emailByName.has(m.name)) emailByName.set(m.name, m.email) }
 
-    // Voto direto por e-mail: link com token assinado para a página pública de votação
+    // Voto direto por e-mail: link com token assinado para a página de votação DENTRO do app
     const SECRET = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
-    const VOTE_BASE = `${Deno.env.get('SUPABASE_URL')}/functions/v1/vote-page`
+    const origin = (typeof appOrigin === 'string' && /^https?:\/\//.test(appOrigin)) ? appOrigin.replace(/\/$/, '') : 'https://conselho.inepadconsulting.com'
     const exp = Date.now() + 7 * 24 * 60 * 60 * 1000 // token válido por 7 dias
 
     let sent = 0
@@ -105,7 +105,7 @@ serve(async (req) => {
       const tokenPayload: Record<string, unknown> = { m: meetingId, v: name, e: email, exp }
       if (delibId != null) tokenPayload.d = delibId; else tokenPayload.di = delibIndex
       const token = await signVoteToken(SECRET, tokenPayload)
-      const voteUrl = `${VOTE_BASE}?token=${encodeURIComponent(token)}`
+      const voteUrl = `${origin}/?votetoken=${encodeURIComponent(token)}`
 
       if (RESEND_API_KEY) {
         await fetch('https://api.resend.com/emails', {
