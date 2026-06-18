@@ -2033,8 +2033,7 @@ const App = () => {
                                   {p.completed && <CheckCircle2 size={20} className="text-emerald-500" />}
                                 </div>
                               </div>
-                              {!isSessionActive && (
-                                <div className="px-4 pb-3 border-t border-slate-50 bg-white" onClick={e => e.stopPropagation()}>
+                              <div className="px-4 pb-3 border-t border-slate-50 bg-white" onClick={e => e.stopPropagation()}>
                                   {canEdit && editingObsKey === `pauta-notes-${i}` ? (
                                     <textarea
                                       autoFocus
@@ -2064,7 +2063,6 @@ const App = () => {
                                     ><MessageSquare size={10} /> adicionar notas de discussão</button>
                                   ) : null}
                                 </div>
-                              )}
                             </div>
                           ))}
                         </div>
