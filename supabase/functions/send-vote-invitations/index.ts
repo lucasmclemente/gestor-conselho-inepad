@@ -72,7 +72,7 @@ serve(async (req) => {
 
     const admin = createClient(Deno.env.get('SUPABASE_URL') ?? '', Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '', { auth: { autoRefreshToken: false, persistSession: false } })
 
-    const { data: meeting, error: mErr } = await admin.from('meetings').select('id, client_id, deliberacoes').eq('id', meetingId).maybeSingle()
+    const { data: meeting, error: mErr } = await admin.from('meetings').select('id, client_id, deliberacoes, participants').eq('id', meetingId).maybeSingle()
     if (mErr) throw new Error(mErr.message)
     if (!meeting) return new Response(JSON.stringify({ error: 'Deliberação não encontrada.' }), { status: 404, headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
     if (!isSuper && meeting.client_id !== clientId) return new Response(JSON.stringify({ error: 'Sem permissão.' }), { status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
@@ -84,9 +84,12 @@ serve(async (req) => {
     const voterNames: string[] = delib.voters || []
     if (voterNames.length === 0) return new Response(JSON.stringify({ error: 'A deliberação não tem votantes.' }), { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
 
-    // Mapeia nomes dos votantes -> e-mails dos membros
+    // Mapeia nomes dos votantes -> e-mails. Primeiro pelos participantes da reunião
+    // (que já guardam o e-mail), depois pela tabela members do cliente como reforço.
+    const emailByName = new Map<string, string>()
+    for (const p of (meeting.participants || [])) { if (p?.name && p?.email) emailByName.set(p.name, p.email) }
     const { data: members } = await admin.from('members').select('name, email').eq('client_id', meeting.client_id)
-    const emailByName = new Map((members || []).map((m: any) => [m.name, m.email]))
+    for (const m of (members || [])) { if (m?.name && m?.email && !emailByName.has(m.name)) emailByName.set(m.name, m.email) }
 
     const origin = (typeof appOrigin === 'string' && /^https?:\/\//.test(appOrigin)) ? appOrigin.replace(/\/$/, '') : 'https://conselho.inepadconsulting.com'
     const redirectTo = `${origin}/?vmeet=${meetingId}` + (delibId != null ? `&vdelib=${delibId}` : '')

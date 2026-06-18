@@ -156,6 +156,8 @@ const App = () => {
   const isSec = currentUser?.role === 'Secretário';
   const canEdit = isAdm || isSec;
   const isAssistant = currentUser?.role === 'Assistente';
+  // Membros do cliente atual (SuperAdmin enxerga todos; aqui escopamos ao próprio cliente)
+  const clientMembers = (users || []).filter((u: any) => u.client_id === currentUser?.client_id);
 
   // --- LOGICA DE SESSÃO ---
   useEffect(() => {
@@ -886,7 +888,7 @@ const App = () => {
 
   // Garante o contêiner (reunião oculta) que guarda as deliberações extraordinárias do cliente
   const ensureExtraContainer = async () => {
-    const internos = (users || []).filter((u: any) => u.email).map((u: any) => ({ name: u.name, email: u.email, isExternal: false }));
+    const internos = clientMembers.filter((u: any) => u.email).map((u: any) => ({ name: u.name, email: u.email, isExternal: false }));
     let container = findExtraContainer();
     if (container) {
       if (JSON.stringify(container.participants || []) !== JSON.stringify(internos)) {
@@ -910,7 +912,7 @@ const App = () => {
 
   const openExtraDelibModal = () => {
     if (!canEdit) return;
-    setExtraDelibForm({ title: '', voters: (users || []).map((u: any) => u.name) });
+    setExtraDelibForm({ title: '', voters: clientMembers.map((u: any) => u.name) });
     setIsExtraDelibOpen(true);
   };
 
@@ -3100,9 +3102,9 @@ const App = () => {
               </div>
               <div className="space-y-2">
                 <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Conselheiros votantes ({extraDelibForm.voters.length})</label>
-                {(users || []).length === 0 ? <p className="text-[10px] text-slate-400 italic">Nenhum membro cadastrado.</p> : (
+                {clientMembers.length === 0 ? <p className="text-[10px] text-slate-400 italic">Nenhum membro cadastrado.</p> : (
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-52 overflow-y-auto pr-1">
-                    {(users || []).map((u: any) => {
+                    {clientMembers.map((u: any) => {
                       const checked = extraDelibForm.voters.includes(u.name);
                       return (
                         <label key={u.id} className={`flex items-center gap-3 p-2.5 rounded-lg border cursor-pointer transition-all ${checked ? 'bg-amber-50 border-amber-200' : 'bg-white border-slate-100 hover:bg-slate-50'}`}>
@@ -3133,7 +3135,7 @@ const App = () => {
         const votes: Record<string, string> = d.votes || {};
         const myName = resolveVoterNameIn(container.participants || [], voters);
         const myVote = myName ? votes[myName] : undefined;
-        const availableToAdd = (users || []).filter((u: any) => !voters.includes(u.name));
+        const availableToAdd = clientMembers.filter((u: any) => !voters.includes(u.name));
         return (
           <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-md z-[100] flex items-center justify-center p-4">
             <div className="bg-white w-full max-w-xl rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[92vh] animate-in zoom-in-95">
