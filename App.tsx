@@ -212,6 +212,8 @@ const App = () => {
   const [activePautaIndex, setActivePautaIndex] = useState<number | null>(null);
   const [timeElapsed, setTimeElapsed] = useState(0);
   const [isSessionActive, setIsSessionActive] = useState(false);
+  const currentMeetingRef = useRef<any>(null);
+  const [noteAutoSaved, setNoteAutoSaved] = useState(false);
 
   const isSuper = currentUser?.role === 'SuperAdmin';
   const isAdm = currentUser?.role === 'Administrador' || isSuper;
@@ -303,6 +305,30 @@ const App = () => {
     }
     return () => clearInterval(timer);
   }, [isSessionActive, activePautaIndex, currentMeeting.pautas]);
+
+  // Mantém uma referência sempre atualizada da reunião (para o autosave evitar estado obsoleto)
+  useEffect(() => { currentMeetingRef.current = currentMeeting; }, [currentMeeting]);
+
+  // Salvamento automático das notas da pauta durante a sessão (ata em tempo real)
+  useEffect(() => {
+    if (!isSessionActive || !editingObsKey?.startsWith('pauta-notes-')) return;
+    const id = currentMeetingRef.current?.id;
+    if (!id) return;
+    const idx = parseInt(editingObsKey.slice('pauta-notes-'.length), 10);
+    if (Number.isNaN(idx)) return;
+    setNoteAutoSaved(false);
+    const handle = setTimeout(async () => {
+      const cm = currentMeetingRef.current;
+      const pautas = [...(cm.pautas || [])];
+      if (!pautas[idx] || pautas[idx].notes === obsInputValue) { setNoteAutoSaved(true); return; }
+      pautas[idx] = { ...pautas[idx], notes: obsInputValue };
+      const updated = { ...cm, pautas };
+      setCurrentMeeting(updated);
+      setMeetings(prev => prev.map(m => m.id === id ? updated : m));
+      try { await supabase.from('meetings').update({ pautas }).eq('id', id); setNoteAutoSaved(true); } catch { /* tenta no próximo */ }
+    }, 2000);
+    return () => clearTimeout(handle);
+  }, [obsInputValue, editingObsKey, isSessionActive]);
 
   const handleMovePauta = (index: number, direction: 'up' | 'down') => {
     if (!canEdit || isSessionActive) return;
@@ -2035,21 +2061,29 @@ const App = () => {
                               </div>
                               <div className="px-4 pb-3 border-t border-slate-50 bg-white" onClick={e => e.stopPropagation()}>
                                   {canEdit && editingObsKey === `pauta-notes-${i}` ? (
+                                    <>
                                     <textarea
                                       autoFocus
                                       rows={3}
                                       className="mt-2 w-full text-[10px] text-slate-700 bg-white border border-slate-200 rounded-lg p-2 outline-none resize-none font-normal not-italic focus:border-amber-400 focus:ring-1 focus:ring-amber-100"
                                       value={obsInputValue}
-                                      onChange={e => setObsInputValue(e.target.value)}
-                                      onBlur={() => {
+                                      onChange={e => { setObsInputValue(e.target.value); setNoteAutoSaved(false); }}
+                                      onBlur={async () => {
                                         const newPautas = [...(currentMeeting.pautas || [])];
                                         newPautas[i] = { ...newPautas[i], notes: obsInputValue };
-                                        setCurrentMeeting({ ...currentMeeting, pautas: newPautas });
+                                        const updated = { ...currentMeeting, pautas: newPautas };
+                                        setCurrentMeeting(updated);
                                         setEditingObsKey(null);
+                                        // Salva automaticamente ao concluir a nota (persiste no banco)
+                                        if (currentMeeting.id) {
+                                          try { await supabase.from('meetings').update({ pautas: newPautas }).eq('id', currentMeeting.id); setMeetings(prev => prev.map(m => m.id === currentMeeting.id ? updated : m)); } catch { /* salva no próximo */ }
+                                        }
                                       }}
                                       onKeyDown={e => { if (e.key === 'Escape') setEditingObsKey(null); }}
                                       placeholder="Registre os pontos discutidos nesta pauta..."
                                     />
+                                    {isSessionActive && <p className="mt-1 text-[8px] font-bold uppercase tracking-widest text-slate-300">{noteAutoSaved ? <span className="text-emerald-500">✓ Salvo automaticamente</span> : 'Salva automaticamente enquanto você digita…'}</p>}
+                                    </>
                                   ) : p.notes ? (
                                     <p
                                       className={`mt-2 text-[10px] text-slate-600 bg-slate-50/50 p-2 rounded border border-slate-100 whitespace-pre-wrap font-normal not-italic leading-relaxed ${canEdit ? 'cursor-pointer hover:border-amber-300 transition-colors' : ''}`}
