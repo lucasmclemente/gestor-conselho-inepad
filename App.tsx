@@ -624,9 +624,8 @@ const App = () => {
       const { data: sessionData } = await supabase.auth.getSession();
       const accessToken = sessionData?.session?.access_token;
 
-      // Chama a Edge Function — não valida o retorno HTTP pois pode retornar 500
-      // mesmo quando o cadastro foi realizado com sucesso
-      await supabase.functions.invoke('create-user', {
+      // Chama a Edge Function (a confirmação real é feita no banco logo abaixo)
+      const { data: fnData, error: fnError } = await supabase.functions.invoke('create-user', {
         body: {
           name: newUserForm.name,
           email: newUserForm.email,
@@ -643,10 +642,20 @@ const App = () => {
         .from('members')
         .select('id, name, email, role, client_id, created_at')
         .eq('email', newUserForm.email)
-        .single();
+        .maybeSingle();
 
       if (!membroVerificado) {
-        throw new Error("Não foi possível confirmar o cadastro. Tente novamente.");
+        // Não criado — extrai o motivo real do retorno da Edge Function
+        let fnErrMsg: string = fnData?.error || '';
+        if (!fnErrMsg && fnError) {
+          try { const b = await (fnError as any).context?.json?.(); fnErrMsg = b?.error || fnError.message || ''; }
+          catch { fnErrMsg = fnError.message || ''; }
+        }
+        const low = (fnErrMsg || '').toLowerCase();
+        if (low.includes('registered') || low.includes('already') || low.includes('exist') || low.includes('duplicate') || low.includes('duplicad')) {
+          throw new Error('Já existe um usuário cadastrado com este e-mail.');
+        }
+        throw new Error(fnErrMsg || 'Não foi possível confirmar o cadastro. Tente novamente.');
       }
 
       setUsers(prev => [...prev, membroVerificado].sort((a, b) => a.name.localeCompare(b.name)));
