@@ -78,6 +78,10 @@ const App = () => {
   const [extraDelibForm, setExtraDelibForm] = useState({ title: '', voters: [] as string[] });
   const [extraCreating, setExtraCreating] = useState(false);
   const [votingDelibId, setVotingDelibId] = useState<number | null>(null);
+  const [sendingVoteInvites, setSendingVoteInvites] = useState(false);
+  const [pendingVoteId, setPendingVoteId] = useState<number | null>(() => {
+    try { const v = new URLSearchParams(window.location.search).get('vote'); return v ? Number(v) : null; } catch { return null; }
+  });
 
   const [isConvocationOpen, setIsConvocationOpen] = useState(false);
   const [isSendingEmail, setIsSendingEmail] = useState(false);
@@ -963,6 +967,39 @@ const App = () => {
     setVotingDelibId(null);
     addLog('Exclusão', 'Deliberação extraordinária removida.');
   };
+
+  // Envia convite de voto por e-mail (magic link) aos votantes da deliberação extraordinária
+  const sendVoteInvitations = async (delibId: number) => {
+    const container = findExtraContainer();
+    if (!container) return;
+    setSendingVoteInvites(true);
+    try {
+      const { data, error } = await supabase.functions.invoke('send-vote-invitations', {
+        body: { meetingId: container.id, delibId, appOrigin: window.location.origin },
+      });
+      if (error || data?.error) throw new Error(error?.message || data?.error);
+      addLog('Convite de Voto', `Convites de voto por e-mail enviados (${data.sent}).`);
+      let msg = `✅ ${data.sent} convite(s) de voto enviado(s) por e-mail.`;
+      if (data.skipped?.length) msg += `\n\nSem e-mail cadastrado (não enviados): ${data.skipped.join(', ')}`;
+      alert(msg);
+    } catch (e: any) {
+      alert('Erro ao enviar convites: ' + (e?.message || e));
+    } finally {
+      setSendingVoteInvites(false);
+    }
+  };
+
+  // Deep-link: ao chegar via magic link (?vote=<id>), abre a votação assim que os dados carregarem
+  useEffect(() => {
+    if (pendingVoteId == null || !currentUser) return;
+    const container = meetings.find((m: any) => isExtraContainer(m) && m.client_id === currentUser.client_id);
+    if (container?.deliberacoes?.some((d: any) => d.id === pendingVoteId)) {
+      setActiveMenu('deliberacoes');
+      setVotingDelibId(pendingVoteId);
+      setPendingVoteId(null);
+      try { window.history.replaceState({}, '', window.location.pathname); } catch { /* ignore */ }
+    }
+  }, [pendingVoteId, currentUser, meetings]);
 
   // --- LÓGICA DE VOTAÇÃO ---
   const handleRegisterVote = async (delibIndex: number, voteType: 'Favor' | 'Contra' | 'Abstenção') => {
@@ -3133,8 +3170,9 @@ const App = () => {
                   )}
                 </div>
               </div>
-              <div className="p-6 border-t bg-white flex gap-3">
+              <div className="p-6 border-t bg-white flex flex-wrap gap-3">
                 {canEdit && <button onClick={() => deleteExtraDeliberation(d.id)} className="px-4 py-3 border border-red-200 text-red-600 rounded-xl font-bold uppercase text-[10px] tracking-widest hover:bg-red-50 flex items-center gap-2"><Trash2 size={14} /> Excluir</button>}
+                {canEdit && <button onClick={() => sendVoteInvitations(d.id)} disabled={sendingVoteInvites} className="px-4 py-3 border border-amber-300 bg-amber-50 text-amber-700 rounded-xl font-bold uppercase text-[10px] tracking-widest hover:bg-amber-100 flex items-center gap-2 disabled:opacity-50"><Mail size={14} /> {sendingVoteInvites ? 'Enviando...' : 'Convidar por e-mail'}</button>}
                 <button onClick={() => setVotingDelibId(null)} className="flex-1 bg-slate-900 text-white py-3 rounded-xl font-bold uppercase text-[10px] tracking-[2px] hover:bg-slate-800">Concluir</button>
               </div>
             </div>
