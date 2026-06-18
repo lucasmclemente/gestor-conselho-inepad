@@ -2938,9 +2938,10 @@ const App = () => {
                             <td className="px-6 py-4 text-center text-[10px]">{u.role}</td>
                             <td className="px-6 py-4 text-center">
                               <button onClick={async () => {
-                                if (window.confirm(`Remover ${u.name}?`)) {
-                                  const { error } = await supabase.from('members').delete().eq('id', u.id);
-                                  if (!error) { setUsers(users.filter((x: any) => x.id !== u.id)); addLog('Remoção', `Membro removido: ${u.name}`); }
+                                if (window.confirm(`Remover ${u.name}?\n\nO login também será excluído, liberando o e-mail para novo cadastro.`)) {
+                                  const { data, error } = await supabase.functions.invoke('delete-member', { body: { userId: u.id } });
+                                  if (error || data?.error) { alert('Erro ao remover: ' + (error?.message || data?.error)); return; }
+                                  setUsers(users.filter((x: any) => x.id !== u.id)); addLog('Remoção', `Membro removido: ${u.name}`);
                                 }
                               }} className="text-slate-200 hover:text-red-500 transition-colors"><Trash2 size={18} /></button>
                             </td>
