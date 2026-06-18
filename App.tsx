@@ -730,6 +730,17 @@ const App = () => {
     }
   };
 
+  // Altera o perfil (papel) de um membro — Adm/SuperAdmin (atualiza Auth + members)
+  const updateMemberRole = async (u: any, newRole: string) => {
+    if (newRole === u.role) return;
+    if (!window.confirm(`Alterar o perfil de ${u.name} para "${newRole}"?\n\nEle precisará sair e entrar novamente para o novo perfil passar a valer.`)) return;
+    const { data, error } = await supabase.functions.invoke('update-member-role', { body: { userId: u.id, newRole } });
+    if (error || data?.error) { alert('Erro ao alterar perfil: ' + (error?.message || data?.error)); return; }
+    setUsers(prev => prev.map((x: any) => x.id === u.id ? { ...x, role: newRole } : x));
+    addLog('Configuração', `Perfil de ${u.name} alterado para ${newRole}`);
+    alert(`✅ Perfil de ${u.name} alterado para "${newRole}".\n\nLembre-o de sair e entrar novamente para o novo acesso valer.`);
+  };
+
   // --- PERFIL DA EMPRESA ---
   const handleLogoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -3001,7 +3012,19 @@ const App = () => {
                           <tr key={u.id} className="hover:bg-slate-50 transition-all">
                             <td className="px-6 py-4">{u.name}<br /><span className="text-[9px] text-slate-300">{u.email}</span></td>
                             <td className="px-6 py-4 text-center text-[10px] text-amber-600 uppercase">{u.client_id}</td>
-                            <td className="px-6 py-4 text-center text-[10px]">{u.role}</td>
+                            <td className="px-6 py-4 text-center">
+                              {(u.id === currentUser.id || (u.role === 'SuperAdmin' && !isSuper)) ? (
+                                <span className="text-[10px] font-bold text-slate-500 uppercase">{u.role}</span>
+                              ) : (
+                                <select value={u.role} onChange={e => updateMemberRole(u, e.target.value)} className="px-3 py-1.5 rounded-lg text-[10px] font-bold uppercase bg-slate-50 text-slate-700 border border-slate-200 cursor-pointer outline-none hover:border-amber-400 transition-colors not-italic">
+                                  <option value="Conselheiro">Conselheiro</option>
+                                  <option value="Assistente">Assistente</option>
+                                  <option value="Secretário">Secretário</option>
+                                  <option value="Administrador">Administrador</option>
+                                  {isSuper && <option value="SuperAdmin">SuperAdmin</option>}
+                                </select>
+                              )}
+                            </td>
                             <td className="px-6 py-4 text-center">
                               <button onClick={async () => {
                                 if (window.confirm(`Remover ${u.name}?\n\nO login também será excluído, liberando o e-mail para novo cadastro.`)) {
