@@ -470,6 +470,12 @@ verify_jwt = false
 import_map = "./functions/delete-member/deno.json"
 entrypoint = "./functions/delete-member/index.ts"
 
+[functions.vote-page]
+enabled = true
+verify_jwt = false
+import_map = "./functions/vote-page/deno.json"
+entrypoint = "./functions/vote-page/index.ts"
+
 [functions.clicksign-flow]
 enabled = true
 verify_jwt = true

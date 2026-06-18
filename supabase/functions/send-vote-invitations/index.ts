@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2"
+import { signVoteToken } from "../_shared/votetoken.ts"
 
 const ALLOWED_ORIGINS = [
   'https://conselho.inepadconsulting.com',
@@ -29,12 +30,12 @@ function buildVoteEmail(name: string, title: string, voteUrl: string): string {
       </div>
       <div style="padding:32px;">
         <p style="font-size:16px;color:#1e293b;margin:0 0 8px;">Olá, <strong>${escapeHtml(name)}</strong></p>
-        <p style="font-size:13px;color:#64748b;margin:0 0 20px;line-height:1.6;">Você foi convidado a registrar seu voto na deliberação abaixo. Clique no botão para acessar a plataforma com segurança e votar.</p>
+        <p style="font-size:13px;color:#64748b;margin:0 0 20px;line-height:1.6;">Você foi convidado a registrar seu voto na deliberação abaixo. Clique no botão para abrir a página de votação e registrar seu voto — é rápido e não precisa de senha.</p>
         <div style="background:#f8fafc;border:1px solid #e2e8f0;border-left:4px solid #b45309;border-radius:8px;padding:16px;margin-bottom:24px;">
           <p style="margin:0;font-size:14px;font-weight:bold;color:#1e293b;font-style:italic;">"${escapeHtml(title)}"</p>
         </div>
         <div style="text-align:center;margin-bottom:24px;">
-          <a href="${voteUrl}" style="background:#b45309;color:#fff;padding:14px 32px;text-decoration:none;border-radius:8px;font-weight:bold;font-size:13px;display:inline-block;">🗳️ Acessar e Votar</a>
+          <a href="${voteUrl}" style="background:#b45309;color:#fff;padding:14px 32px;text-decoration:none;border-radius:8px;font-weight:bold;font-size:13px;display:inline-block;">🗳️ Registrar meu voto</a>
         </div>
         <p style="font-size:10px;color:#94a3b8;text-align:center;line-height:1.6;">Este link é de uso individual e intransferível, e expira por segurança.<br/>GovCorp • INEPAD Consultoria</p>
       </div>
@@ -91,20 +92,20 @@ serve(async (req) => {
     const { data: members } = await admin.from('members').select('name, email').eq('client_id', meeting.client_id)
     for (const m of (members || [])) { if (m?.name && m?.email && !emailByName.has(m.name)) emailByName.set(m.name, m.email) }
 
-    const origin = (typeof appOrigin === 'string' && /^https?:\/\//.test(appOrigin)) ? appOrigin.replace(/\/$/, '') : 'https://conselho.inepadconsulting.com'
-    const redirectTo = `${origin}/?vmeet=${meetingId}` + (delibId != null ? `&vdelib=${delibId}` : '')
+    // Voto direto por e-mail: link com token assinado para a página pública de votação
+    const SECRET = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
+    const VOTE_BASE = `${Deno.env.get('SUPABASE_URL')}/functions/v1/vote-page`
+    const exp = Date.now() + 7 * 24 * 60 * 60 * 1000 // token válido por 7 dias
 
     let sent = 0
     const skipped: string[] = []
     for (const name of voterNames) {
       const email = emailByName.get(name)
       if (!email) { skipped.push(name); continue }
-      // Gera o magic link (login sem senha) que redireciona direto para a votação
-      const { data: linkData, error: linkErr } = await admin.auth.admin.generateLink({
-        type: 'magiclink', email, options: { redirectTo },
-      })
-      const actionLink = (linkData as any)?.properties?.action_link
-      if (linkErr || !actionLink) { skipped.push(name); continue }
+      const tokenPayload: Record<string, unknown> = { m: meetingId, v: name, e: email, exp }
+      if (delibId != null) tokenPayload.d = delibId; else tokenPayload.di = delibIndex
+      const token = await signVoteToken(SECRET, tokenPayload)
+      const voteUrl = `${VOTE_BASE}?token=${encodeURIComponent(token)}`
 
       if (RESEND_API_KEY) {
         await fetch('https://api.resend.com/emails', {
@@ -114,7 +115,7 @@ serve(async (req) => {
             from: 'Governança INEPAD <conselho@inepadconsulting.com>',
             to: email,
             subject: `🗳️ Sua votação: ${delib.title?.substring(0, 60) || 'Deliberação do Conselho'}`,
-            html: buildVoteEmail(name, delib.title || 'Deliberação do Conselho', actionLink),
+            html: buildVoteEmail(name, delib.title || 'Deliberação do Conselho', voteUrl),
           }),
         })
         sent++
