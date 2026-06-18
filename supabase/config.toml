@@ -488,6 +488,12 @@ verify_jwt = false
 import_map = "./functions/update-member-role/deno.json"
 entrypoint = "./functions/update-member-role/index.ts"
 
+[functions.download-ata]
+enabled = true
+verify_jwt = false
+import_map = "./functions/download-ata/deno.json"
+entrypoint = "./functions/download-ata/index.ts"
+
 [functions.clicksign-flow]
 enabled = true
 verify_jwt = true

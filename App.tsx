@@ -189,6 +189,7 @@ const App = () => {
   const [savingClientProfile, setSavingClientProfile] = useState(false);
   const [atasSearch, setAtasSearch] = useState('');
   const [clicksignLoading, setClicksignLoading] = useState(false);
+  const [downloadingAta, setDownloadingAta] = useState(false);
   const logoRef = useRef<HTMLInputElement>(null);
 
   // SuperAdmin — gestão de clientes
@@ -1380,6 +1381,29 @@ const App = () => {
     }
   };
 
+  // Baixa a ata do repositório com marca d'água (nome/e-mail/data-hora de quem baixou)
+  const downloadAtaWatermarked = async (ata: any) => {
+    const sourceUrl = (ata.clicksign_status === 'signed' && ata.clicksign_signed_url) ? ata.clicksign_signed_url : ata.url;
+    if (!sourceUrl) { alert('Arquivo da ata indisponível.'); return; }
+    setDownloadingAta(true);
+    try {
+      const { data, error } = await supabase.functions.invoke('download-ata', { body: { url: sourceUrl } });
+      if (error || data?.error) throw new Error(error?.message || data?.error);
+      const bytes = Uint8Array.from(atob(data.pdf_base64), (c) => c.charCodeAt(0));
+      const blob = new Blob([bytes], { type: 'application/pdf' });
+      const link = document.createElement('a');
+      link.href = URL.createObjectURL(blob);
+      link.download = (ata.name || 'ata').toLowerCase().endsWith('.pdf') ? ata.name : `${ata.name || 'ata'}.pdf`;
+      document.body.appendChild(link); link.click(); link.remove();
+      setTimeout(() => URL.revokeObjectURL(link.href), 8000);
+      addLog('Download', `Ata baixada com marca d'água: ${ata.name}`);
+    } catch (e: any) {
+      alert('Erro ao baixar a ata: ' + (e?.message || e));
+    } finally {
+      setDownloadingAta(false);
+    }
+  };
+
   const allAtas = useMemo(() => {
     return meetings
       .flatMap(m => (m.atas || []).map((ata: any) => ({
@@ -2474,10 +2498,12 @@ const App = () => {
                           {/* Ações */}
                           <div className="flex items-center gap-2 mt-auto">
                             <button
-                              onClick={() => openAtaUrl(ata.url)}
-                              className="flex-1 flex items-center justify-center gap-2 py-2.5 bg-slate-900 hover:bg-amber-600 text-white rounded-lg text-[10px] font-bold uppercase tracking-widest transition-all shadow-sm"
+                              onClick={() => downloadAtaWatermarked(ata)}
+                              disabled={downloadingAta}
+                              className="flex-1 flex items-center justify-center gap-2 py-2.5 bg-slate-900 hover:bg-amber-600 text-white rounded-lg text-[10px] font-bold uppercase tracking-widest transition-all shadow-sm disabled:opacity-60"
+                              title="Baixar com marca d'água (nome, e-mail, data e hora)"
                             >
-                              <ExternalLink size={13} /> Abrir
+                              <Download size={13} /> {downloadingAta ? 'Baixando...' : 'Baixar'}
                             </button>
                             <button
                               onClick={() => {
