@@ -227,7 +227,10 @@ const App = () => {
   const canEdit = isAdm || isSec;
   const isAssistant = currentUser?.role === 'Assistente';
   // Membros do cliente atual (SuperAdmin enxerga todos; aqui escopamos ao próprio cliente)
-  const clientMembers = (users || []).filter((u: any) => u.client_id === (activeClientId || currentUser?.client_id));
+  const clientMembers = (users || []).filter((u: any) => {
+    const cid = activeClientId || currentUser?.client_id;
+    return u.client_id === cid || (Array.isArray(u.secretary_clients) && u.secretary_clients.includes(cid));
+  });
 
   // --- LOGICA DE SESSÃO ---
   useEffect(() => {
@@ -390,17 +393,28 @@ const App = () => {
         setLoading(false);
         return;
       }
+      const memberCols = 'id, name, email, role, client_id, created_at, secretary_clients';
       let mQuery = supabase.from('meetings').select('*');
-      let uQuery = supabase.from('members').select('id, name, email, role, client_id, created_at, secretary_clients');
       let lQuery = supabase.from('audit_logs').select('*');
       if (!isSuper) {
         mQuery = mQuery.eq('client_id', cid);
-        uQuery = uQuery.eq('client_id', cid);
         lQuery = lQuery.eq('client_id', cid);
       }
+      // Membros: SuperAdmin vê todos; demais veem os do cliente ativo + conselheiros
+      // vinculados a ele (secretary_clients contém o cliente) — para inclusão como votantes
+      const usersPromise = isSuper
+        ? supabase.from('members').select(memberCols).order('name')
+        : Promise.all([
+            supabase.from('members').select(memberCols).eq('client_id', cid),
+            supabase.from('members').select(memberCols).contains('secretary_clients', [cid]),
+          ]).then(([a, b]: any) => {
+            const map = new Map<string, any>();
+            [...(a.data || []), ...(b.data || [])].forEach((m: any) => map.set(m.id, m));
+            return { data: Array.from(map.values()).sort((x: any, y: any) => (x.name || '').localeCompare(y.name || '')) };
+          });
       const baseQueries = [
         mQuery.order('created_at', { ascending: false }),
-        uQuery.order('name'),
+        usersPromise,
         lQuery.order('log_date', { ascending: false }).limit(50),
         supabase.from('clients').select('*').eq('client_id', cid).maybeSingle()
       ] as const;
@@ -3153,8 +3167,8 @@ const App = () => {
                             </td>
                             <td className="px-6 py-4 text-center">
                               <div className="flex items-center justify-center gap-2">
-                                {isSuper && u.role === 'Secretário' && (
-                                  <button onClick={() => openSecModal(u)} className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[9px] font-bold uppercase tracking-wider border border-slate-200 text-slate-500 hover:border-amber-400 hover:text-amber-600 transition-all not-italic" title="Atribuir clientes que este secretário pode atender">
+                                {isSuper && (u.role === 'Secretário' || u.role === 'Conselheiro') && (
+                                  <button onClick={() => openSecModal(u)} className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[9px] font-bold uppercase tracking-wider border border-slate-200 text-slate-500 hover:border-amber-400 hover:text-amber-600 transition-all not-italic" title={u.role === 'Conselheiro' ? 'Empresas em que é conselheiro' : 'Clientes que este secretário pode atender'}>
                                     <Building2 size={12} /> Clientes{(u.secretary_clients?.length ? ` (${u.secretary_clients.length})` : '')}
                                   </button>
                                 )}
@@ -3437,8 +3451,8 @@ const App = () => {
           <div className="bg-white w-full max-w-lg rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh] animate-in zoom-in-95">
             <div className="p-6 border-b flex justify-between items-center bg-slate-50">
               <div>
-                <h3 className="text-xl font-bold text-slate-800 italic flex items-center gap-2"><Building2 size={20} className="text-amber-600" /> Clientes do Secretário</h3>
-                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">{secModalUser.name} — poderá secretariar os clientes marcados</p>
+                <h3 className="text-xl font-bold text-slate-800 italic flex items-center gap-2"><Building2 size={20} className="text-amber-600" /> {secModalUser.role === 'Conselheiro' ? 'Empresas do Conselheiro' : 'Clientes do Secretário'}</h3>
+                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">{secModalUser.name} — {secModalUser.role === 'Conselheiro' ? 'será conselheiro das empresas marcadas' : 'poderá secretariar os clientes marcados'}</p>
               </div>
               <button onClick={() => setSecModalUser(null)} className="p-2 hover:bg-slate-200 rounded-full transition-all text-slate-400"><X size={20} /></button>
             </div>
@@ -3454,7 +3468,7 @@ const App = () => {
                   );
                 })}
               </div>
-              <p className="text-[10px] text-slate-400 mt-3">Marque todos os clientes que este secretário poderá atender. Ele alterna entre eles pelo seletor no topo do sistema.</p>
+              <p className="text-[10px] text-slate-400 mt-3">Marque todas as empresas vinculadas a este usuário. Ele alterna entre elas pelo seletor no topo do sistema {secModalUser.role === 'Conselheiro' ? 'e poderá ser incluído como votante nas deliberações dessas empresas.' : 'com poderes de secretário.'}</p>
             </div>
             <div className="p-6 border-t bg-white flex gap-3">
               <button onClick={() => setSecModalUser(null)} className="flex-1 border border-slate-200 text-slate-600 py-3 rounded-xl font-bold uppercase text-[10px] tracking-[2px] hover:bg-slate-50">Cancelar</button>
