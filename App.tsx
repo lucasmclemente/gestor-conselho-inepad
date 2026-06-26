@@ -7,7 +7,7 @@ import {
   Clock, CheckCircle2, AlertCircle, FileText, Send, X, Trash2,
   Upload, Save, Lock, Target, FileCheck, BarChart3,
   PieChart as PieIcon, LogIn, User, Key, LogOut, UserCheck,
-  Mail, UserCog, Settings, Camera, UserCircle, History, Filter, MessageSquare, Download, ExternalLink, ListChecks, Plus, Edit2, Check, Menu, ChevronUp, ChevronDown, Play, Square, Timer, SkipForward, Building2, ChevronLeft, UserMinus, ThumbsUp, ThumbsDown, CircleSlash, MinusCircle, Archive, Search, PenLine, ShieldCheck, Scale, Monitor, MapPin
+  Mail, UserCog, Settings, Camera, UserCircle, History, Filter, MessageSquare, Download, ExternalLink, ListChecks, Plus, Edit2, Check, Menu, ChevronUp, ChevronDown, Play, Square, Timer, SkipForward, Building2, ChevronLeft, UserMinus, ThumbsUp, ThumbsDown, CircleSlash, MinusCircle, Archive, Search, PenLine, ShieldCheck, Scale, Monitor, MapPin, Gauge, TrendingUp, TrendingDown, Bell
 } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend } from 'recharts';
 
@@ -220,6 +220,10 @@ const App = () => {
   const [secModalUser, setSecModalUser] = useState<any>(null);
   const [secModalSelected, setSecModalSelected] = useState<string[]>([]);
   const [secModalSaving, setSecModalSaving] = useState(false);
+
+  // Indicadores & Gatilhos (semáforos)
+  const [indicatorStatuses, setIndicatorStatuses] = useState<any[]>([]);
+  const [openTriggerEvents, setOpenTriggerEvents] = useState<any[]>([]);
 
   const isSuper = currentUser?.role === 'SuperAdmin';
   const isAdm = currentUser?.role === 'Administrador' || isSuper;
@@ -443,6 +447,13 @@ const App = () => {
         }).sort((a: any, b: any) => a.client_id.localeCompare(b.client_id));
         setAllClientsList(fullList);
       }
+      // Indicadores & Gatilhos do cliente ativo (semáforos + alertas abertos)
+      const [indStatusRes, indEventsRes] = await Promise.all([
+        supabase.from('indicator_current_status').select('*').eq('client_id', cid).order('breach_level', { ascending: false }),
+        supabase.from('trigger_events').select('*, triggers(name, indicators(name, unit))').eq('client_id', cid).eq('status', 'open').order('fired_at', { ascending: false }),
+      ]);
+      setIndicatorStatuses(indStatusRes.data || []);
+      setOpenTriggerEvents(indEventsRes.data || []);
     } catch (e) { console.error(e); }
     setLoading(false);
   };
@@ -825,6 +836,16 @@ const App = () => {
     } finally {
       setSecModalSaving(false);
     }
+  };
+
+  // Indicadores: marcar um alerta de gatilho como resolvido
+  const resolveTriggerEvent = async (eventId: string) => {
+    const { error } = await supabase.from('trigger_events')
+      .update({ status: 'resolved', resolved_at: new Date().toISOString(), resolved_by: currentUser?.id })
+      .eq('id', eventId);
+    if (error) { alert('Erro ao resolver alerta: ' + error.message); return; }
+    setOpenTriggerEvents(prev => prev.filter((e: any) => e.id !== eventId));
+    addLog('Indicadores', 'Alerta de gatilho marcado como resolvido.');
   };
 
   // --- PERFIL DA EMPRESA ---
@@ -1725,6 +1746,7 @@ const App = () => {
             { id: 'reunioes', icon: <Calendar size={18} />, label: 'Conselho', action: () => setView('list') },
             { id: 'plano-acao', icon: <ListChecks size={18} />, label: 'Plano de Ação' },
             { id: 'deliberacoes', icon: <Scale size={18} />, label: 'Deliberações' },
+            { id: 'indicadores', icon: <Gauge size={18} />, label: 'Indicadores' },
             { id: 'repositorio-atas', icon: <Archive size={18} />, label: 'Repositório de Atas' },
             { id: 'usuarios', icon: <UserCog size={18} />, label: isSuper ? 'Contas de Clientes' : 'Membros', adm: true },
             { id: 'auditoria', icon: <History size={18} />, label: 'Auditoria', adm: true }
@@ -1975,7 +1997,7 @@ const App = () => {
                 view === 'list' ? (
                   <div className="space-y-6 animate-in fade-in">
                     <div className="flex justify-between items-center gap-4 bg-white p-4 rounded-xl border border-slate-200 shadow-sm"><h1 className="text-2xl font-bold text-slate-800 tracking-tight italic">Conselho Deliberativo</h1>{canEdit && (<div className="flex items-center gap-3"><button onClick={openScheduleModal} className="bg-slate-900 hover:bg-slate-800 text-amber-500 px-5 py-3 rounded-lg font-bold text-xs uppercase flex items-center justify-center gap-2 transition-all shadow-md tracking-widest"><CalendarPlus size={16} /> Programar Ano</button><button onClick={() => { setCurrentMeeting(blankMeeting); setView('details'); setTab('info'); }} className="bg-amber-600 hover:bg-amber-700 text-white px-6 py-3 rounded-lg font-bold text-xs uppercase flex items-center justify-center gap-2 transition-all shadow-md tracking-widest">+ Nova Reunião</button></div>)}</div>
-                    <div className="grid gap-4">{meetings.filter((m: any) => !isExtraContainer(m)).map((m) => (<div key={m.id} onClick={() => { setCurrentMeeting(m); setView('details'); setTab('info'); }} className="bg-white p-6 rounded-xl border border-slate-200 flex justify-between items-center group cursor-pointer hover:border-amber-500 hover:shadow-md transition-all shadow-sm"><div className="flex items-center gap-4"><div className="p-3 bg-slate-100 text-slate-500 rounded-lg group-hover:bg-amber-100 group-hover:text-amber-700 transition-all"><Calendar size={24} /></div><div><h3 className="font-bold text-lg text-slate-800 group-hover:text-amber-600 transition-all italic">{m.title}</h3><p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">{m.status} • {m.date || 'DATA N/D'}</p></div></div><div className="flex items-center gap-3">{canEdit && (<button onClick={(e) => { e.stopPropagation(); deleteMeeting(m.id, m.title); }} className="p-3 text-slate-200 hover:text-red-600 rounded-lg"><Trash2 size={20} /></button>)}<ChevronRight size={20} className="text-slate-300 group-hover:text-amber-500 transition-all" /></div></div>))}</div>
+                    <div className="grid gap-4">{meetings.filter((m: any) => !isExtraContainer(m) && m.type !== 'Indicadores').map((m) => (<div key={m.id} onClick={() => { setCurrentMeeting(m); setView('details'); setTab('info'); }} className="bg-white p-6 rounded-xl border border-slate-200 flex justify-between items-center group cursor-pointer hover:border-amber-500 hover:shadow-md transition-all shadow-sm"><div className="flex items-center gap-4"><div className="p-3 bg-slate-100 text-slate-500 rounded-lg group-hover:bg-amber-100 group-hover:text-amber-700 transition-all"><Calendar size={24} /></div><div><h3 className="font-bold text-lg text-slate-800 group-hover:text-amber-600 transition-all italic">{m.title}</h3><p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">{m.status} • {m.date || 'DATA N/D'}</p></div></div><div className="flex items-center gap-3">{canEdit && (<button onClick={(e) => { e.stopPropagation(); deleteMeeting(m.id, m.title); }} className="p-3 text-slate-200 hover:text-red-600 rounded-lg"><Trash2 size={20} /></button>)}<ChevronRight size={20} className="text-slate-300 group-hover:text-amber-500 transition-all" /></div></div>))}</div>
                   </div>
                 ) : (
                   <div className="animate-in fade-in duration-300 pb-20">
@@ -2893,6 +2915,91 @@ const App = () => {
                       </tbody>
                     </table>
                   </div>
+                </div>
+              )}
+
+              {/* ==================== INDICADORES & GATILHOS (SEMÁFOROS) ==================== */}
+              {activeMenu === 'indicadores' && (
+                <div className="space-y-8 animate-in fade-in">
+                  <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex items-center justify-between">
+                    <div>
+                      <h1 className="text-2xl font-bold text-slate-800 tracking-tight italic flex items-center gap-2"><Gauge size={24} className="text-amber-600" /> Indicadores & Gatilhos</h1>
+                      <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1">Semáforos de governança • {clientProfile?.name || activeClientId || currentUser.client_id}</p>
+                    </div>
+                  </div>
+
+                  {/* Alertas abertos */}
+                  <section>
+                    <h2 className="text-sm font-bold text-slate-700 uppercase tracking-widest mb-3 flex items-center gap-2"><Bell size={16} className="text-amber-600" /> Alertas abertos ({openTriggerEvents.length})</h2>
+                    {openTriggerEvents.length === 0 ? (
+                      <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm text-sm text-slate-500 flex items-center gap-2"><CheckCircle2 size={18} className="text-emerald-500" /> Nenhum gatilho em aberto. Tudo no alvo.</div>
+                    ) : (
+                      <div className="bg-white rounded-xl border border-slate-200 shadow-sm divide-y divide-slate-100">
+                        {openTriggerEvents.map((e: any) => {
+                          const crit = e.severity === 'critical';
+                          const ind = e.triggers?.indicators?.name || 'Indicador';
+                          const unit = e.triggers?.indicators?.unit || '';
+                          const trig = e.triggers?.name || '';
+                          return (
+                            <div key={e.id} className="flex items-center justify-between gap-3 p-4">
+                              <div className="flex items-start gap-3 min-w-0">
+                                <span className={`mt-1 h-3 w-3 rounded-full shrink-0 ${crit ? 'bg-red-600' : 'bg-amber-500'}`} />
+                                <div className="min-w-0">
+                                  <p className="text-sm font-bold text-slate-800 italic truncate">{ind} {trig ? <span className="font-normal text-slate-500">— {trig}</span> : null}</p>
+                                  <p className="text-[11px] text-slate-500">Valor observado <b>{e.observed_value}{unit ? ' ' + unit : ''}</b> · {new Date(e.fired_at).toLocaleDateString('pt-BR')} · <span className={crit ? 'text-red-600 font-bold' : 'text-amber-600 font-bold'}>{crit ? 'Crítico' : 'Atenção'}</span></p>
+                                </div>
+                              </div>
+                              {canEdit && (
+                                <button onClick={() => resolveTriggerEvent(e.id)} className="shrink-0 bg-amber-600 hover:bg-amber-700 text-white px-3 py-1.5 rounded-lg text-[9px] font-bold uppercase tracking-wider transition-all inline-flex items-center gap-1"><Check size={12} /> Resolver</button>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </section>
+
+                  {/* Cards de indicadores (semáforo) */}
+                  <section>
+                    <h2 className="text-sm font-bold text-slate-700 uppercase tracking-widest mb-3">Indicadores monitorados ({indicatorStatuses.length})</h2>
+                    {indicatorStatuses.length === 0 ? (
+                      <div className="bg-white p-8 rounded-xl border border-slate-200 shadow-sm text-center">
+                        <Gauge size={32} className="text-slate-300 mx-auto mb-2" />
+                        <p className="text-sm text-slate-500">Nenhum indicador cadastrado ainda para este cliente.</p>
+                        <p className="text-[11px] text-slate-400 mt-1">O cadastro de indicadores e gatilhos será habilitado na próxima etapa.</p>
+                      </div>
+                    ) : (
+                      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                        {indicatorStatuses.map((s: any) => {
+                          const lvl = s.breach_level || 0;
+                          const dot = lvl === 2 ? 'bg-red-600' : lvl === 1 ? 'bg-amber-500' : 'bg-emerald-500';
+                          const ring = lvl === 2 ? 'ring-red-200' : lvl === 1 ? 'ring-amber-200' : 'ring-emerald-200';
+                          const label = lvl === 2 ? 'Crítico' : lvl === 1 ? 'Atenção' : 'No alvo';
+                          return (
+                            <div key={s.indicator_id} className={`rounded-xl border border-slate-200 bg-white p-5 shadow-sm ring-1 ${ring}`}>
+                              <div className="flex items-start justify-between gap-2">
+                                <div className="min-w-0">
+                                  <h3 className="text-sm font-bold text-slate-800 italic truncate">{s.name}</h3>
+                                  {s.category && <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest truncate">{s.category}</p>}
+                                </div>
+                                <span className={`h-3 w-3 rounded-full shrink-0 mt-1 ${dot}`} title={label} />
+                              </div>
+                              <p className="mt-3 text-3xl font-bold text-slate-900">
+                                {s.current_value ?? '—'}<span className="ml-1 text-sm font-normal text-slate-400">{s.unit}</span>
+                              </p>
+                              <div className="mt-2 flex items-center justify-between">
+                                <span className="text-[11px] text-slate-400 flex items-center gap-1">
+                                  {s.direction === 'lower_is_better' ? <TrendingDown size={12} /> : <TrendingUp size={12} />}
+                                  {s.current_period ? new Date(s.current_period + 'T00:00:00').toLocaleDateString('pt-BR', { month: '2-digit', year: 'numeric' }) : 'sem leitura'}
+                                </span>
+                                <span className={`text-[9px] font-bold uppercase tracking-wider ${lvl === 2 ? 'text-red-600' : lvl === 1 ? 'text-amber-600' : 'text-emerald-600'}`}>{label}</span>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </section>
                 </div>
               )}
 

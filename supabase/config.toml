@@ -500,6 +500,11 @@ verify_jwt = false
 import_map = "./functions/set-secretary-clients/deno.json"
 entrypoint = "./functions/set-secretary-clients/index.ts"
 
+[functions.evaluate-triggers]
+enabled = true
+verify_jwt = false
+entrypoint = "./functions/evaluate-triggers/index.ts"
+
 [functions.clicksign-flow]
 enabled = true
 verify_jwt = true
