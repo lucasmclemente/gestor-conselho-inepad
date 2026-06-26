@@ -49,6 +49,7 @@ serve(async (req) => {
   // Verifica autorização — apenas Administrador e SuperAdmin podem criar usuários
   const callerRole = callerUser.user_metadata?.role
   const callerClientId = callerUser.user_metadata?.client_id
+  const callerSecClients = Array.isArray(callerUser.user_metadata?.secretary_clients) ? callerUser.user_metadata.secretary_clients : []
 
   if (!['Administrador', 'SuperAdmin'].includes(callerRole)) {
     return new Response(JSON.stringify({ error: 'Forbidden' }), {
@@ -67,8 +68,8 @@ serve(async (req) => {
       );
     }
 
-    // Administrador só pode criar usuários no próprio client_id
-    if (callerRole === 'Administrador' && client_id !== callerClientId) {
+    // Administrador só cria usuários no próprio client_id ou nos clientes atribuídos (multi-cliente)
+    if (callerRole === 'Administrador' && client_id !== callerClientId && !callerSecClients.includes(client_id)) {
       return new Response(JSON.stringify({ error: 'Forbidden' }), {
         status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' }
       })

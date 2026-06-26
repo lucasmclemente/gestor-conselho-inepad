@@ -35,6 +35,7 @@ serve(async (req) => {
 
   const role = (user.user_metadata as any)?.role
   const clientId = (user.user_metadata as any)?.client_id
+  const secClients = Array.isArray((user.user_metadata as any)?.secretary_clients) ? (user.user_metadata as any).secretary_clients : []
   const isSuper = role === 'SuperAdmin'
   if (!['Administrador', 'SuperAdmin'].includes(role)) {
     return new Response(JSON.stringify({ error: 'Apenas Administrador/SuperAdmin podem remover membros.' }), { status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
@@ -50,7 +51,7 @@ serve(async (req) => {
     // Autorização por cliente: Adm só remove do próprio client e não remove SuperAdmin
     const { data: target } = await admin.from('members').select('id, client_id, role').eq('id', userId).maybeSingle()
     if (target && !isSuper) {
-      if (target.client_id !== clientId) return new Response(JSON.stringify({ error: 'Sem permissão para remover este membro.' }), { status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
+      if (target.client_id !== clientId && !secClients.includes(target.client_id)) return new Response(JSON.stringify({ error: 'Sem permissão para remover este membro.' }), { status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
       if (target.role === 'SuperAdmin') return new Response(JSON.stringify({ error: 'Administrador não pode remover SuperAdmin.' }), { status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
     }
     // Se não há linha em members (login órfão), só SuperAdmin pode limpar

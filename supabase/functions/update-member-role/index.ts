@@ -37,6 +37,7 @@ serve(async (req) => {
 
   const callerRole = (caller.user_metadata as any)?.role
   const callerClient = (caller.user_metadata as any)?.client_id
+  const callerSec = Array.isArray((caller.user_metadata as any)?.secretary_clients) ? (caller.user_metadata as any).secretary_clients : []
   const isSuper = callerRole === 'SuperAdmin'
   if (!['Administrador', 'SuperAdmin'].includes(callerRole)) return json({ error: 'Apenas Administrador/SuperAdmin podem alterar perfis.' }, 403)
 
@@ -53,7 +54,7 @@ serve(async (req) => {
 
     // Regras para Administrador (não-Super)
     if (!isSuper) {
-      if (target.client_id !== callerClient) return json({ error: 'Sem permissão para este membro.' }, 403)
+      if (target.client_id !== callerClient && !callerSec.includes(target.client_id)) return json({ error: 'Sem permissão para este membro.' }, 403)
       if (target.role === 'SuperAdmin') return json({ error: 'Administrador não pode alterar um SuperAdmin.' }, 403)
       if (newRole === 'SuperAdmin') return json({ error: 'Administrador não pode promover a SuperAdmin.' }, 403)
     }

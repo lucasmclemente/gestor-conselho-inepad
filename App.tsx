@@ -733,7 +733,7 @@ const App = () => {
   // CORREÇÃO FINAL: verifica diretamente no banco se o membro foi criado,
   // ignorando o código de retorno HTTP da Edge Function
   const handleCreateUser = async () => {
-    const clientId = isSuper ? newUserForm.client_id : currentUser.client_id;
+    const clientId = isSuper ? newUserForm.client_id : (activeClientId || currentUser.client_id);
     if (!newUserForm.name || !newUserForm.email || !newUserForm.password || !clientId) {
       return alert("Todos os campos são obrigatórios.");
     }
@@ -817,7 +817,7 @@ const App = () => {
       const { data, error } = await supabase.functions.invoke('set-secretary-clients', { body: { userId: secModalUser.id, clientIds: secModalSelected } });
       if (error || data?.error) throw new Error(error?.message || data?.error);
       setUsers(prev => prev.map((x: any) => x.id === secModalUser.id ? { ...x, secretary_clients: data.secretary_clients } : x));
-      addLog('Configuração', `Clientes do secretário ${secModalUser.name}: ${data.secretary_clients.join(', ') || '(nenhum)'}`);
+      addLog('Configuração', `Clientes de ${secModalUser.name} (${secModalUser.role}): ${data.secretary_clients.join(', ') || '(nenhum)'}`);
       alert(`✅ Clientes atualizados para ${secModalUser.name}.\n\nEle precisará sair e entrar novamente para o acesso valer.`);
       setSecModalUser(null);
     } catch (e: any) {
@@ -3167,8 +3167,8 @@ const App = () => {
                             </td>
                             <td className="px-6 py-4 text-center">
                               <div className="flex items-center justify-center gap-2">
-                                {isSuper && (u.role === 'Secretário' || u.role === 'Conselheiro') && (
-                                  <button onClick={() => openSecModal(u)} className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[9px] font-bold uppercase tracking-wider border border-slate-200 text-slate-500 hover:border-amber-400 hover:text-amber-600 transition-all not-italic" title={u.role === 'Conselheiro' ? 'Empresas em que é conselheiro' : 'Clientes que este secretário pode atender'}>
+                                {isSuper && (u.role === 'Secretário' || u.role === 'Conselheiro' || u.role === 'Administrador') && (
+                                  <button onClick={() => openSecModal(u)} className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[9px] font-bold uppercase tracking-wider border border-slate-200 text-slate-500 hover:border-amber-400 hover:text-amber-600 transition-all not-italic" title={u.role === 'Conselheiro' ? 'Empresas em que é conselheiro' : u.role === 'Administrador' ? 'Clientes que este administrador pode gerir' : 'Clientes que este secretário pode atender'}>
                                     <Building2 size={12} /> Clientes{(u.secretary_clients?.length ? ` (${u.secretary_clients.length})` : '')}
                                   </button>
                                 )}
@@ -3451,8 +3451,8 @@ const App = () => {
           <div className="bg-white w-full max-w-lg rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh] animate-in zoom-in-95">
             <div className="p-6 border-b flex justify-between items-center bg-slate-50">
               <div>
-                <h3 className="text-xl font-bold text-slate-800 italic flex items-center gap-2"><Building2 size={20} className="text-amber-600" /> {secModalUser.role === 'Conselheiro' ? 'Empresas do Conselheiro' : 'Clientes do Secretário'}</h3>
-                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">{secModalUser.name} — {secModalUser.role === 'Conselheiro' ? 'será conselheiro das empresas marcadas' : 'poderá secretariar os clientes marcados'}</p>
+                <h3 className="text-xl font-bold text-slate-800 italic flex items-center gap-2"><Building2 size={20} className="text-amber-600" /> {secModalUser.role === 'Conselheiro' ? 'Empresas do Conselheiro' : `Clientes do ${secModalUser.role}`}</h3>
+                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">{secModalUser.name} — {secModalUser.role === 'Conselheiro' ? 'será conselheiro das empresas marcadas' : secModalUser.role === 'Administrador' ? 'administrará os clientes marcados' : 'poderá secretariar os clientes marcados'}</p>
               </div>
               <button onClick={() => setSecModalUser(null)} className="p-2 hover:bg-slate-200 rounded-full transition-all text-slate-400"><X size={20} /></button>
             </div>
@@ -3468,7 +3468,7 @@ const App = () => {
                   );
                 })}
               </div>
-              <p className="text-[10px] text-slate-400 mt-3">Marque todas as empresas vinculadas a este usuário. Ele alterna entre elas pelo seletor no topo do sistema {secModalUser.role === 'Conselheiro' ? 'e poderá ser incluído como votante nas deliberações dessas empresas.' : 'com poderes de secretário.'}</p>
+              <p className="text-[10px] text-slate-400 mt-3">Marque todas as empresas vinculadas a este usuário. Ele alterna entre elas pelo seletor no topo do sistema {secModalUser.role === 'Conselheiro' ? 'e poderá ser incluído como votante nas deliberações dessas empresas.' : secModalUser.role === 'Administrador' ? 'com poderes de administrador em cada uma.' : 'com poderes de secretário.'}</p>
             </div>
             <div className="p-6 border-t bg-white flex gap-3">
               <button onClick={() => setSecModalUser(null)} className="flex-1 border border-slate-200 text-slate-600 py-3 rounded-xl font-bold uppercase text-[10px] tracking-[2px] hover:bg-slate-50">Cancelar</button>
