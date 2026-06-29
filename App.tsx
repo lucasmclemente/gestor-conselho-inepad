@@ -3260,8 +3260,8 @@ const App = () => {
                                 const isRange = t.operator === 'outside' || t.operator === 'inside';
                                 return (
                                   <React.Fragment key={t.id}>
-                                    <ReferenceLine y={t.threshold_value} stroke={col} strokeDasharray="4 4" />
-                                    {isRange && t.threshold_value_secondary != null && <ReferenceLine y={t.threshold_value_secondary} stroke={col} strokeDasharray="4 4" />}
+                                    <ReferenceLine y={Number(t.threshold_value)} stroke={col} strokeDasharray="4 4" label={{ value: `${t.name}: ${t.threshold_value}`, position: 'insideTopRight', fontSize: 9, fill: col }} />
+                                    {isRange && t.threshold_value_secondary != null && <ReferenceLine y={Number(t.threshold_value_secondary)} stroke={col} strokeDasharray="4 4" label={{ value: `${t.threshold_value_secondary}`, position: 'insideBottomRight', fontSize: 9, fill: col }} />}
                                   </React.Fragment>
                                 );
                               })}
