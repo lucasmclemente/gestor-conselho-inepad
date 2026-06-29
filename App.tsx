@@ -9,7 +9,7 @@ import {
   PieChart as PieIcon, LogIn, User, Key, LogOut, UserCheck,
   Mail, UserCog, Settings, Camera, UserCircle, History, Filter, MessageSquare, Download, ExternalLink, ListChecks, Plus, Edit2, Check, Menu, ChevronUp, ChevronDown, Play, Square, Timer, SkipForward, Building2, ChevronLeft, UserMinus, ThumbsUp, ThumbsDown, CircleSlash, MinusCircle, Archive, Search, PenLine, ShieldCheck, Scale, Monitor, MapPin, Gauge, TrendingUp, TrendingDown, Bell
 } from 'lucide-react';
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend } from 'recharts';
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend, LineChart, Line } from 'recharts';
 
 // --- CONFIGURAÇÃO SUPABASE ---
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
@@ -226,6 +226,7 @@ const App = () => {
   const [openTriggerEvents, setOpenTriggerEvents] = useState<any[]>([]);
   const [indicatorsList, setIndicatorsList] = useState<any[]>([]);
   const [triggersList, setTriggersList] = useState<any[]>([]);
+  const [indicatorSeries, setIndicatorSeries] = useState<Record<string, any[]>>({});
   const [indModal, setIndModal] = useState<any>(null);
   const [indSaving, setIndSaving] = useState(false);
   const [readingModal, setReadingModal] = useState<any>(null);
@@ -457,17 +458,19 @@ const App = () => {
         }).sort((a: any, b: any) => a.client_id.localeCompare(b.client_id));
         setAllClientsList(fullList);
       }
-      // Indicadores & Gatilhos do cliente ativo (semáforos + alertas + cadastros)
-      const [indStatusRes, indEventsRes, indListRes, trigListRes] = await Promise.all([
+      // Indicadores & Gatilhos do cliente ativo (semáforos + alertas + cadastros + séries)
+      const [indStatusRes, indEventsRes, indListRes, trigListRes, readingsRes] = await Promise.all([
         supabase.from('indicator_current_status').select('*').eq('client_id', cid).order('breach_level', { ascending: false }),
         supabase.from('trigger_events').select('*, triggers(name, indicators(name, unit))').eq('client_id', cid).eq('status', 'open').order('fired_at', { ascending: false }),
         supabase.from('indicators').select('*').eq('client_id', cid).order('name'),
         supabase.from('triggers').select('*').eq('client_id', cid),
+        supabase.from('indicator_readings').select('indicator_id, period, value').eq('client_id', cid).order('period', { ascending: true }),
       ]);
       setIndicatorStatuses(indStatusRes.data || []);
       setOpenTriggerEvents(indEventsRes.data || []);
       setIndicatorsList(indListRes.data || []);
       setTriggersList(trigListRes.data || []);
+      setIndicatorSeries(buildSeriesMap(readingsRes.data || []));
     } catch (e) { console.error(e); }
     setLoading(false);
   };
@@ -862,19 +865,30 @@ const App = () => {
     addLog('Indicadores', 'Alerta de gatilho marcado como resolvido.');
   };
 
-  // Recarrega só os dados de indicadores (semáforos, alertas, cadastros) do cliente ativo
+  // Monta { indicator_id: [{period, value}, ...] } ordenado por competência (asc)
+  const buildSeriesMap = (rows: any[]): Record<string, any[]> => {
+    const map: Record<string, any[]> = {};
+    (rows || []).forEach((r: any) => {
+      (map[r.indicator_id] ||= []).push({ period: r.period, value: Number(r.value) });
+    });
+    return map;
+  };
+
+  // Recarrega só os dados de indicadores (semáforos, alertas, cadastros, séries) do cliente ativo
   const reloadIndicators = async () => {
     const cid = activeClientId || currentUser.client_id;
-    const [st, ev, ind, tg] = await Promise.all([
+    const [st, ev, ind, tg, rd] = await Promise.all([
       supabase.from('indicator_current_status').select('*').eq('client_id', cid).order('breach_level', { ascending: false }),
       supabase.from('trigger_events').select('*, triggers(name, indicators(name, unit))').eq('client_id', cid).eq('status', 'open').order('fired_at', { ascending: false }),
       supabase.from('indicators').select('*').eq('client_id', cid).order('name'),
       supabase.from('triggers').select('*').eq('client_id', cid),
+      supabase.from('indicator_readings').select('indicator_id, period, value').eq('client_id', cid).order('period', { ascending: true }),
     ]);
     setIndicatorStatuses(st.data || []);
     setOpenTriggerEvents(ev.data || []);
     setIndicatorsList(ind.data || []);
     setTriggersList(tg.data || []);
+    setIndicatorSeries(buildSeriesMap(rd.data || []));
   };
 
   // ----- CRUD de Indicadores -----
@@ -3133,6 +3147,27 @@ const App = () => {
                               <p className="mt-3 text-3xl font-bold text-slate-900">
                                 {s.current_value ?? '—'}<span className="ml-1 text-sm font-normal text-slate-400">{s.unit}</span>
                               </p>
+                              {(() => {
+                                const ser = (indicatorSeries[s.indicator_id] || []).slice(-12);
+                                if (ser.length < 2) return null;
+                                const stroke = lvl === 2 ? '#dc2626' : lvl === 1 ? '#f59e0b' : '#10b981';
+                                return (
+                                  <div className="mt-2 h-10 -mx-1">
+                                    <ResponsiveContainer width="100%" height="100%">
+                                      <LineChart data={ser} margin={{ top: 4, right: 4, bottom: 0, left: 4 }}>
+                                        <XAxis dataKey="period" hide />
+                                        <YAxis hide domain={['dataMin', 'dataMax']} />
+                                        <Tooltip
+                                          contentStyle={{ fontSize: '11px', borderRadius: '8px', border: '1px solid #e2e8f0', padding: '4px 8px' }}
+                                          labelFormatter={(l: any) => new Date(l + 'T00:00:00').toLocaleDateString('pt-BR', { month: '2-digit', year: 'numeric' })}
+                                          formatter={(v: any) => [`${v}${s.unit ? ' ' + s.unit : ''}`, 'Valor']}
+                                        />
+                                        <Line type="monotone" dataKey="value" stroke={stroke} strokeWidth={2} dot={false} isAnimationActive={false} />
+                                      </LineChart>
+                                    </ResponsiveContainer>
+                                  </div>
+                                );
+                              })()}
                               <div className="mt-2 flex items-center justify-between">
                                 <span className="text-[11px] text-slate-400 flex items-center gap-1">
                                   {s.direction === 'lower_is_better' ? <TrendingDown size={12} /> : <TrendingUp size={12} />}
