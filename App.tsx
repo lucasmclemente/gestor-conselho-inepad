@@ -3255,15 +3255,16 @@ const App = () => {
                               <XAxis dataKey="period" tickFormatter={fmtMonth} tick={{ fontSize: 11, fill: '#94a3b8' }} />
                               <YAxis tick={{ fontSize: 11, fill: '#94a3b8' }} width={40} />
                               <Tooltip contentStyle={{ fontSize: '12px', borderRadius: '8px', border: '1px solid #e2e8f0' }} labelFormatter={(l: any) => new Date(l + 'T00:00:00').toLocaleDateString('pt-BR', { month: '2-digit', year: 'numeric' })} formatter={(v: any) => [`${v}${unit ? ' ' + unit : ''}`, 'Valor']} />
-                              {trigs.map((t: any) => {
+                              {trigs.flatMap((t: any) => {
                                 const col = t.severity === 'critical' ? '#dc2626' : '#f59e0b';
                                 const isRange = t.operator === 'outside' || t.operator === 'inside';
-                                return (
-                                  <React.Fragment key={t.id}>
-                                    <ReferenceLine y={Number(t.threshold_value)} stroke={col} strokeDasharray="4 4" label={{ value: `${t.name}: ${t.threshold_value}`, position: 'insideTopRight', fontSize: 9, fill: col }} />
-                                    {isRange && t.threshold_value_secondary != null && <ReferenceLine y={Number(t.threshold_value_secondary)} stroke={col} strokeDasharray="4 4" label={{ value: `${t.threshold_value_secondary}`, position: 'insideBottomRight', fontSize: 9, fill: col }} />}
-                                  </React.Fragment>
+                                const lines = [
+                                  <ReferenceLine key={t.id} y={Number(t.threshold_value)} stroke={col} strokeWidth={1.5} strokeDasharray="5 4" ifOverflow="extendDomain" label={{ value: `${t.name}: ${t.threshold_value}`, position: 'insideTopRight', fontSize: 9, fill: col }} />,
+                                ];
+                                if (isRange && t.threshold_value_secondary != null) lines.push(
+                                  <ReferenceLine key={`${t.id}-2`} y={Number(t.threshold_value_secondary)} stroke={col} strokeWidth={1.5} strokeDasharray="5 4" ifOverflow="extendDomain" label={{ value: `${t.threshold_value_secondary}`, position: 'insideBottomRight', fontSize: 9, fill: col }} />
                                 );
+                                return lines;
                               })}
                               <Line type="monotone" dataKey="value" stroke={stroke} strokeWidth={2.5} dot={{ r: 3 }} isAnimationActive={false} />
                             </LineChart>
