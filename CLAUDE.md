@@ -1,6 +1,6 @@
 # CLAUDE.md — GovCorp | INEPAD Consultoria
 > Arquivo de contexto do projeto. Cole nas Project Instructions do Claude.
-> Última atualização: 08/06/2026 (v2)
+> Última atualização: 29/06/2026 (v3)
 
 ---
 
@@ -27,6 +27,7 @@ Plataforma corporativa que gerencia o ciclo completo de reuniões de Conselhos D
 - **Dashboard de governança** — KPIs clicáveis (drill-down) com barra de progresso, gráficos de status/produtividade, próximas reuniões programadas (contagem regressiva) e pendências prioritárias
 - **Auditoria** — logs automáticos e imutáveis de todas as ações do sistema
 - **Cadastro de Membros** — via Edge Function segura com criação no Auth + tabela members
+- **Indicadores & Gatilhos (Semáforos)** — Conselho define indicadores estratégicos, registra leituras no tempo e configura gatilhos (limites). Ao romper, o indicador muda de semáforo (🟢/🟡/🔴), dispara alerta por e-mail e gera ação no Plano de Ação. Avaliação determinística no banco; efeitos colaterais na Edge Function `evaluate-triggers`
 
 ### Papéis de usuário
 
@@ -36,6 +37,9 @@ Plataforma corporativa que gerencia o ciclo completo de reuniões de Conselhos D
 | Administrador | Gestão completa do próprio `client_id` |
 | Secretário | Pode criar e editar reuniões |
 | Conselheiro | Somente visualização e votação |
+| Assistente | Apenas upload de materiais (sem acesso a reuniões, plano de ação, deliberações ou indicadores) |
+
+> **Multi-empresa:** Administrador, Secretário e Conselheiro podem atuar em **vários clientes**. O SuperAdmin atribui as empresas pelo botão "Clientes" (Edge Function `set-secretary-clients` → grava `secretary_clients` no `user_metadata` e na tabela `members`). O usuário alterna pelo seletor de cliente no topo (precisa re-login após atribuição). RLS de leitura/escrita reconhece `secretary_clients`. SuperAdmin é o único papel cross-client nativo.
 
 ---
 
@@ -131,6 +135,22 @@ GESTOR-CONSELHO-INEPAD/
 | details | text | |
 | client_id | text | Isolamento multi-tenant |
 
+### Módulo Indicadores & Gatilhos (Semáforos)
+
+> Migração: `supabase/migrations/20260626_indicators_triggers.sql`. `client_id` é **text** (como no resto do sistema). RLS isola por `client_id` + reconhece `secretary_clients` (multi-empresa); Assistente sem acesso; Conselheiro só leitura. Helpers de JWT (`jwt_role`, `jwt_client_id`, `jwt_secretary_clients`, `can_read_governance`, `can_write_governance`, `gov_tenant_visible`) com `search_path` travado.
+
+| Tabela | Colunas principais |
+|---|---|
+| `indicators` | id, client_id, name, unit, description, direction (`higher_is_better`/`lower_is_better`), category, active |
+| `indicator_readings` | id, client_id, indicator_id, period (date, competência), value (numeric), source · **unique(indicator_id, period)** |
+| `triggers` | id, client_id, indicator_id, name, operator (`gt`/`gte`/`lt`/`lte`/`outside`/`inside`), threshold_value, threshold_value_secondary, severity (`attention`/`critical`), create_action_on_breach, notify_on_breach, assignee_member_id, active |
+| `trigger_events` | id, client_id, trigger_id, indicator_reading_id, observed_value, severity, status (`open`/`acknowledged`/`resolved`), generated_action_id (text), fired_at · **unique(trigger_id, indicator_reading_id)** (idempotência) · **INSERT só via Edge Function (service role)** |
+
+- **`eval_breach(v, op, t1, t2)`** — função pura imutável: fonte única da regra de rompimento.
+- **`breached_triggers_for_reading(reading_id)`** — `SECURITY DEFINER`, `EXECUTE` revogado de authenticated; só a Edge Function chama.
+- **View `indicator_current_status`** (`security_invoker = on`) — semáforo em tempo real: `breach_level` 0 (verde) / 1 (amarelo) / 2 (vermelho) a partir da leitura mais recente.
+- Ação gerada por gatilho vai num **container** `meetings` com `type='Indicadores'` (oculto na lista de reuniões; aparece no Plano de Ação global), mesmo formato de "deliberação vira ação". Severidade → prioridade: `attention`→Importante, `critical`→Urgente.
+
 ---
 
 ## 5. SEGURANÇA — STATUS ATUAL (27/05/2026)
@@ -211,6 +231,8 @@ GESTOR-CONSELHO-INEPAD/
 | `clicksign-flow` | Envia ata para assinatura digital no ClickSign + adiciona signatários | OFF |
 | `clicksign-check` | Verifica status da assinatura + baixa PDF assinado + atualiza banco | OFF (verifica Bearer token manualmente) |
 | `clicksign-webhook` | Recebe notificação do ClickSign ao concluir assinaturas + atualiza ata automaticamente | — (público, sem auth) |
+| `set-secretary-clients` | SuperAdmin atribui empresas a um usuário multi-empresa (`secretary_clients` no Auth + members) | OFF (valida SuperAdmin em código) |
+| `evaluate-triggers` | Avalia os gatilhos de uma leitura (RPC `breached_triggers_for_reading`); cria evento idempotente, ação no Plano de Ação, alerta Resend e log | OFF (valida JWT + papel write em código) |
 
 > **Código compartilhado:** `supabase/functions/_shared/ics.ts` — gerador de `.ics` (iCalendar/RFC 5545) com RSVP, usado por `send-invitation` e `send-calendar-invites`. Converte horário de Brasília (UTC−3) para UTC. Empacotado automaticamente no deploy de cada função que o importa.
 
@@ -432,4 +454,4 @@ git checkout main && git merge develop && git push origin main && git checkout d
 
 ---
 
-*Atualizado em 08/06/2026 (v2) — programação anual de reuniões em lote; convites de calendário `.ics` (RSVP) via `send-calendar-invites` e anexo na convocação individual; gerador compartilhado `_shared/ics.ts`; melhorias de UX no dashboard (KPIs clicáveis, próximas reuniões); nota sobre deploy manual de Edge Functions. Versão anterior: integração ClickSign completa; gestão de clientes individuais pelo SuperAdmin.*
+*Atualizado em 29/06/2026 (v3) — módulo Indicadores & Gatilhos (Semáforos): tabelas `indicators`/`indicator_readings`/`triggers`/`trigger_events`, view `indicator_current_status`, Edge Function `evaluate-triggers` (avaliação determinística no banco + ação no Plano de Ação + alerta Resend), painel + cadastro no front e KPI no Dashboard. Multi-empresa generalizado para Administrador/Secretário/Conselheiro via `secretary_clients` + `set-secretary-clients`. Papel Assistente (só upload). Versão anterior (v2): programação anual de reuniões em lote; convites `.ics` (RSVP); melhorias de UX no dashboard; deploy manual de Edge Functions.*
