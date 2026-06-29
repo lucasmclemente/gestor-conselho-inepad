@@ -244,7 +244,7 @@ const App = () => {
   const isSec = currentUser?.role === 'Secretário';
   const canEdit = isAdm || isSec;
   const isAssistant = currentUser?.role === 'Assistente';
-  const SCENARIOS = ['Conservador', 'Base', 'Trágico'];
+  const SCENARIOS = ['Otimista', 'Base', 'Conservador', 'Trágico'];
   const FREQ_OPTS: [string, string][] = [['off', 'Desligada'], ['daily', 'Diária'], ['weekly', 'Semanal'], ['monthly', 'Mensal']];
   // Membros do cliente atual (SuperAdmin enxerga todos; aqui escopamos ao próprio cliente)
   const clientMembers = (users || []).filter((u: any) => {
