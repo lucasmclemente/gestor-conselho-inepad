@@ -224,6 +224,16 @@ const App = () => {
   // Indicadores & Gatilhos (semáforos)
   const [indicatorStatuses, setIndicatorStatuses] = useState<any[]>([]);
   const [openTriggerEvents, setOpenTriggerEvents] = useState<any[]>([]);
+  const [indicatorsList, setIndicatorsList] = useState<any[]>([]);
+  const [triggersList, setTriggersList] = useState<any[]>([]);
+  const [indModal, setIndModal] = useState<any>(null);
+  const [indSaving, setIndSaving] = useState(false);
+  const [readingModal, setReadingModal] = useState<any>(null);
+  const [readingForm, setReadingForm] = useState({ period: '', value: '', source: '' });
+  const [readingSaving, setReadingSaving] = useState(false);
+  const [trigModal, setTrigModal] = useState<any>(null);
+  const [trigForm, setTrigForm] = useState<any>({ name: '', operator: 'lt', threshold_value: '', threshold_value_secondary: '', severity: 'attention', create_action_on_breach: true, notify_on_breach: true, assignee_member_id: '' });
+  const [trigSaving, setTrigSaving] = useState(false);
 
   const isSuper = currentUser?.role === 'SuperAdmin';
   const isAdm = currentUser?.role === 'Administrador' || isSuper;
@@ -447,13 +457,17 @@ const App = () => {
         }).sort((a: any, b: any) => a.client_id.localeCompare(b.client_id));
         setAllClientsList(fullList);
       }
-      // Indicadores & Gatilhos do cliente ativo (semáforos + alertas abertos)
-      const [indStatusRes, indEventsRes] = await Promise.all([
+      // Indicadores & Gatilhos do cliente ativo (semáforos + alertas + cadastros)
+      const [indStatusRes, indEventsRes, indListRes, trigListRes] = await Promise.all([
         supabase.from('indicator_current_status').select('*').eq('client_id', cid).order('breach_level', { ascending: false }),
         supabase.from('trigger_events').select('*, triggers(name, indicators(name, unit))').eq('client_id', cid).eq('status', 'open').order('fired_at', { ascending: false }),
+        supabase.from('indicators').select('*').eq('client_id', cid).order('name'),
+        supabase.from('triggers').select('*').eq('client_id', cid),
       ]);
       setIndicatorStatuses(indStatusRes.data || []);
       setOpenTriggerEvents(indEventsRes.data || []);
+      setIndicatorsList(indListRes.data || []);
+      setTriggersList(trigListRes.data || []);
     } catch (e) { console.error(e); }
     setLoading(false);
   };
@@ -846,6 +860,124 @@ const App = () => {
     if (error) { alert('Erro ao resolver alerta: ' + error.message); return; }
     setOpenTriggerEvents(prev => prev.filter((e: any) => e.id !== eventId));
     addLog('Indicadores', 'Alerta de gatilho marcado como resolvido.');
+  };
+
+  // Recarrega só os dados de indicadores (semáforos, alertas, cadastros) do cliente ativo
+  const reloadIndicators = async () => {
+    const cid = activeClientId || currentUser.client_id;
+    const [st, ev, ind, tg] = await Promise.all([
+      supabase.from('indicator_current_status').select('*').eq('client_id', cid).order('breach_level', { ascending: false }),
+      supabase.from('trigger_events').select('*, triggers(name, indicators(name, unit))').eq('client_id', cid).eq('status', 'open').order('fired_at', { ascending: false }),
+      supabase.from('indicators').select('*').eq('client_id', cid).order('name'),
+      supabase.from('triggers').select('*').eq('client_id', cid),
+    ]);
+    setIndicatorStatuses(st.data || []);
+    setOpenTriggerEvents(ev.data || []);
+    setIndicatorsList(ind.data || []);
+    setTriggersList(tg.data || []);
+  };
+
+  // ----- CRUD de Indicadores -----
+  const openIndModal = (ind?: any) => {
+    if (!canEdit) return;
+    setIndModal(ind
+      ? { id: ind.id, name: ind.name || '', unit: ind.unit || '', description: ind.description || '', direction: ind.direction || 'higher_is_better', category: ind.category || '' }
+      : { name: '', unit: '', description: '', direction: 'higher_is_better', category: '' });
+  };
+  const saveIndicator = async () => {
+    if (!indModal?.name?.trim()) return alert('Informe o nome do indicador.');
+    setIndSaving(true);
+    try {
+      const cid = activeClientId || currentUser.client_id;
+      const payload = { name: indModal.name.trim(), unit: indModal.unit?.trim() || null, description: indModal.description?.trim() || null, direction: indModal.direction, category: indModal.category?.trim() || null };
+      const { error } = indModal.id
+        ? await supabase.from('indicators').update(payload).eq('id', indModal.id)
+        : await supabase.from('indicators').insert([{ ...payload, client_id: cid }]);
+      if (error) throw new Error(error.message);
+      addLog('Indicadores', `${indModal.id ? 'Indicador atualizado' : 'Indicador criado'}: ${payload.name}`);
+      setIndModal(null);
+      await reloadIndicators();
+    } catch (e: any) { alert('Erro ao salvar indicador: ' + (e?.message || e)); }
+    finally { setIndSaving(false); }
+  };
+  const deleteIndicator = async (ind: any) => {
+    if (!canEdit) return;
+    if (!window.confirm(`Excluir o indicador "${ind.name}"? Isso remove também suas leituras, gatilhos e alertas.`)) return;
+    const { error } = await supabase.from('indicators').delete().eq('id', ind.indicator_id || ind.id);
+    if (error) { alert('Erro ao excluir: ' + error.message); return; }
+    addLog('Indicadores', `Indicador excluído: ${ind.name}`);
+    await reloadIndicators();
+  };
+
+  // ----- Registrar leitura (dispara avaliação de gatilhos) -----
+  const openReadingModal = (ind: any) => {
+    if (!canEdit) return;
+    const now = new Date();
+    const ym = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+    setReadingForm({ period: ym, value: '', source: '' });
+    setReadingModal(ind);
+  };
+  const saveReading = async () => {
+    if (!readingModal) return;
+    if (!readingForm.period) return alert('Informe a competência (mês).');
+    if (readingForm.value === '' || isNaN(Number(readingForm.value))) return alert('Informe um valor numérico.');
+    setReadingSaving(true);
+    try {
+      const cid = activeClientId || currentUser.client_id;
+      const indId = readingModal.indicator_id || readingModal.id;
+      const periodDate = `${readingForm.period}-01`;
+      const { data: reading, error } = await supabase.from('indicator_readings')
+        .upsert([{ client_id: cid, indicator_id: indId, period: periodDate, value: Number(readingForm.value), source: readingForm.source?.trim() || null }], { onConflict: 'indicator_id,period' })
+        .select('id').single();
+      if (error) throw new Error(error.message);
+      addLog('Indicadores', `Leitura registrada: ${readingModal.name} = ${readingForm.value} (${readingForm.period})`);
+      // Dispara avaliação determinística no servidor (cria alertas/ações/e-mail se romper)
+      const { data: evalRes } = await supabase.functions.invoke('evaluate-triggers', { body: { indicator_reading_id: reading.id } });
+      setReadingModal(null);
+      await fetchInitialData(); // atualiza semáforos, alertas e ações geradas no Plano de Ação
+      const fired = evalRes?.fired?.length || 0;
+      if (fired > 0) alert(`⚠ Leitura registrada. ${fired} gatilho(s) disparado(s) — alerta(s) e ação(ões) gerada(s) no Plano de Ação.`);
+    } catch (e: any) { alert('Erro ao registrar leitura: ' + (e?.message || e)); }
+    finally { setReadingSaving(false); }
+  };
+
+  // ----- CRUD de Gatilhos -----
+  const openTrigModal = (ind: any) => {
+    if (!canEdit) return;
+    setTrigForm({ name: '', operator: 'lt', threshold_value: '', threshold_value_secondary: '', severity: 'attention', create_action_on_breach: true, notify_on_breach: true, assignee_member_id: '' });
+    setTrigModal(ind);
+  };
+  const saveTrigger = async () => {
+    if (!trigModal) return;
+    if (!trigForm.name?.trim()) return alert('Dê um nome ao gatilho.');
+    if (trigForm.threshold_value === '' || isNaN(Number(trigForm.threshold_value))) return alert('Informe o limite (valor numérico).');
+    const isRange = trigForm.operator === 'outside' || trigForm.operator === 'inside';
+    if (isRange && (trigForm.threshold_value_secondary === '' || isNaN(Number(trigForm.threshold_value_secondary)))) return alert('Faixas (dentro/fora) exigem o segundo limite.');
+    setTrigSaving(true);
+    try {
+      const cid = activeClientId || currentUser.client_id;
+      const indId = trigModal.indicator_id || trigModal.id;
+      const { error } = await supabase.from('triggers').insert([{
+        client_id: cid, indicator_id: indId, name: trigForm.name.trim(),
+        operator: trigForm.operator, threshold_value: Number(trigForm.threshold_value),
+        threshold_value_secondary: isRange ? Number(trigForm.threshold_value_secondary) : null,
+        severity: trigForm.severity, create_action_on_breach: trigForm.create_action_on_breach,
+        notify_on_breach: trigForm.notify_on_breach, assignee_member_id: trigForm.assignee_member_id || null,
+      }]);
+      if (error) throw new Error(error.message);
+      addLog('Indicadores', `Gatilho criado: ${trigForm.name} (${trigModal.name})`);
+      setTrigForm({ name: '', operator: 'lt', threshold_value: '', threshold_value_secondary: '', severity: 'attention', create_action_on_breach: true, notify_on_breach: true, assignee_member_id: '' });
+      await reloadIndicators();
+    } catch (e: any) { alert('Erro ao criar gatilho: ' + (e?.message || e)); }
+    finally { setTrigSaving(false); }
+  };
+  const deleteTrigger = async (t: any) => {
+    if (!canEdit) return;
+    if (!window.confirm(`Excluir o gatilho "${t.name}"?`)) return;
+    const { error } = await supabase.from('triggers').delete().eq('id', t.id);
+    if (error) { alert('Erro ao excluir gatilho: ' + error.message); return; }
+    addLog('Indicadores', `Gatilho excluído: ${t.name}`);
+    await reloadIndicators();
   };
 
   // --- PERFIL DA EMPRESA ---
@@ -1908,6 +2040,17 @@ const App = () => {
                       <div className={`p-3 rounded-lg ${dashStats.atrasadas > 0 ? 'bg-red-100 text-red-600' : 'bg-slate-100 text-slate-400'}`}><AlertCircle /></div>
                       <div><p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest flex items-center gap-1">Em Atraso <ChevronRight size={12} className="opacity-0 group-hover:opacity-100 transition-opacity" /></p><p className={`text-2xl font-bold mt-1 ${dashStats.atrasadas > 0 ? 'text-red-600' : 'text-slate-800'}`}>{dashStats.atrasadas}</p></div>
                     </button>
+
+                    {/* Indicadores em alerta — atalho ao painel de semáforos */}
+                    {indicatorStatuses.length > 0 && (() => {
+                      const emAlerta = indicatorStatuses.filter((s: any) => (s.breach_level || 0) > 0).length;
+                      return (
+                        <button onClick={() => setActiveMenu('indicadores')} className={`group bg-white p-6 rounded-xl border shadow-sm flex items-start gap-4 text-left transition-all hover:shadow-md ${emAlerta > 0 ? 'border-red-200 hover:border-red-300' : 'border-slate-200 hover:border-amber-300'}`}>
+                          <div className={`p-3 rounded-lg ${emAlerta > 0 ? 'bg-red-100 text-red-600' : 'bg-emerald-100 text-emerald-600'}`}><Gauge /></div>
+                          <div><p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest flex items-center gap-1">Indicadores em alerta <ChevronRight size={12} className="opacity-0 group-hover:opacity-100 transition-opacity" /></p><p className={`text-2xl font-bold mt-1 ${emAlerta > 0 ? 'text-red-600' : 'text-slate-800'}`}>{emAlerta}<span className="text-base font-bold text-slate-300">/{indicatorStatuses.length}</span></p></div>
+                        </button>
+                      );
+                    })()}
                   </div>
                   <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
                     <div className="p-4 border-b border-slate-50 bg-slate-50/50 flex justify-between items-center">
@@ -2926,6 +3069,9 @@ const App = () => {
                       <h1 className="text-2xl font-bold text-slate-800 tracking-tight italic flex items-center gap-2"><Gauge size={24} className="text-amber-600" /> Indicadores & Gatilhos</h1>
                       <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1">Semáforos de governança • {clientProfile?.name || activeClientId || currentUser.client_id}</p>
                     </div>
+                    {canEdit && (
+                      <button onClick={() => openIndModal()} className="bg-amber-600 hover:bg-amber-700 text-white px-4 py-2.5 rounded-lg text-[10px] font-bold uppercase tracking-widest inline-flex items-center gap-2 transition-all shadow-sm shrink-0"><Plus size={16} /> Novo indicador</button>
+                    )}
                   </div>
 
                   {/* Alertas abertos */}
@@ -2994,6 +3140,14 @@ const App = () => {
                                 </span>
                                 <span className={`text-[9px] font-bold uppercase tracking-wider ${lvl === 2 ? 'text-red-600' : lvl === 1 ? 'text-amber-600' : 'text-emerald-600'}`}>{label}</span>
                               </div>
+                              {canEdit && (
+                                <div className="mt-3 pt-3 border-t border-slate-100 flex items-center gap-1">
+                                  <button onClick={() => openReadingModal(s)} className="flex-1 text-[9px] font-bold uppercase tracking-wider text-slate-600 hover:text-amber-600 border border-slate-200 hover:border-amber-300 rounded-lg py-1.5 inline-flex items-center justify-center gap-1 transition-all"><PenLine size={12} /> Leitura</button>
+                                  <button onClick={() => openTrigModal(s)} className="flex-1 text-[9px] font-bold uppercase tracking-wider text-slate-600 hover:text-amber-600 border border-slate-200 hover:border-amber-300 rounded-lg py-1.5 inline-flex items-center justify-center gap-1 transition-all"><Target size={12} /> Gatilhos ({triggersList.filter((t: any) => t.indicator_id === s.indicator_id).length})</button>
+                                  <button onClick={() => { const raw = indicatorsList.find((x: any) => x.id === s.indicator_id); openIndModal(raw || s); }} className="p-2 text-slate-400 hover:text-amber-600 border border-slate-200 hover:border-amber-300 rounded-lg transition-all" title="Editar indicador"><Edit2 size={12} /></button>
+                                  <button onClick={() => deleteIndicator(s)} className="p-2 text-slate-300 hover:text-red-600 border border-slate-200 hover:border-red-200 rounded-lg transition-all" title="Excluir indicador"><Trash2 size={12} /></button>
+                                </div>
+                              )}
                             </div>
                           );
                         })}
@@ -3580,6 +3734,174 @@ const App = () => {
             <div className="p-6 border-t bg-white flex gap-3">
               <button onClick={() => setSecModalUser(null)} className="flex-1 border border-slate-200 text-slate-600 py-3 rounded-xl font-bold uppercase text-[10px] tracking-[2px] hover:bg-slate-50">Cancelar</button>
               <button disabled={secModalSaving} onClick={saveSecModal} className="flex-[2] bg-amber-600 text-white py-3 rounded-xl font-bold uppercase text-[10px] tracking-[2px] flex items-center justify-center gap-2 hover:bg-amber-700 shadow-xl disabled:opacity-50"><Save size={16} /> {secModalSaving ? 'Salvando...' : 'Salvar Clientes'}</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ===== Modal: Indicador ===== */}
+      {indModal && (
+        <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-md z-[100] flex items-center justify-center p-4">
+          <div className="bg-white w-full max-w-lg rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[92vh] animate-in zoom-in-95">
+            <div className="p-6 border-b flex justify-between items-center bg-slate-50">
+              <h3 className="text-xl font-bold text-slate-800 italic flex items-center gap-2"><Gauge size={20} className="text-amber-600" /> {indModal.id ? 'Editar indicador' : 'Novo indicador'}</h3>
+              <button onClick={() => setIndModal(null)} className="p-2 hover:bg-slate-200 rounded-full text-slate-400"><X size={20} /></button>
+            </div>
+            <div className="flex-1 overflow-y-auto p-6 space-y-4 bg-slate-50/30">
+              <div>
+                <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Nome do indicador *</label>
+                <input value={indModal.name} onChange={e => setIndModal({ ...indModal, name: e.target.value })} placeholder="Ex.: Margem EBITDA" className="w-full mt-1 p-3 rounded-lg border border-slate-200 outline-none focus:border-amber-400 text-sm" />
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Unidade</label>
+                  <input value={indModal.unit} onChange={e => setIndModal({ ...indModal, unit: e.target.value })} placeholder="%, R$, dias" className="w-full mt-1 p-3 rounded-lg border border-slate-200 outline-none focus:border-amber-400 text-sm" />
+                </div>
+                <div>
+                  <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Categoria</label>
+                  <input value={indModal.category} onChange={e => setIndModal({ ...indModal, category: e.target.value })} placeholder="Financeiro, Comercial…" className="w-full mt-1 p-3 rounded-lg border border-slate-200 outline-none focus:border-amber-400 text-sm" />
+                </div>
+              </div>
+              <div>
+                <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Direção (o que é melhor)</label>
+                <select value={indModal.direction} onChange={e => setIndModal({ ...indModal, direction: e.target.value })} className="w-full mt-1 p-3 rounded-lg border border-slate-200 outline-none focus:border-amber-400 text-sm bg-white cursor-pointer">
+                  <option value="higher_is_better">Maior é melhor (ex.: margem, caixa)</option>
+                  <option value="lower_is_better">Menor é melhor (ex.: inadimplência, custo)</option>
+                </select>
+              </div>
+              <div>
+                <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Descrição (opcional)</label>
+                <textarea value={indModal.description} onChange={e => setIndModal({ ...indModal, description: e.target.value })} rows={2} className="w-full mt-1 p-3 rounded-lg border border-slate-200 outline-none focus:border-amber-400 text-sm resize-none" />
+              </div>
+            </div>
+            <div className="p-6 border-t bg-white flex gap-3">
+              <button onClick={() => setIndModal(null)} className="flex-1 border border-slate-200 text-slate-600 py-3 rounded-xl font-bold uppercase text-[10px] tracking-[2px] hover:bg-slate-50">Cancelar</button>
+              <button disabled={indSaving} onClick={saveIndicator} className="flex-[2] bg-amber-600 text-white py-3 rounded-xl font-bold uppercase text-[10px] tracking-[2px] flex items-center justify-center gap-2 hover:bg-amber-700 shadow-xl disabled:opacity-50"><Save size={16} /> {indSaving ? 'Salvando...' : 'Salvar indicador'}</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ===== Modal: Registrar leitura ===== */}
+      {readingModal && (
+        <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-md z-[100] flex items-center justify-center p-4">
+          <div className="bg-white w-full max-w-md rounded-2xl shadow-2xl overflow-hidden flex flex-col animate-in zoom-in-95">
+            <div className="p-6 border-b flex justify-between items-center bg-slate-50">
+              <div className="min-w-0">
+                <h3 className="text-xl font-bold text-slate-800 italic flex items-center gap-2"><PenLine size={20} className="text-amber-600" /> Registrar leitura</h3>
+                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest truncate">{readingModal.name}</p>
+              </div>
+              <button onClick={() => setReadingModal(null)} className="p-2 hover:bg-slate-200 rounded-full text-slate-400 shrink-0"><X size={20} /></button>
+            </div>
+            <div className="p-6 space-y-4 bg-slate-50/30">
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Competência *</label>
+                  <input type="month" value={readingForm.period} onChange={e => setReadingForm({ ...readingForm, period: e.target.value })} className="w-full mt-1 p-3 rounded-lg border border-slate-200 outline-none focus:border-amber-400 text-sm" />
+                </div>
+                <div>
+                  <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Valor * {readingModal.unit ? `(${readingModal.unit})` : ''}</label>
+                  <input type="number" step="any" value={readingForm.value} onChange={e => setReadingForm({ ...readingForm, value: e.target.value })} placeholder="0" className="w-full mt-1 p-3 rounded-lg border border-slate-200 outline-none focus:border-amber-400 text-sm" />
+                </div>
+              </div>
+              <div>
+                <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Fonte (opcional)</label>
+                <input value={readingForm.source} onChange={e => setReadingForm({ ...readingForm, source: e.target.value })} placeholder="Ex.: ECD, planilha do controller" className="w-full mt-1 p-3 rounded-lg border border-slate-200 outline-none focus:border-amber-400 text-sm" />
+              </div>
+              <p className="text-[10px] text-slate-400">Ao salvar, o sistema avalia os gatilhos deste indicador automaticamente e, se houver rompimento, cria o alerta e a ação no Plano de Ação.</p>
+            </div>
+            <div className="p-6 border-t bg-white flex gap-3">
+              <button onClick={() => setReadingModal(null)} className="flex-1 border border-slate-200 text-slate-600 py-3 rounded-xl font-bold uppercase text-[10px] tracking-[2px] hover:bg-slate-50">Cancelar</button>
+              <button disabled={readingSaving} onClick={saveReading} className="flex-[2] bg-amber-600 text-white py-3 rounded-xl font-bold uppercase text-[10px] tracking-[2px] flex items-center justify-center gap-2 hover:bg-amber-700 shadow-xl disabled:opacity-50"><Save size={16} /> {readingSaving ? 'Registrando...' : 'Registrar e avaliar'}</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ===== Modal: Gatilhos do indicador ===== */}
+      {trigModal && (
+        <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-md z-[100] flex items-center justify-center p-4">
+          <div className="bg-white w-full max-w-xl rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[92vh] animate-in zoom-in-95">
+            <div className="p-6 border-b flex justify-between items-center bg-slate-50">
+              <div className="min-w-0">
+                <h3 className="text-xl font-bold text-slate-800 italic flex items-center gap-2"><Target size={20} className="text-amber-600" /> Gatilhos</h3>
+                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest truncate">{trigModal.name}{trigModal.unit ? ` (${trigModal.unit})` : ''}</p>
+              </div>
+              <button onClick={() => setTrigModal(null)} className="p-2 hover:bg-slate-200 rounded-full text-slate-400 shrink-0"><X size={20} /></button>
+            </div>
+            <div className="flex-1 overflow-y-auto p-6 space-y-5 bg-slate-50/30">
+              {/* Lista de gatilhos existentes */}
+              <div className="space-y-2">
+                {triggersList.filter((t: any) => t.indicator_id === (trigModal.indicator_id || trigModal.id)).length === 0 ? (
+                  <p className="text-sm text-slate-400">Nenhum gatilho ainda. Crie o primeiro abaixo.</p>
+                ) : triggersList.filter((t: any) => t.indicator_id === (trigModal.indicator_id || trigModal.id)).map((t: any) => {
+                  const crit = t.severity === 'critical';
+                  const isRange = t.operator === 'outside' || t.operator === 'inside';
+                  const opl = ({ lt: '<', lte: '≤', gt: '>', gte: '≥', outside: 'fora de', inside: 'dentro de' } as any)[t.operator] || t.operator;
+                  return (
+                    <div key={t.id} className="flex items-center justify-between gap-2 bg-white border border-slate-200 rounded-lg p-3">
+                      <div className="min-w-0">
+                        <p className="text-sm font-bold text-slate-800 italic truncate flex items-center gap-2"><span className={`h-2.5 w-2.5 rounded-full shrink-0 ${crit ? 'bg-red-600' : 'bg-amber-500'}`} />{t.name}</p>
+                        <p className="text-[11px] text-slate-500">Dispara quando valor {opl} {isRange ? `${t.threshold_value}–${t.threshold_value_secondary}` : t.threshold_value} · {crit ? 'Crítico' : 'Atenção'}{t.create_action_on_breach ? ' · gera ação' : ''}{t.notify_on_breach ? ' · e-mail' : ''}</p>
+                      </div>
+                      <button onClick={() => deleteTrigger(t)} className="p-2 text-slate-300 hover:text-red-600 rounded-lg shrink-0" title="Excluir gatilho"><Trash2 size={16} /></button>
+                    </div>
+                  );
+                })}
+              </div>
+
+              {/* Form novo gatilho */}
+              <div className="bg-white border border-slate-200 rounded-xl p-4 space-y-3">
+                <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Novo gatilho</p>
+                <input value={trigForm.name} onChange={e => setTrigForm({ ...trigForm, name: e.target.value })} placeholder="Nome (ex.: Margem abaixo do mínimo)" className="w-full p-3 rounded-lg border border-slate-200 outline-none focus:border-amber-400 text-sm" />
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">Condição</label>
+                    <select value={trigForm.operator} onChange={e => setTrigForm({ ...trigForm, operator: e.target.value })} className="w-full mt-1 p-3 rounded-lg border border-slate-200 outline-none focus:border-amber-400 text-sm bg-white cursor-pointer">
+                      <option value="lt">menor que (&lt;)</option>
+                      <option value="lte">menor ou igual (≤)</option>
+                      <option value="gt">maior que (&gt;)</option>
+                      <option value="gte">maior ou igual (≥)</option>
+                      <option value="outside">fora da faixa</option>
+                      <option value="inside">dentro da faixa</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">Severidade</label>
+                    <select value={trigForm.severity} onChange={e => setTrigForm({ ...trigForm, severity: e.target.value })} className="w-full mt-1 p-3 rounded-lg border border-slate-200 outline-none focus:border-amber-400 text-sm bg-white cursor-pointer">
+                      <option value="attention">🟡 Atenção (Importante)</option>
+                      <option value="critical">🔴 Crítico (Urgente)</option>
+                    </select>
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">Limite</label>
+                    <input type="number" step="any" value={trigForm.threshold_value} onChange={e => setTrigForm({ ...trigForm, threshold_value: e.target.value })} placeholder="0" className="w-full mt-1 p-3 rounded-lg border border-slate-200 outline-none focus:border-amber-400 text-sm" />
+                  </div>
+                  {(trigForm.operator === 'outside' || trigForm.operator === 'inside') && (
+                    <div>
+                      <label className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">2º limite (faixa)</label>
+                      <input type="number" step="any" value={trigForm.threshold_value_secondary} onChange={e => setTrigForm({ ...trigForm, threshold_value_secondary: e.target.value })} placeholder="0" className="w-full mt-1 p-3 rounded-lg border border-slate-200 outline-none focus:border-amber-400 text-sm" />
+                    </div>
+                  )}
+                </div>
+                <div>
+                  <label className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">Responsável da ação/alerta (opcional)</label>
+                  <select value={trigForm.assignee_member_id} onChange={e => setTrigForm({ ...trigForm, assignee_member_id: e.target.value })} className="w-full mt-1 p-3 rounded-lg border border-slate-200 outline-none focus:border-amber-400 text-sm bg-white cursor-pointer">
+                    <option value="">— Administradores do cliente —</option>
+                    {clientMembers.filter((u: any) => u.email).map((u: any) => <option key={u.id} value={u.id}>{u.name}</option>)}
+                  </select>
+                </div>
+                <div className="flex flex-col gap-2 pt-1">
+                  <label className="flex items-center gap-2 text-xs text-slate-600 cursor-pointer"><input type="checkbox" checked={trigForm.create_action_on_breach} onChange={e => setTrigForm({ ...trigForm, create_action_on_breach: e.target.checked })} className="accent-amber-600 w-4 h-4" /> Gerar ação no Plano de Ação ao romper</label>
+                  <label className="flex items-center gap-2 text-xs text-slate-600 cursor-pointer"><input type="checkbox" checked={trigForm.notify_on_breach} onChange={e => setTrigForm({ ...trigForm, notify_on_breach: e.target.checked })} className="accent-amber-600 w-4 h-4" /> Enviar alerta por e-mail ao romper</label>
+                </div>
+                <button disabled={trigSaving} onClick={saveTrigger} className="w-full bg-slate-900 text-amber-500 py-3 rounded-xl font-bold uppercase text-[10px] tracking-[2px] flex items-center justify-center gap-2 hover:bg-slate-800 disabled:opacity-50"><Plus size={16} /> {trigSaving ? 'Adicionando...' : 'Adicionar gatilho'}</button>
+              </div>
+            </div>
+            <div className="p-6 border-t bg-white">
+              <button onClick={() => setTrigModal(null)} className="w-full border border-slate-200 text-slate-600 py-3 rounded-xl font-bold uppercase text-[10px] tracking-[2px] hover:bg-slate-50">Fechar</button>
             </div>
           </div>
         </div>
