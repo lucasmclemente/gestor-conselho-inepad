@@ -9,7 +9,7 @@ import {
   PieChart as PieIcon, LogIn, User, Key, LogOut, UserCheck,
   Mail, UserCog, Settings, Camera, UserCircle, History, Filter, MessageSquare, Download, ExternalLink, ListChecks, Plus, Edit2, Check, Menu, ChevronUp, ChevronDown, Play, Square, Timer, SkipForward, Building2, ChevronLeft, UserMinus, ThumbsUp, ThumbsDown, CircleSlash, MinusCircle, Archive, Search, PenLine, ShieldCheck, Scale, Monitor, MapPin, Gauge, TrendingUp, TrendingDown, Bell
 } from 'lucide-react';
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend, LineChart, Line } from 'recharts';
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend, LineChart, Line, ReferenceLine } from 'recharts';
 
 // --- CONFIGURAÇÃO SUPABASE ---
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
@@ -227,6 +227,8 @@ const App = () => {
   const [indicatorsList, setIndicatorsList] = useState<any[]>([]);
   const [triggersList, setTriggersList] = useState<any[]>([]);
   const [indicatorSeries, setIndicatorSeries] = useState<Record<string, any[]>>({});
+  const [readingsList, setReadingsList] = useState<any[]>([]);
+  const [detailInd, setDetailInd] = useState<any>(null);
   const [indModal, setIndModal] = useState<any>(null);
   const [indSaving, setIndSaving] = useState(false);
   const [readingModal, setReadingModal] = useState<any>(null);
@@ -312,7 +314,7 @@ const App = () => {
   // Define o cliente ativo no login (cliente "casa"); mantém a escolha durante a sessão
   useEffect(() => { if (currentUser && !activeClientId) setActiveClientId(currentUser.client_id); }, [currentUser, activeClientId]);
   // (Re)carrega os dados sempre que o cliente ativo muda (login ou troca de cliente)
-  useEffect(() => { if (currentUser && activeClientId) fetchInitialData(); /* eslint-disable-next-line */ }, [activeClientId]);
+  useEffect(() => { if (currentUser && activeClientId) { setDetailInd(null); fetchInitialData(); } /* eslint-disable-next-line */ }, [activeClientId]);
   // Carrega os nomes dos clientes que o secretário pode atender (para o seletor)
   useEffect(() => {
     const sec = currentUser?.secretary_clients || [];
@@ -464,12 +466,13 @@ const App = () => {
         supabase.from('trigger_events').select('*, triggers(name, indicators(name, unit))').eq('client_id', cid).eq('status', 'open').order('fired_at', { ascending: false }),
         supabase.from('indicators').select('*').eq('client_id', cid).order('name'),
         supabase.from('triggers').select('*').eq('client_id', cid),
-        supabase.from('indicator_readings').select('indicator_id, period, value').eq('client_id', cid).order('period', { ascending: true }),
+        supabase.from('indicator_readings').select('id, indicator_id, period, value, source').eq('client_id', cid).order('period', { ascending: true }),
       ]);
       setIndicatorStatuses(indStatusRes.data || []);
       setOpenTriggerEvents(indEventsRes.data || []);
       setIndicatorsList(indListRes.data || []);
       setTriggersList(trigListRes.data || []);
+      setReadingsList(readingsRes.data || []);
       setIndicatorSeries(buildSeriesMap(readingsRes.data || []));
     } catch (e) { console.error(e); }
     setLoading(false);
@@ -882,12 +885,13 @@ const App = () => {
       supabase.from('trigger_events').select('*, triggers(name, indicators(name, unit))').eq('client_id', cid).eq('status', 'open').order('fired_at', { ascending: false }),
       supabase.from('indicators').select('*').eq('client_id', cid).order('name'),
       supabase.from('triggers').select('*').eq('client_id', cid),
-      supabase.from('indicator_readings').select('indicator_id, period, value').eq('client_id', cid).order('period', { ascending: true }),
+      supabase.from('indicator_readings').select('id, indicator_id, period, value, source').eq('client_id', cid).order('period', { ascending: true }),
     ]);
     setIndicatorStatuses(st.data || []);
     setOpenTriggerEvents(ev.data || []);
     setIndicatorsList(ind.data || []);
     setTriggersList(tg.data || []);
+    setReadingsList(rd.data || []);
     setIndicatorSeries(buildSeriesMap(rd.data || []));
   };
 
@@ -953,6 +957,20 @@ const App = () => {
       if (fired > 0) alert(`⚠ Leitura registrada. ${fired} gatilho(s) disparado(s) — alerta(s) e ação(ões) gerada(s) no Plano de Ação.`);
     } catch (e: any) { alert('Erro ao registrar leitura: ' + (e?.message || e)); }
     finally { setReadingSaving(false); }
+  };
+  // Editar uma leitura existente: reabre o modal pré-preenchido (upsert por competência)
+  const openReadingEdit = (ind: any, r: any) => {
+    if (!canEdit) return;
+    setReadingForm({ period: String(r.period).slice(0, 7), value: String(r.value), source: r.source || '' });
+    setReadingModal(ind);
+  };
+  const deleteReading = async (r: any) => {
+    if (!canEdit) return;
+    if (!window.confirm(`Excluir a leitura de ${String(r.period).slice(0, 7)} (${r.value})?`)) return;
+    const { error } = await supabase.from('indicator_readings').delete().eq('id', r.id);
+    if (error) { alert('Erro ao excluir leitura: ' + error.message); return; }
+    addLog('Indicadores', `Leitura excluída (${String(r.period).slice(0, 7)}).`);
+    await reloadIndicators();
   };
 
   // ----- CRUD de Gatilhos -----
@@ -3076,7 +3094,7 @@ const App = () => {
               )}
 
               {/* ==================== INDICADORES & GATILHOS (SEMÁFOROS) ==================== */}
-              {activeMenu === 'indicadores' && (
+              {activeMenu === 'indicadores' && !detailInd && (
                 <div className="space-y-8 animate-in fade-in">
                   <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex items-center justify-between">
                     <div>
@@ -3136,7 +3154,7 @@ const App = () => {
                           const ring = lvl === 2 ? 'ring-red-200' : lvl === 1 ? 'ring-amber-200' : 'ring-emerald-200';
                           const label = lvl === 2 ? 'Crítico' : lvl === 1 ? 'Atenção' : 'No alvo';
                           return (
-                            <div key={s.indicator_id} className={`rounded-xl border border-slate-200 bg-white p-5 shadow-sm ring-1 ${ring}`}>
+                            <div key={s.indicator_id} onClick={() => setDetailInd(s)} className={`rounded-xl border border-slate-200 bg-white p-5 shadow-sm ring-1 cursor-pointer hover:shadow-md transition-all ${ring}`}>
                               <div className="flex items-start justify-between gap-2">
                                 <div className="min-w-0">
                                   <h3 className="text-sm font-bold text-slate-800 italic truncate">{s.name}</h3>
@@ -3177,10 +3195,10 @@ const App = () => {
                               </div>
                               {canEdit && (
                                 <div className="mt-3 pt-3 border-t border-slate-100 flex items-center gap-1">
-                                  <button onClick={() => openReadingModal(s)} className="flex-1 text-[9px] font-bold uppercase tracking-wider text-slate-600 hover:text-amber-600 border border-slate-200 hover:border-amber-300 rounded-lg py-1.5 inline-flex items-center justify-center gap-1 transition-all"><PenLine size={12} /> Leitura</button>
-                                  <button onClick={() => openTrigModal(s)} className="flex-1 text-[9px] font-bold uppercase tracking-wider text-slate-600 hover:text-amber-600 border border-slate-200 hover:border-amber-300 rounded-lg py-1.5 inline-flex items-center justify-center gap-1 transition-all"><Target size={12} /> Gatilhos ({triggersList.filter((t: any) => t.indicator_id === s.indicator_id).length})</button>
-                                  <button onClick={() => { const raw = indicatorsList.find((x: any) => x.id === s.indicator_id); openIndModal(raw || s); }} className="p-2 text-slate-400 hover:text-amber-600 border border-slate-200 hover:border-amber-300 rounded-lg transition-all" title="Editar indicador"><Edit2 size={12} /></button>
-                                  <button onClick={() => deleteIndicator(s)} className="p-2 text-slate-300 hover:text-red-600 border border-slate-200 hover:border-red-200 rounded-lg transition-all" title="Excluir indicador"><Trash2 size={12} /></button>
+                                  <button onClick={(e) => { e.stopPropagation(); openReadingModal(s); }} className="flex-1 text-[9px] font-bold uppercase tracking-wider text-slate-600 hover:text-amber-600 border border-slate-200 hover:border-amber-300 rounded-lg py-1.5 inline-flex items-center justify-center gap-1 transition-all"><PenLine size={12} /> Leitura</button>
+                                  <button onClick={(e) => { e.stopPropagation(); openTrigModal(s); }} className="flex-1 text-[9px] font-bold uppercase tracking-wider text-slate-600 hover:text-amber-600 border border-slate-200 hover:border-amber-300 rounded-lg py-1.5 inline-flex items-center justify-center gap-1 transition-all"><Target size={12} /> Gatilhos ({triggersList.filter((t: any) => t.indicator_id === s.indicator_id).length})</button>
+                                  <button onClick={(e) => { e.stopPropagation(); const raw = indicatorsList.find((x: any) => x.id === s.indicator_id); openIndModal(raw || s); }} className="p-2 text-slate-400 hover:text-amber-600 border border-slate-200 hover:border-amber-300 rounded-lg transition-all" title="Editar indicador"><Edit2 size={12} /></button>
+                                  <button onClick={(e) => { e.stopPropagation(); deleteIndicator(s); }} className="p-2 text-slate-300 hover:text-red-600 border border-slate-200 hover:border-red-200 rounded-lg transition-all" title="Excluir indicador"><Trash2 size={12} /></button>
                                 </div>
                               )}
                             </div>
@@ -3191,6 +3209,132 @@ const App = () => {
                   </section>
                 </div>
               )}
+
+              {/* ==================== DETALHE DO INDICADOR ==================== */}
+              {activeMenu === 'indicadores' && detailInd && (() => {
+                const dStatus = indicatorStatuses.find((x: any) => x.indicator_id === detailInd.indicator_id) || detailInd;
+                const lvl = dStatus.breach_level || 0;
+                const dot = lvl === 2 ? 'bg-red-600' : lvl === 1 ? 'bg-amber-500' : 'bg-emerald-500';
+                const label = lvl === 2 ? 'Crítico' : lvl === 1 ? 'Atenção' : 'No alvo';
+                const stroke = lvl === 2 ? '#dc2626' : lvl === 1 ? '#f59e0b' : '#10b981';
+                const unit = dStatus.unit || '';
+                const series = indicatorSeries[detailInd.indicator_id] || [];
+                const rows = readingsList.filter((r: any) => r.indicator_id === detailInd.indicator_id).slice().sort((a: any, b: any) => String(b.period).localeCompare(String(a.period)));
+                const trigs = triggersList.filter((t: any) => t.indicator_id === detailInd.indicator_id);
+                const fmtMonth = (p: any) => new Date(p + 'T00:00:00').toLocaleDateString('pt-BR', { month: '2-digit', year: '2-digit' });
+                return (
+                  <div className="space-y-6 animate-in fade-in">
+                    {/* Cabeçalho */}
+                    <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex flex-wrap items-center justify-between gap-3">
+                      <div className="flex items-center gap-3 min-w-0">
+                        <button onClick={() => setDetailInd(null)} className="p-2 rounded-lg border border-slate-200 text-slate-500 hover:border-amber-300 hover:text-amber-600 transition-all shrink-0"><ChevronLeft size={18} /></button>
+                        <div className="min-w-0">
+                          <h1 className="text-2xl font-bold text-slate-800 tracking-tight italic flex items-center gap-2 truncate"><span className={`h-3 w-3 rounded-full shrink-0 ${dot}`} />{dStatus.name}</h1>
+                          <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">{dStatus.category || 'Indicador'} · <span className={lvl === 2 ? 'text-red-600' : lvl === 1 ? 'text-amber-600' : 'text-emerald-600'}>{label}</span></p>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-3">
+                        <div className="text-right">
+                          <p className="text-2xl font-bold text-slate-900 leading-none">{dStatus.current_value ?? '—'}<span className="ml-1 text-sm font-normal text-slate-400">{unit}</span></p>
+                          <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">{dStatus.current_period ? fmtMonth(dStatus.current_period) : 'sem leitura'}</p>
+                        </div>
+                        {canEdit && <button onClick={() => openReadingModal(detailInd)} className="bg-amber-600 hover:bg-amber-700 text-white px-4 py-2.5 rounded-lg text-[10px] font-bold uppercase tracking-widest inline-flex items-center gap-2 transition-all shadow-sm"><PenLine size={14} /> Registrar leitura</button>}
+                      </div>
+                    </div>
+
+                    {/* Gráfico grande com limites dos gatilhos */}
+                    <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm">
+                      <h3 className="text-xs font-bold uppercase text-slate-500 tracking-widest italic mb-3 flex items-center gap-2"><BarChart3 size={16} className="text-amber-600" /> Tendência {trigs.length > 0 && <span className="text-[9px] text-slate-400 normal-case tracking-normal not-italic">(linhas tracejadas = limites dos gatilhos)</span>}</h3>
+                      {series.length < 2 ? (
+                        <p className="text-sm text-slate-400 py-10 text-center">Registre ao menos 2 leituras para ver a tendência.</p>
+                      ) : (
+                        <div className="h-64">
+                          <ResponsiveContainer width="100%" height="100%">
+                            <LineChart data={series} margin={{ top: 8, right: 16, bottom: 0, left: 0 }}>
+                              <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
+                              <XAxis dataKey="period" tickFormatter={fmtMonth} tick={{ fontSize: 11, fill: '#94a3b8' }} />
+                              <YAxis tick={{ fontSize: 11, fill: '#94a3b8' }} width={40} />
+                              <Tooltip contentStyle={{ fontSize: '12px', borderRadius: '8px', border: '1px solid #e2e8f0' }} labelFormatter={(l: any) => new Date(l + 'T00:00:00').toLocaleDateString('pt-BR', { month: '2-digit', year: 'numeric' })} formatter={(v: any) => [`${v}${unit ? ' ' + unit : ''}`, 'Valor']} />
+                              {trigs.map((t: any) => {
+                                const col = t.severity === 'critical' ? '#dc2626' : '#f59e0b';
+                                const isRange = t.operator === 'outside' || t.operator === 'inside';
+                                return (
+                                  <React.Fragment key={t.id}>
+                                    <ReferenceLine y={t.threshold_value} stroke={col} strokeDasharray="4 4" />
+                                    {isRange && t.threshold_value_secondary != null && <ReferenceLine y={t.threshold_value_secondary} stroke={col} strokeDasharray="4 4" />}
+                                  </React.Fragment>
+                                );
+                              })}
+                              <Line type="monotone" dataKey="value" stroke={stroke} strokeWidth={2.5} dot={{ r: 3 }} isAnimationActive={false} />
+                            </LineChart>
+                          </ResponsiveContainer>
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                      {/* Gatilhos */}
+                      <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+                        <div className="p-4 border-b border-slate-50 bg-slate-50/50 flex justify-between items-center">
+                          <h3 className="text-xs font-bold uppercase text-slate-500 tracking-widest italic flex items-center gap-2"><Target size={16} className="text-amber-600" /> Gatilhos ({trigs.length})</h3>
+                          {canEdit && <button onClick={() => openTrigModal(detailInd)} className="text-[10px] font-bold uppercase tracking-widest text-amber-600 hover:text-amber-700 flex items-center gap-1 transition-colors"><Plus size={12} /> Gerir</button>}
+                        </div>
+                        <div className="p-3 space-y-2">
+                          {trigs.length === 0 ? <p className="text-sm text-slate-400 p-2">Nenhum gatilho. {canEdit ? 'Clique em "Gerir" para criar.' : ''}</p> : trigs.map((t: any) => {
+                            const crit = t.severity === 'critical';
+                            const isRange = t.operator === 'outside' || t.operator === 'inside';
+                            const opl = ({ lt: '<', lte: '≤', gt: '>', gte: '≥', outside: 'fora de', inside: 'dentro de' } as any)[t.operator] || t.operator;
+                            return (
+                              <div key={t.id} className="flex items-center justify-between gap-2 border border-slate-100 rounded-lg p-3">
+                                <div className="min-w-0">
+                                  <p className="text-sm font-bold text-slate-800 italic truncate flex items-center gap-2"><span className={`h-2.5 w-2.5 rounded-full shrink-0 ${crit ? 'bg-red-600' : 'bg-amber-500'}`} />{t.name}</p>
+                                  <p className="text-[11px] text-slate-500">valor {opl} {isRange ? `${t.threshold_value}–${t.threshold_value_secondary}` : t.threshold_value} · {crit ? 'Crítico' : 'Atenção'}</p>
+                                </div>
+                                {canEdit && <button onClick={() => deleteTrigger(t)} className="p-2 text-slate-300 hover:text-red-600 rounded-lg shrink-0" title="Excluir gatilho"><Trash2 size={15} /></button>}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+
+                      {/* Histórico de leituras */}
+                      <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+                        <div className="p-4 border-b border-slate-50 bg-slate-50/50">
+                          <h3 className="text-xs font-bold uppercase text-slate-500 tracking-widest italic flex items-center gap-2"><History size={16} className="text-amber-600" /> Histórico de leituras ({rows.length})</h3>
+                        </div>
+                        {rows.length === 0 ? (
+                          <p className="text-sm text-slate-400 p-4">Nenhuma leitura registrada.</p>
+                        ) : (
+                          <div className="max-h-72 overflow-y-auto">
+                            <table className="w-full text-sm">
+                              <thead className="bg-slate-50/50 text-[9px] font-bold uppercase tracking-widest text-slate-400 sticky top-0">
+                                <tr><th className="px-4 py-2 text-left">Competência</th><th className="px-4 py-2 text-right">Valor</th><th className="px-4 py-2 text-left">Fonte</th>{canEdit && <th className="px-4 py-2 text-center">Ações</th>}</tr>
+                              </thead>
+                              <tbody className="divide-y divide-slate-50">
+                                {rows.map((r: any) => (
+                                  <tr key={r.id} className="hover:bg-slate-50/50">
+                                    <td className="px-4 py-2 text-slate-700">{new Date(r.period + 'T00:00:00').toLocaleDateString('pt-BR', { month: '2-digit', year: 'numeric' })}</td>
+                                    <td className="px-4 py-2 text-right font-bold text-slate-800">{r.value}{unit ? ` ${unit}` : ''}</td>
+                                    <td className="px-4 py-2 text-slate-400 text-[11px] truncate max-w-[120px]">{r.source || '—'}</td>
+                                    {canEdit && (
+                                      <td className="px-4 py-2">
+                                        <div className="flex items-center justify-center gap-1">
+                                          <button onClick={() => openReadingEdit(detailInd, r)} className="p-1.5 text-slate-400 hover:text-amber-600 rounded" title="Editar"><Edit2 size={14} /></button>
+                                          <button onClick={() => deleteReading(r)} className="p-1.5 text-slate-300 hover:text-red-600 rounded" title="Excluir"><Trash2 size={14} /></button>
+                                        </div>
+                                      </td>
+                                    )}
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })()}
 
               {/* ==================== SEÇÃO DE USUÁRIOS ==================== */}
               {activeMenu === 'usuarios' && (
