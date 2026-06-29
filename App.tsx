@@ -229,13 +229,14 @@ const App = () => {
   const [indicatorSeries, setIndicatorSeries] = useState<Record<string, any[]>>({});
   const [readingsList, setReadingsList] = useState<any[]>([]);
   const [detailInd, setDetailInd] = useState<any>(null);
+  const [govSettings, setGovSettings] = useState<any>({ active_scenario: 'Base', reeval_frequency: 'weekly' });
   const [indModal, setIndModal] = useState<any>(null);
   const [indSaving, setIndSaving] = useState(false);
   const [readingModal, setReadingModal] = useState<any>(null);
   const [readingForm, setReadingForm] = useState({ period: '', value: '', source: '' });
   const [readingSaving, setReadingSaving] = useState(false);
   const [trigModal, setTrigModal] = useState<any>(null);
-  const [trigForm, setTrigForm] = useState<any>({ name: '', operator: 'lt', threshold_value: '', threshold_value_secondary: '', severity: 'attention', create_action_on_breach: true, notify_on_breach: true, assignee_member_id: '' });
+  const [trigForm, setTrigForm] = useState<any>({ name: '', operator: 'lt', threshold_value: '', threshold_value_secondary: '', severity: 'attention', scenario: 'Base', create_action_on_breach: true, notify_on_breach: true, assignee_member_id: '' });
   const [trigSaving, setTrigSaving] = useState(false);
 
   const isSuper = currentUser?.role === 'SuperAdmin';
@@ -243,6 +244,8 @@ const App = () => {
   const isSec = currentUser?.role === 'Secretário';
   const canEdit = isAdm || isSec;
   const isAssistant = currentUser?.role === 'Assistente';
+  const SCENARIOS = ['Conservador', 'Base', 'Trágico'];
+  const FREQ_OPTS: [string, string][] = [['off', 'Desligada'], ['daily', 'Diária'], ['weekly', 'Semanal'], ['monthly', 'Mensal']];
   // Membros do cliente atual (SuperAdmin enxerga todos; aqui escopamos ao próprio cliente)
   const clientMembers = (users || []).filter((u: any) => {
     const cid = activeClientId || currentUser?.client_id;
@@ -461,19 +464,21 @@ const App = () => {
         setAllClientsList(fullList);
       }
       // Indicadores & Gatilhos do cliente ativo (semáforos + alertas + cadastros + séries)
-      const [indStatusRes, indEventsRes, indListRes, trigListRes, readingsRes] = await Promise.all([
+      const [indStatusRes, indEventsRes, indListRes, trigListRes, readingsRes, govRes] = await Promise.all([
         supabase.from('indicator_current_status').select('*').eq('client_id', cid).order('breach_level', { ascending: false }),
         supabase.from('trigger_events').select('*, triggers(name, indicators(name, unit))').eq('client_id', cid).eq('status', 'open').order('fired_at', { ascending: false }),
         supabase.from('indicators').select('*').eq('client_id', cid).order('name'),
         supabase.from('triggers').select('*').eq('client_id', cid),
         supabase.from('indicator_readings').select('id, indicator_id, period, value, source').eq('client_id', cid).order('period', { ascending: true }),
-      ]);
+        supabase.from('governance_settings').select('*').eq('client_id', cid).maybeSingle(),
+      ]) as any;
       setIndicatorStatuses(indStatusRes.data || []);
       setOpenTriggerEvents(indEventsRes.data || []);
       setIndicatorsList(indListRes.data || []);
       setTriggersList(trigListRes.data || []);
       setReadingsList(readingsRes.data || []);
       setIndicatorSeries(buildSeriesMap(readingsRes.data || []));
+      setGovSettings(govRes?.data || { active_scenario: 'Base', reeval_frequency: 'weekly' });
     } catch (e) { console.error(e); }
     setLoading(false);
   };
@@ -880,19 +885,33 @@ const App = () => {
   // Recarrega só os dados de indicadores (semáforos, alertas, cadastros, séries) do cliente ativo
   const reloadIndicators = async () => {
     const cid = activeClientId || currentUser.client_id;
-    const [st, ev, ind, tg, rd] = await Promise.all([
+    const [st, ev, ind, tg, rd, gov] = await Promise.all([
       supabase.from('indicator_current_status').select('*').eq('client_id', cid).order('breach_level', { ascending: false }),
       supabase.from('trigger_events').select('*, triggers(name, indicators(name, unit))').eq('client_id', cid).eq('status', 'open').order('fired_at', { ascending: false }),
       supabase.from('indicators').select('*').eq('client_id', cid).order('name'),
       supabase.from('triggers').select('*').eq('client_id', cid),
       supabase.from('indicator_readings').select('id, indicator_id, period, value, source').eq('client_id', cid).order('period', { ascending: true }),
-    ]);
+      supabase.from('governance_settings').select('*').eq('client_id', cid).maybeSingle(),
+    ]) as any;
     setIndicatorStatuses(st.data || []);
     setOpenTriggerEvents(ev.data || []);
     setIndicatorsList(ind.data || []);
     setTriggersList(tg.data || []);
     setReadingsList(rd.data || []);
     setIndicatorSeries(buildSeriesMap(rd.data || []));
+    setGovSettings(gov?.data || { active_scenario: 'Base', reeval_frequency: 'weekly' });
+  };
+
+  // Salva configuração de governança (cenário ativo / frequência do cron) do cliente ativo
+  const saveGovSetting = async (patch: any) => {
+    if (!canEdit) return;
+    const cid = activeClientId || currentUser.client_id;
+    const next = { ...govSettings, ...patch };
+    setGovSettings(next);
+    const { error } = await supabase.from('governance_settings').upsert([{ client_id: cid, active_scenario: next.active_scenario || 'Base', reeval_frequency: next.reeval_frequency || 'weekly', updated_at: new Date().toISOString() }], { onConflict: 'client_id' });
+    if (error) { alert('Erro ao salvar configuração: ' + error.message); return; }
+    addLog('Indicadores', `Configuração: cenário ativo=${next.active_scenario}, reavaliação=${next.reeval_frequency}`);
+    if (patch.active_scenario) await reloadIndicators(); // recolore o semáforo conforme o cenário
   };
 
   // ----- CRUD de Indicadores -----
@@ -976,7 +995,7 @@ const App = () => {
   // ----- CRUD de Gatilhos -----
   const openTrigModal = (ind: any) => {
     if (!canEdit) return;
-    setTrigForm({ name: '', operator: 'lt', threshold_value: '', threshold_value_secondary: '', severity: 'attention', create_action_on_breach: true, notify_on_breach: true, assignee_member_id: '' });
+    setTrigForm({ name: '', operator: 'lt', threshold_value: '', threshold_value_secondary: '', severity: 'attention', scenario: govSettings.active_scenario || 'Base', create_action_on_breach: true, notify_on_breach: true, assignee_member_id: '' });
     setTrigModal(ind);
   };
   const saveTrigger = async () => {
@@ -993,12 +1012,13 @@ const App = () => {
         client_id: cid, indicator_id: indId, name: trigForm.name.trim(),
         operator: trigForm.operator, threshold_value: Number(trigForm.threshold_value),
         threshold_value_secondary: isRange ? Number(trigForm.threshold_value_secondary) : null,
-        severity: trigForm.severity, create_action_on_breach: trigForm.create_action_on_breach,
+        severity: trigForm.severity, scenario: trigForm.scenario || 'Base',
+        create_action_on_breach: trigForm.create_action_on_breach,
         notify_on_breach: trigForm.notify_on_breach, assignee_member_id: trigForm.assignee_member_id || null,
       }]);
       if (error) throw new Error(error.message);
-      addLog('Indicadores', `Gatilho criado: ${trigForm.name} (${trigModal.name})`);
-      setTrigForm({ name: '', operator: 'lt', threshold_value: '', threshold_value_secondary: '', severity: 'attention', create_action_on_breach: true, notify_on_breach: true, assignee_member_id: '' });
+      addLog('Indicadores', `Gatilho criado: ${trigForm.name} [${trigForm.scenario}] (${trigModal.name})`);
+      setTrigForm({ name: '', operator: 'lt', threshold_value: '', threshold_value_secondary: '', severity: 'attention', scenario: trigForm.scenario || 'Base', create_action_on_breach: true, notify_on_breach: true, assignee_member_id: '' });
       await reloadIndicators();
     } catch (e: any) { alert('Erro ao criar gatilho: ' + (e?.message || e)); }
     finally { setTrigSaving(false); }
@@ -3106,6 +3126,27 @@ const App = () => {
                     )}
                   </div>
 
+                  {/* Configuração: cenário ativo + reavaliação agendada */}
+                  <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex flex-wrap items-center gap-x-8 gap-y-3">
+                    <div className="flex items-center gap-2">
+                      <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Cenário ativo</span>
+                      {canEdit ? (
+                        <select value={govSettings.active_scenario || 'Base'} onChange={e => saveGovSetting({ active_scenario: e.target.value })} className="text-xs font-bold uppercase tracking-wider bg-amber-50 border border-amber-200 text-amber-700 rounded-lg px-3 py-1.5 outline-none cursor-pointer">
+                          {SCENARIOS.map(sc => <option key={sc} value={sc}>{sc}</option>)}
+                        </select>
+                      ) : <span className="text-xs font-bold uppercase tracking-wider bg-amber-50 border border-amber-200 text-amber-700 rounded-lg px-3 py-1.5">{govSettings.active_scenario || 'Base'}</span>}
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest flex items-center gap-1"><Timer size={13} className="text-slate-400" /> Reavaliação automática</span>
+                      {canEdit ? (
+                        <select value={govSettings.reeval_frequency || 'weekly'} onChange={e => saveGovSetting({ reeval_frequency: e.target.value })} className="text-xs font-bold uppercase tracking-wider bg-slate-50 border border-slate-200 text-slate-600 rounded-lg px-3 py-1.5 outline-none cursor-pointer">
+                          {FREQ_OPTS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+                        </select>
+                      ) : <span className="text-xs font-bold uppercase tracking-wider bg-slate-50 border border-slate-200 text-slate-600 rounded-lg px-3 py-1.5">{(FREQ_OPTS.find(([v]) => v === (govSettings.reeval_frequency || 'weekly')) || ['', '—'])[1]}</span>}
+                    </div>
+                    <p className="text-[10px] text-slate-400 flex-1 min-w-[180px]">O semáforo e os alertas seguem o <b>cenário ativo</b>. A reavaliação reverifica os limites periodicamente e lembra dos alertas em aberto.</p>
+                  </div>
+
                   {/* Alertas abertos */}
                   <section>
                     <h2 className="text-sm font-bold text-slate-700 uppercase tracking-widest mb-3 flex items-center gap-2"><Bell size={16} className="text-amber-600" /> Alertas abertos ({openTriggerEvents.length})</h2>
@@ -3244,7 +3285,7 @@ const App = () => {
 
                     {/* Gráfico grande com limites dos gatilhos */}
                     <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm">
-                      <h3 className="text-xs font-bold uppercase text-slate-500 tracking-widest italic mb-3 flex items-center gap-2"><BarChart3 size={16} className="text-amber-600" /> Tendência {trigs.length > 0 && <span className="text-[9px] text-slate-400 normal-case tracking-normal not-italic">(linhas tracejadas = limites dos gatilhos)</span>}</h3>
+                      <h3 className="text-xs font-bold uppercase text-slate-500 tracking-widest italic mb-3 flex items-center gap-2"><BarChart3 size={16} className="text-amber-600" /> Tendência {trigs.length > 0 && <span className="text-[9px] text-slate-400 normal-case tracking-normal not-italic">(linhas tracejadas = limites do cenário {govSettings.active_scenario || 'Base'})</span>}</h3>
                       {series.length < 2 ? (
                         <p className="text-sm text-slate-400 py-10 text-center">Registre ao menos 2 leituras para ver a tendência.</p>
                       ) : (
@@ -3255,7 +3296,7 @@ const App = () => {
                               <XAxis dataKey="period" tickFormatter={fmtMonth} tick={{ fontSize: 11, fill: '#94a3b8' }} />
                               <YAxis tick={{ fontSize: 11, fill: '#94a3b8' }} width={40} />
                               <Tooltip contentStyle={{ fontSize: '12px', borderRadius: '8px', border: '1px solid #e2e8f0' }} labelFormatter={(l: any) => new Date(l + 'T00:00:00').toLocaleDateString('pt-BR', { month: '2-digit', year: 'numeric' })} formatter={(v: any) => [`${v}${unit ? ' ' + unit : ''}`, 'Valor']} />
-                              {trigs.flatMap((t: any) => {
+                              {trigs.filter((t: any) => (t.scenario || 'Base') === (govSettings.active_scenario || 'Base')).flatMap((t: any) => {
                                 const col = t.severity === 'critical' ? '#dc2626' : '#f59e0b';
                                 const isRange = t.operator === 'outside' || t.operator === 'inside';
                                 const lines = [
@@ -3288,7 +3329,7 @@ const App = () => {
                             return (
                               <div key={t.id} className="flex items-center justify-between gap-2 border border-slate-100 rounded-lg p-3">
                                 <div className="min-w-0">
-                                  <p className="text-sm font-bold text-slate-800 italic truncate flex items-center gap-2"><span className={`h-2.5 w-2.5 rounded-full shrink-0 ${crit ? 'bg-red-600' : 'bg-amber-500'}`} />{t.name}</p>
+                                  <p className="text-sm font-bold text-slate-800 italic truncate flex items-center gap-2"><span className={`h-2.5 w-2.5 rounded-full shrink-0 ${crit ? 'bg-red-600' : 'bg-amber-500'}`} />{t.name}<span className={`ml-1 text-[8px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded ${(t.scenario || 'Base') === (govSettings.active_scenario || 'Base') ? 'bg-amber-100 text-amber-700' : 'bg-slate-100 text-slate-400'}`}>{t.scenario || 'Base'}</span></p>
                                   <p className="text-[11px] text-slate-500">valor {opl} {isRange ? `${t.threshold_value}–${t.threshold_value_secondary}` : t.threshold_value} · {crit ? 'Crítico' : 'Atenção'}</p>
                                 </div>
                                 {canEdit && <button onClick={() => deleteTrigger(t)} className="p-2 text-slate-300 hover:text-red-600 rounded-lg shrink-0" title="Excluir gatilho"><Trash2 size={15} /></button>}
@@ -4021,7 +4062,7 @@ const App = () => {
                   return (
                     <div key={t.id} className="flex items-center justify-between gap-2 bg-white border border-slate-200 rounded-lg p-3">
                       <div className="min-w-0">
-                        <p className="text-sm font-bold text-slate-800 italic truncate flex items-center gap-2"><span className={`h-2.5 w-2.5 rounded-full shrink-0 ${crit ? 'bg-red-600' : 'bg-amber-500'}`} />{t.name}</p>
+                        <p className="text-sm font-bold text-slate-800 italic truncate flex items-center gap-2"><span className={`h-2.5 w-2.5 rounded-full shrink-0 ${crit ? 'bg-red-600' : 'bg-amber-500'}`} />{t.name}<span className={`ml-1 text-[8px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded ${(t.scenario || 'Base') === (govSettings.active_scenario || 'Base') ? 'bg-amber-100 text-amber-700' : 'bg-slate-100 text-slate-400'}`}>{t.scenario || 'Base'}</span></p>
                         <p className="text-[11px] text-slate-500">Dispara quando valor {opl} {isRange ? `${t.threshold_value}–${t.threshold_value_secondary}` : t.threshold_value} · {crit ? 'Crítico' : 'Atenção'}{t.create_action_on_breach ? ' · gera ação' : ''}{t.notify_on_breach ? ' · e-mail' : ''}</p>
                       </div>
                       <button onClick={() => deleteTrigger(t)} className="p-2 text-slate-300 hover:text-red-600 rounded-lg shrink-0" title="Excluir gatilho"><Trash2 size={16} /></button>
@@ -4053,6 +4094,12 @@ const App = () => {
                       <option value="critical">🔴 Crítico (Urgente)</option>
                     </select>
                   </div>
+                </div>
+                <div>
+                  <label className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">Cenário</label>
+                  <select value={trigForm.scenario} onChange={e => setTrigForm({ ...trigForm, scenario: e.target.value })} className="w-full mt-1 p-3 rounded-lg border border-slate-200 outline-none focus:border-amber-400 text-sm bg-white cursor-pointer">
+                    {SCENARIOS.map(sc => <option key={sc} value={sc}>{sc}{sc === (govSettings.active_scenario || 'Base') ? ' (ativo)' : ''}</option>)}
+                  </select>
                 </div>
                 <div className="grid grid-cols-2 gap-3">
                   <div>

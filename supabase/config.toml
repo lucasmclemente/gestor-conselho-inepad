@@ -505,6 +505,11 @@ enabled = true
 verify_jwt = false
 entrypoint = "./functions/evaluate-triggers/index.ts"
 
+[functions.reevaluate-triggers]
+enabled = true
+verify_jwt = false
+entrypoint = "./functions/reevaluate-triggers/index.ts"
+
 [functions.clicksign-flow]
 enabled = true
 verify_jwt = true
