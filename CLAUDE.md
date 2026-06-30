@@ -143,13 +143,16 @@ GESTOR-CONSELHO-INEPAD/
 |---|---|
 | `indicators` | id, client_id, name, unit, description, direction (`higher_is_better`/`lower_is_better`), category, active |
 | `indicator_readings` | id, client_id, indicator_id, period (date, competência), value (numeric), source · **unique(indicator_id, period)** |
-| `triggers` | id, client_id, indicator_id, name, operator (`gt`/`gte`/`lt`/`lte`/`outside`/`inside`), threshold_value, threshold_value_secondary, severity (`attention`/`critical`), create_action_on_breach, notify_on_breach, assignee_member_id, active |
+| `triggers` | id, client_id, indicator_id, name, operator (`gt`/`gte`/`lt`/`lte`/`outside`/`inside`), threshold_value, threshold_value_secondary, severity (`attention`/`critical`), **scenario** (default 'Base'), create_action_on_breach, notify_on_breach, assignee_member_id, active |
 | `trigger_events` | id, client_id, trigger_id, indicator_reading_id, observed_value, severity, status (`open`/`acknowledged`/`resolved`), generated_action_id (text), fired_at · **unique(trigger_id, indicator_reading_id)** (idempotência) · **INSERT só via Edge Function (service role)** |
+| `governance_settings` | client_id (PK), **active_scenario** (cenário ativo: Otimista/Base/Conservador/Trágico — texto livre), **reeval_frequency** (`off`/`daily`/`weekly`/`monthly`), last_reeval_at |
 
 - **`eval_breach(v, op, t1, t2)`** — função pura imutável: fonte única da regra de rompimento.
 - **`breached_triggers_for_reading(reading_id)`** — `SECURITY DEFINER`, `EXECUTE` revogado de authenticated; só a Edge Function chama.
 - **View `indicator_current_status`** (`security_invoker = on`) — semáforo em tempo real: `breach_level` 0 (verde) / 1 (amarelo) / 2 (vermelho) a partir da leitura mais recente.
 - Ação gerada por gatilho vai num **container** `meetings` com `type='Indicadores'` (oculto na lista de reuniões; aparece no Plano de Ação global), mesmo formato de "deliberação vira ação". Severidade → prioridade: `attention`→Importante, `critical`→Urgente.
+- **Cenários nomeados:** cada gatilho tem `scenario`; o cliente escolhe o **cenário ativo** (`governance_settings.active_scenario`). A view e a RPC só consideram gatilhos do cenário ativo (`active_scenario(client)`), então o semáforo/alertas mudam ao trocar de cenário. Frontend: seletor no topo do painel + chips por gatilho.
+- **Reavaliação agendada (cron):** `_shared/triggers.ts` (`fireForReading`) é reusado por `evaluate-triggers` (no registro de leitura) e `reevaluate-triggers` (cron). O cron usa **pg_cron + pg_net** (`0 12 * * *` UTC) chamando `reevaluate-triggers` (protegida por `CRON_SECRET`, **distinto por ambiente**); reavalia a última leitura de cada indicador + manda lembrete-resumo dos alertas abertos, respeitando `reeval_frequency` por cliente. Detalhes em memória [[cron_reevaluate]].
 
 ---
 
@@ -232,7 +235,8 @@ GESTOR-CONSELHO-INEPAD/
 | `clicksign-check` | Verifica status da assinatura + baixa PDF assinado + atualiza banco | OFF (verifica Bearer token manualmente) |
 | `clicksign-webhook` | Recebe notificação do ClickSign ao concluir assinaturas + atualiza ata automaticamente | — (público, sem auth) |
 | `set-secretary-clients` | SuperAdmin atribui empresas a um usuário multi-empresa (`secretary_clients` no Auth + members) | OFF (valida SuperAdmin em código) |
-| `evaluate-triggers` | Avalia os gatilhos de uma leitura (RPC `breached_triggers_for_reading`); cria evento idempotente, ação no Plano de Ação, alerta Resend e log | OFF (valida JWT + papel write em código) |
+| `evaluate-triggers` | Avalia os gatilhos de uma leitura (RPC `breached_triggers_for_reading`); cria evento idempotente, ação no Plano de Ação, alerta Resend e log. Usa `_shared/triggers.ts` | OFF (valida JWT + papel write em código) |
+| `reevaluate-triggers` | Cron (pg_cron diário): reavalia a última leitura de cada indicador + lembrete-resumo dos alertas abertos; respeita `reeval_frequency` por cliente | OFF (valida header `x-cron-secret` == `CRON_SECRET`) |
 
 > **Código compartilhado:** `supabase/functions/_shared/ics.ts` — gerador de `.ics` (iCalendar/RFC 5545) com RSVP, usado por `send-invitation` e `send-calendar-invites`. Converte horário de Brasília (UTC−3) para UTC. Empacotado automaticamente no deploy de cada função que o importa.
 
@@ -454,4 +458,4 @@ git checkout main && git merge develop && git push origin main && git checkout d
 
 ---
 
-*Atualizado em 29/06/2026 (v3) — módulo Indicadores & Gatilhos (Semáforos): tabelas `indicators`/`indicator_readings`/`triggers`/`trigger_events`, view `indicator_current_status`, Edge Function `evaluate-triggers` (avaliação determinística no banco + ação no Plano de Ação + alerta Resend), painel + cadastro no front e KPI no Dashboard. Multi-empresa generalizado para Administrador/Secretário/Conselheiro via `secretary_clients` + `set-secretary-clients`. Papel Assistente (só upload). Versão anterior (v2): programação anual de reuniões em lote; convites `.ics` (RSVP); melhorias de UX no dashboard; deploy manual de Edge Functions.*
+*Atualizado em 29/06/2026 (v3) — módulo Indicadores & Gatilhos (Semáforos): tabelas `indicators`/`indicator_readings`/`triggers`/`trigger_events`/`governance_settings`, view `indicator_current_status`, Edge Functions `evaluate-triggers` e `reevaluate-triggers` (+ `_shared/triggers.ts`); painel + cadastro + tela de detalhe (sparkline/histórico) + KPI no Dashboard; **cenários nomeados** (cenário ativo por cliente) e **reavaliação agendada** (pg_cron diário, frequência por cliente, lembrete-resumo). Multi-empresa generalizado para Administrador/Secretário/Conselheiro via `secretary_clients` + `set-secretary-clients`. Papel Assistente (só upload). Versão anterior (v2): programação anual de reuniões em lote; convites `.ics` (RSVP); melhorias de UX no dashboard; deploy manual de Edge Functions.*
