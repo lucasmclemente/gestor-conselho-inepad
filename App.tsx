@@ -3608,7 +3608,7 @@ const App = () => {
                           {isSuper ? (
                             <input type="text" placeholder="Ex: EMPRESA_XYZ" className="w-full p-3 border border-slate-200 rounded-lg text-sm font-bold outline-none focus:border-amber-500 transition-colors" value={newUserForm.client_id} onChange={e => setnewUserForm({ ...newUserForm, client_id: e.target.value.toUpperCase() })} />
                           ) : (
-                            <input type="text" className="w-full p-3 border border-slate-100 rounded-lg text-sm font-bold outline-none bg-slate-50 text-slate-400 cursor-not-allowed" value={currentUser.client_id} readOnly />
+                            <input type="text" className="w-full p-3 border border-slate-100 rounded-lg text-sm font-bold outline-none bg-slate-50 text-slate-400 cursor-not-allowed" value={activeClientId || currentUser.client_id} readOnly />
                           )}
                         </div>
                       </div>
