@@ -103,9 +103,87 @@ const PublicVote: React.FC<{ token: string }> = ({ token }) => {
   );
 };
 
+// Página pública de coleta de indicadores (sem login) — acessada via ?coleta=
+const PublicCollect: React.FC<{ token: string }> = ({ token }) => {
+  const [status, setStatus] = useState<'loading' | 'ready' | 'done' | 'error'>('loading');
+  const [info, setInfo] = useState<any>(null);
+  const [vals, setVals] = useState<Record<string, string>>({});
+  const [errMsg, setErrMsg] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [savedCount, setSavedCount] = useState(0);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const { data, error } = await supabase.functions.invoke('collect-readings', { body: { token, action: 'info' } });
+        if (error || data?.error) throw new Error(error?.message || data?.error);
+        const pref: Record<string, string> = {};
+        (data.indicators || []).forEach((i: any) => { if (i.current !== null && i.current !== undefined) pref[i.id] = String(i.current); });
+        setVals(pref); setInfo(data); setStatus('ready');
+      } catch (e: any) { setErrMsg(e?.message || 'Link inválido ou expirado.'); setStatus('error'); }
+    })();
+  }, [token]);
+
+  const submit = async () => {
+    const values = (info.indicators || [])
+      .filter((i: any) => { const v = vals[i.id]; return v !== undefined && v !== '' && !isNaN(Number(v)); })
+      .map((i: any) => ({ indicator_id: i.id, value: Number(vals[i.id]) }));
+    if (values.length === 0) { setErrMsg('Preencha ao menos um valor.'); return; }
+    setSaving(true); setErrMsg('');
+    try {
+      const { data, error } = await supabase.functions.invoke('collect-readings', { body: { token, action: 'submit', values } });
+      if (error || data?.error) throw new Error(error?.message || data?.error);
+      setSavedCount(data.ok || 0); setStatus('done');
+    } catch (e: any) { setErrMsg(e?.message || 'Erro ao enviar os dados.'); }
+    finally { setSaving(false); }
+  };
+
+  const periodLabel = info?.period ? new Date(info.period + 'T00:00:00').toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' }) : '';
+
+  return (
+    <div className="min-h-screen bg-slate-900 flex items-center justify-center p-4 font-sans">
+      <div className="w-full max-w-xl bg-white rounded-2xl shadow-2xl overflow-hidden">
+        <div className="bg-slate-900 p-6 text-center border-b-4 border-amber-600">
+          <p className="text-amber-500 text-[10px] font-bold uppercase tracking-[2px]">Coleta de Indicadores • Governança</p>
+          {info && <p className="text-white font-bold italic mt-1">{info.clientName} — {periodLabel}</p>}
+        </div>
+        <div className="p-8">
+          {status === 'loading' && <p className="text-center text-amber-600 font-bold uppercase animate-pulse py-8">Carregando...</p>}
+          {status === 'error' && <div className="text-center py-4"><div className="text-5xl mb-3">⚠️</div><p className="font-bold text-slate-800">Não foi possível abrir a coleta</p><p className="text-sm text-slate-500 mt-2">{errMsg}</p></div>}
+          {status === 'ready' && info && (
+            <>
+              <p className="text-xs text-slate-500 mb-4">Preencha os valores dos indicadores referentes a <b className="text-slate-800">{periodLabel}</b>. Campos em branco são ignorados.</p>
+              {info.indicators.length === 0 ? <p className="text-sm text-slate-400">Nenhum indicador cadastrado para esta empresa.</p> : (
+                <div className="divide-y divide-slate-100 border border-slate-200 rounded-xl">
+                  {info.indicators.map((i: any) => (
+                    <div key={i.id} className="flex items-center gap-3 p-3">
+                      <div className="min-w-0 flex-1"><p className="text-sm font-bold text-slate-800 italic truncate">{i.name}</p>{i.category && <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest truncate">{i.category}</p>}</div>
+                      <input type="number" step="any" value={vals[i.id] ?? ''} onChange={e => setVals({ ...vals, [i.id]: e.target.value })} placeholder="—" className="w-28 p-2.5 rounded-lg border border-slate-200 outline-none focus:border-amber-400 text-sm text-right" />
+                      <span className="text-[11px] text-slate-400 w-8">{i.unit || ''}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+              {errMsg && <p className="text-xs text-red-500 mt-3">{errMsg}</p>}
+              <button disabled={saving} onClick={submit} className="w-full mt-5 bg-amber-600 hover:bg-amber-700 text-white py-4 rounded-xl font-bold uppercase text-[11px] tracking-[2px] flex items-center justify-center gap-2 transition-all shadow-xl disabled:opacity-50">{saving ? 'Enviando...' : 'Enviar dados'}</button>
+            </>
+          )}
+          {status === 'done' && (
+            <div className="text-center py-4"><div className="text-5xl mb-3">✅</div><p className="font-bold text-slate-800 text-lg">Dados enviados!</p><p className="text-sm text-slate-500 mt-2"><b>{savedCount}</b> indicador(es) registrado(s) para {periodLabel}.</p><p className="text-xs text-slate-400 mt-3">Obrigado. Você já pode fechar esta página.</p></div>
+          )}
+        </div>
+        <div className="bg-slate-50 border-t border-slate-100 text-center text-[10px] text-slate-400 py-3 font-bold uppercase tracking-widest">GovCorp • INEPAD Consultoria</div>
+      </div>
+    </div>
+  );
+};
+
 const App = () => {
   const [voteToken] = useState<string | null>(() => {
     try { return new URLSearchParams(window.location.search).get('votetoken'); } catch { return null; }
+  });
+  const [collectToken] = useState<string | null>(() => {
+    try { return new URLSearchParams(window.location.search).get('coleta'); } catch { return null; }
   });
   const [users, setUsers] = useState<any[]>([]);
   const [meetings, setMeetings] = useState<any[]>([]);
@@ -239,6 +317,12 @@ const App = () => {
   const [importRows, setImportRows] = useState<any[]>([]);
   const [importing, setImporting] = useState(false);
   const indCsvRef = useRef<HTMLInputElement>(null);
+  // Link de coleta (controller do cliente preenche sem login)
+  const [collectModalOpen, setCollectModalOpen] = useState(false);
+  const [collectPeriod, setCollectPeriod] = useState('');
+  const [collectUrl, setCollectUrl] = useState('');
+  const [collectMinting, setCollectMinting] = useState(false);
+  const [collectCopied, setCollectCopied] = useState(false);
   const [indModal, setIndModal] = useState<any>(null);
   const [indSaving, setIndSaving] = useState(false);
   const [readingModal, setReadingModal] = useState<any>(null);
@@ -1124,6 +1208,29 @@ const App = () => {
     } catch (e: any) { alert('Erro na importação: ' + (e?.message || e)); }
     finally { setImporting(false); }
   };
+  // ----- Link de coleta (token) -----
+  const openCollect = () => {
+    if (!canEdit) return;
+    const now = new Date();
+    setCollectPeriod(`${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`);
+    setCollectUrl(''); setCollectCopied(false);
+    setCollectModalOpen(true);
+  };
+  const genCollectLink = async () => {
+    if (!collectPeriod) return alert('Escolha a competência (mês).');
+    setCollectMinting(true); setCollectUrl(''); setCollectCopied(false);
+    try {
+      const cid = activeClientId || currentUser.client_id;
+      const { data, error } = await supabase.functions.invoke('collect-readings', { body: { action: 'mint', client_id: cid, period: collectPeriod } });
+      if (error || data?.error) throw new Error(error?.message || data?.error);
+      setCollectUrl(`${window.location.origin}?coleta=${data.token}`);
+      addLog('Indicadores', `Link de coleta gerado (${collectPeriod}).`);
+    } catch (e: any) { alert('Erro ao gerar o link: ' + (e?.message || e)); }
+    finally { setCollectMinting(false); }
+  };
+  const copyCollectUrl = async () => {
+    try { await navigator.clipboard.writeText(collectUrl); setCollectCopied(true); setTimeout(() => setCollectCopied(false), 2000); } catch { /* ignore */ }
+  };
   const downloadTemplate = () => {
     const rows = ['indicador;competencia;valor;fonte'];
     indicatorsList.forEach((i: any) => rows.push(`${i.name};2026-06;;`));
@@ -1921,6 +2028,11 @@ const App = () => {
   // ── Voto por e-mail (página pública, sem login) ──
   if (voteToken) {
     return <PublicVote token={voteToken} />;
+  }
+
+  // ── Coleta de indicadores (página pública, sem login) ──
+  if (collectToken) {
+    return <PublicCollect token={collectToken} />;
   }
 
   // ── Tela de definição de nova senha (após clicar no link do e-mail de recuperação) ──
@@ -3267,6 +3379,7 @@ const App = () => {
                       <div className="flex items-center gap-2 shrink-0 flex-wrap">
                         <button onClick={openBatch} className="bg-slate-900 hover:bg-slate-800 text-amber-500 px-4 py-2.5 rounded-lg text-[10px] font-bold uppercase tracking-widest inline-flex items-center gap-2 transition-all shadow-sm"><PenLine size={15} /> Lançar mês</button>
                         <button onClick={openImport} className="border border-slate-200 text-slate-600 hover:border-amber-300 hover:text-amber-600 px-4 py-2.5 rounded-lg text-[10px] font-bold uppercase tracking-widest inline-flex items-center gap-2 transition-all"><Upload size={15} /> Importar</button>
+                        <button onClick={openCollect} className="border border-slate-200 text-slate-600 hover:border-amber-300 hover:text-amber-600 px-4 py-2.5 rounded-lg text-[10px] font-bold uppercase tracking-widest inline-flex items-center gap-2 transition-all"><ExternalLink size={15} /> Link de coleta</button>
                         <button onClick={() => openIndModal()} className="bg-amber-600 hover:bg-amber-700 text-white px-4 py-2.5 rounded-lg text-[10px] font-bold uppercase tracking-widest inline-flex items-center gap-2 transition-all shadow-sm"><Plus size={16} /> Novo indicador</button>
                       </div>
                     )}
@@ -4363,6 +4476,43 @@ const App = () => {
             <div className="p-6 border-t bg-white flex gap-3">
               <button onClick={() => setImportOpen(false)} className="flex-1 border border-slate-200 text-slate-600 py-3 rounded-xl font-bold uppercase text-[10px] tracking-[2px] hover:bg-slate-50">Cancelar</button>
               <button disabled={importing || importRows.filter((r: any) => r.ok).length === 0} onClick={runImport} className="flex-[2] bg-amber-600 text-white py-3 rounded-xl font-bold uppercase text-[10px] tracking-[2px] flex items-center justify-center gap-2 hover:bg-amber-700 shadow-xl disabled:opacity-50"><Save size={16} /> {importing ? 'Importando...' : `Importar ${importRows.filter((r: any) => r.ok).length} leitura(s)`}</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ===== Modal: Link de coleta ===== */}
+      {collectModalOpen && (
+        <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-md z-[100] flex items-center justify-center p-4">
+          <div className="bg-white w-full max-w-lg rounded-2xl shadow-2xl overflow-hidden flex flex-col animate-in zoom-in-95">
+            <div className="p-6 border-b flex justify-between items-center bg-slate-50 gap-3">
+              <div className="min-w-0">
+                <h3 className="text-xl font-bold text-slate-800 italic flex items-center gap-2"><ExternalLink size={20} className="text-amber-600" /> Link de coleta</h3>
+                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">O responsável do cliente preenche os indicadores sem login</p>
+              </div>
+              <button onClick={() => setCollectModalOpen(false)} className="p-2 hover:bg-slate-200 rounded-full text-slate-400 shrink-0"><X size={20} /></button>
+            </div>
+            <div className="p-6 space-y-4 bg-slate-50/30">
+              <div>
+                <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Competência da coleta</label>
+                <div className="flex gap-2 mt-1">
+                  <input type="month" value={collectPeriod} onChange={e => { setCollectPeriod(e.target.value); setCollectUrl(''); }} className="flex-1 p-3 rounded-lg border border-slate-200 outline-none focus:border-amber-400 text-sm" />
+                  <button disabled={collectMinting} onClick={genCollectLink} className="bg-amber-600 hover:bg-amber-700 text-white px-4 rounded-lg text-[10px] font-bold uppercase tracking-widest shrink-0 disabled:opacity-50">{collectMinting ? 'Gerando...' : 'Gerar link'}</button>
+                </div>
+              </div>
+              {collectUrl && (
+                <div className="bg-white border border-slate-200 rounded-lg p-3 space-y-2">
+                  <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Link (válido por 45 dias)</p>
+                  <div className="flex gap-2">
+                    <input readOnly value={collectUrl} onFocus={e => e.target.select()} className="flex-1 p-2.5 rounded-lg border border-slate-200 bg-slate-50 text-xs text-slate-600 outline-none" />
+                    <button onClick={copyCollectUrl} className="bg-slate-900 hover:bg-slate-800 text-amber-500 px-4 rounded-lg text-[10px] font-bold uppercase tracking-widest shrink-0 inline-flex items-center gap-1">{collectCopied ? <><Check size={13} /> Copiado</> : <><Download size={13} className="rotate-90" /> Copiar</>}</button>
+                  </div>
+                  <p className="text-[10px] text-slate-400">Envie este link ao controller/financeiro do cliente. Ele abre uma página simples para digitar os valores do mês — sem precisar de conta. Ao enviar, os gatilhos são avaliados normalmente.</p>
+                </div>
+              )}
+            </div>
+            <div className="p-6 border-t bg-white">
+              <button onClick={() => setCollectModalOpen(false)} className="w-full border border-slate-200 text-slate-600 py-3 rounded-xl font-bold uppercase text-[10px] tracking-[2px] hover:bg-slate-50">Fechar</button>
             </div>
           </div>
         </div>

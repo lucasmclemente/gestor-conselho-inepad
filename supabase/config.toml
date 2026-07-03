@@ -510,6 +510,11 @@ enabled = true
 verify_jwt = false
 entrypoint = "./functions/reevaluate-triggers/index.ts"
 
+[functions.collect-readings]
+enabled = true
+verify_jwt = false
+entrypoint = "./functions/collect-readings/index.ts"
+
 [functions.clicksign-flow]
 enabled = true
 verify_jwt = true
