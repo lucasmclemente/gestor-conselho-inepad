@@ -9,7 +9,7 @@ const ALLOWED_ORIGINS = [
 ]
 function getCorsHeaders(req: Request): Record<string, string> {
   const origin = req.headers.get('Origin') ?? ''
-  const isVercelPreview = /^https:\/\/gestor-conselho-inepad[a-z0-9-]*\.vercel\.app$/.test(origin)
+  const isVercelPreview = /^https:\/\/gestor-conselho-in[a-z0-9-]*\.vercel\.app$/.test(origin)
   const allowed = ALLOWED_ORIGINS.includes(origin) || isVercelPreview ? origin : ALLOWED_ORIGINS[0]
   return {
     'Access-Control-Allow-Origin': allowed,
