@@ -230,6 +230,15 @@ const App = () => {
   const [readingsList, setReadingsList] = useState<any[]>([]);
   const [detailInd, setDetailInd] = useState<any>(null);
   const [govSettings, setGovSettings] = useState<any>({ active_scenario: 'Base', reeval_frequency: 'weekly' });
+  // Alimentação em lote: grade mensal + importação de planilha
+  const [batchOpen, setBatchOpen] = useState(false);
+  const [batchPeriod, setBatchPeriod] = useState('');
+  const [batchValues, setBatchValues] = useState<Record<string, string>>({});
+  const [batchSaving, setBatchSaving] = useState(false);
+  const [importOpen, setImportOpen] = useState(false);
+  const [importRows, setImportRows] = useState<any[]>([]);
+  const [importing, setImporting] = useState(false);
+  const indCsvRef = useRef<HTMLInputElement>(null);
   const [indModal, setIndModal] = useState<any>(null);
   const [indSaving, setIndSaving] = useState(false);
   const [readingModal, setReadingModal] = useState<any>(null);
@@ -990,6 +999,139 @@ const App = () => {
     if (error) { alert('Erro ao excluir leitura: ' + error.message); return; }
     addLog('Indicadores', `Leitura excluída (${String(r.period).slice(0, 7)}).`);
     await reloadIndicators();
+  };
+
+  // Grava leituras em lote (upsert por competência) e avalia os gatilhos de cada uma
+  const commitReadings = async (items: { indicator_id: string; period: string; value: number; source?: string }[]) => {
+    const cid = activeClientId || currentUser.client_id;
+    const ids: string[] = [];
+    for (const it of items) {
+      const { data, error } = await supabase.from('indicator_readings')
+        .upsert([{ client_id: cid, indicator_id: it.indicator_id, period: it.period, value: it.value, source: it.source || null }], { onConflict: 'indicator_id,period' })
+        .select('id').single();
+      if (!error && data) ids.push(data.id);
+    }
+    const results = await Promise.all(ids.map(id => supabase.functions.invoke('evaluate-triggers', { body: { indicator_reading_id: id } }).then((r: any) => r.data).catch(() => null)));
+    const fired = results.reduce((s: number, r: any) => s + (r?.fired?.length || 0), 0);
+    return { ok: ids.length, fired };
+  };
+
+  // ----- Grade de lançamento mensal -----
+  const fillBatchForPeriod = (period: string) => {
+    const prefill: Record<string, string> = {};
+    readingsList.filter((r: any) => String(r.period).slice(0, 7) === period).forEach((r: any) => { prefill[r.indicator_id] = String(r.value); });
+    setBatchValues(prefill);
+  };
+  const openBatch = () => {
+    if (!canEdit) return;
+    if (indicatorsList.length === 0) return alert('Cadastre ao menos um indicador antes de lançar o mês.');
+    const now = new Date();
+    const ym = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+    setBatchPeriod(ym);
+    fillBatchForPeriod(ym);
+    setBatchOpen(true);
+  };
+  const saveBatch = async () => {
+    if (!batchPeriod) return alert('Escolha a competência (mês).');
+    const items = indicatorsList
+      .filter((ind: any) => { const v = batchValues[ind.id]; return v !== undefined && v !== '' && !isNaN(Number(v)); })
+      .map((ind: any) => ({ indicator_id: ind.id, period: `${batchPeriod}-01`, value: Number(batchValues[ind.id]) }));
+    if (items.length === 0) return alert('Preencha ao menos um valor.');
+    setBatchSaving(true);
+    try {
+      const { ok, fired } = await commitReadings(items);
+      addLog('Indicadores', `Lançamento mensal (${batchPeriod}): ${ok} leitura(s).`);
+      setBatchOpen(false);
+      await fetchInitialData();
+      alert(`✅ ${ok} leitura(s) registrada(s) para ${batchPeriod}.` + (fired > 0 ? `\n⚠ ${fired} gatilho(s) disparado(s).` : ''));
+    } catch (e: any) { alert('Erro no lançamento: ' + (e?.message || e)); }
+    finally { setBatchSaving(false); }
+  };
+
+  // ----- Importação de planilha (CSV) -----
+  const normName = (s: any) => String(s).toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').trim();
+  const parseNum = (raw: any) => { let s = String(raw).trim(); if (s === '') return NaN; if (s.includes(',')) s = s.replace(/\./g, '').replace(',', '.'); return Number(s); };
+  const parsePeriod = (raw: any) => {
+    const s = String(raw).trim(); let m;
+    if ((m = s.match(/^(\d{4})-(\d{2})(?:-\d{2})?$/))) return `${m[1]}-${m[2]}-01`;
+    if ((m = s.match(/^(\d{1,2})\/(\d{4})$/))) return `${m[2]}-${m[1].padStart(2, '0')}-01`;
+    if ((m = s.match(/^(\d{2})\/(\d{2})\/(\d{4})$/))) return `${m[3]}-${m[2]}-01`;
+    return null;
+  };
+  const parseCsv = (text: string) => {
+    const delim = (text.split('\n')[0] || '').includes(';') ? ';' : ',';
+    const lines = text.replace(/\r\n?/g, '\n').split('\n').filter(l => l.trim() !== '');
+    return lines.map(line => {
+      const cells: string[] = []; let cur = ''; let q = false;
+      for (let i = 0; i < line.length; i++) {
+        const c = line[i];
+        if (c === '"') { if (q && line[i + 1] === '"') { cur += '"'; i++; } else q = !q; }
+        else if (c === delim && !q) { cells.push(cur); cur = ''; }
+        else cur += c;
+      }
+      cells.push(cur);
+      return cells.map(x => x.trim());
+    });
+  };
+  const openImport = () => { if (!canEdit) return; setImportRows([]); setImportOpen(true); };
+  const handleCsvFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]; if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      try {
+        const rows = parseCsv(String(reader.result || ''));
+        if (rows.length < 2) { alert('Planilha vazia ou sem dados.'); return; }
+        const header = rows[0].map(normName);
+        let ci = header.findIndex(h => h.includes('indicad'));
+        let cp = header.findIndex(h => /compet|mes|per|data/.test(h));
+        let cv = header.findIndex(h => /valor|value/.test(h));
+        let cf = header.findIndex(h => /fonte|source/.test(h));
+        // Sem cabeçalho reconhecido → assume ordem indicador, competência, valor, fonte
+        const hasHeader = ci >= 0 && cp >= 0 && cv >= 0;
+        if (!hasHeader) { ci = 0; cp = 1; cv = 2; cf = 3; }
+        const dataRows = hasHeader ? rows.slice(1) : rows;
+        const byName = new Map(indicatorsList.map((i: any) => [normName(i.name), i]));
+        const parsed = dataRows.map((r: any) => {
+          const name = r[ci] || '';
+          const ind = byName.get(normName(name));
+          const period = parsePeriod(r[cp]);
+          const value = parseNum(r[cv]);
+          const source = cf >= 0 ? (r[cf] || '') : '';
+          let reason = '';
+          if (!name) reason = 'linha sem indicador';
+          else if (!ind) reason = 'indicador não encontrado';
+          else if (!period) reason = 'competência inválida';
+          else if (isNaN(value)) reason = 'valor inválido';
+          return { name, indicator: ind, period, value, source, ok: !reason, reason };
+        });
+        setImportRows(parsed);
+      } catch (err: any) { alert('Erro ao ler a planilha: ' + (err?.message || err)); }
+      finally { if (indCsvRef.current) indCsvRef.current.value = ''; }
+    };
+    reader.readAsText(file, 'utf-8');
+  };
+  const runImport = async () => {
+    const valid = importRows.filter((r: any) => r.ok);
+    if (valid.length === 0) return alert('Nenhuma linha válida para importar.');
+    setImporting(true);
+    try {
+      const items = valid.map((r: any) => ({ indicator_id: r.indicator.id, period: r.period, value: r.value, source: r.source }));
+      const { ok, fired } = await commitReadings(items);
+      addLog('Indicadores', `Importação de planilha: ${ok} leitura(s).`);
+      setImportOpen(false);
+      await fetchInitialData();
+      alert(`✅ ${ok} leitura(s) importada(s).` + (fired > 0 ? `\n⚠ ${fired} gatilho(s) disparado(s).` : ''));
+    } catch (e: any) { alert('Erro na importação: ' + (e?.message || e)); }
+    finally { setImporting(false); }
+  };
+  const downloadTemplate = () => {
+    const rows = ['indicador;competencia;valor;fonte'];
+    indicatorsList.forEach((i: any) => rows.push(`${i.name};2026-06;;`));
+    if (indicatorsList.length === 0) rows.push('Margem EBITDA;2026-06;12,4;Controladoria');
+    const blob = new Blob(['﻿' + rows.join('\n')], { type: 'text/csv;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a'); a.href = url; a.download = 'modelo_indicadores.csv'; a.click();
+    URL.revokeObjectURL(url);
   };
 
   // ----- CRUD de Gatilhos -----
@@ -3122,7 +3264,11 @@ const App = () => {
                       <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1">Semáforos de governança • {clientProfile?.name || activeClientId || currentUser.client_id}</p>
                     </div>
                     {canEdit && (
-                      <button onClick={() => openIndModal()} className="bg-amber-600 hover:bg-amber-700 text-white px-4 py-2.5 rounded-lg text-[10px] font-bold uppercase tracking-widest inline-flex items-center gap-2 transition-all shadow-sm shrink-0"><Plus size={16} /> Novo indicador</button>
+                      <div className="flex items-center gap-2 shrink-0 flex-wrap">
+                        <button onClick={openBatch} className="bg-slate-900 hover:bg-slate-800 text-amber-500 px-4 py-2.5 rounded-lg text-[10px] font-bold uppercase tracking-widest inline-flex items-center gap-2 transition-all shadow-sm"><PenLine size={15} /> Lançar mês</button>
+                        <button onClick={openImport} className="border border-slate-200 text-slate-600 hover:border-amber-300 hover:text-amber-600 px-4 py-2.5 rounded-lg text-[10px] font-bold uppercase tracking-widest inline-flex items-center gap-2 transition-all"><Upload size={15} /> Importar</button>
+                        <button onClick={() => openIndModal()} className="bg-amber-600 hover:bg-amber-700 text-white px-4 py-2.5 rounded-lg text-[10px] font-bold uppercase tracking-widest inline-flex items-center gap-2 transition-all shadow-sm"><Plus size={16} /> Novo indicador</button>
+                      </div>
                     )}
                   </div>
 
@@ -4133,6 +4279,96 @@ const App = () => {
           </div>
         </div>
       )}
+      {/* ===== Modal: Lançar mês (grade) ===== */}
+      {batchOpen && (
+        <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-md z-[100] flex items-center justify-center p-4">
+          <div className="bg-white w-full max-w-lg rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[92vh] animate-in zoom-in-95">
+            <div className="p-6 border-b flex justify-between items-center bg-slate-50 gap-3">
+              <div className="min-w-0">
+                <h3 className="text-xl font-bold text-slate-800 italic flex items-center gap-2"><PenLine size={20} className="text-amber-600" /> Lançar mês</h3>
+                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Digite os valores de todos os indicadores de uma vez</p>
+              </div>
+              <button onClick={() => setBatchOpen(false)} className="p-2 hover:bg-slate-200 rounded-full text-slate-400 shrink-0"><X size={20} /></button>
+            </div>
+            <div className="p-6 pb-3 bg-slate-50/30">
+              <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Competência</label>
+              <input type="month" value={batchPeriod} onChange={e => { setBatchPeriod(e.target.value); fillBatchForPeriod(e.target.value); }} className="w-full mt-1 p-3 rounded-lg border border-slate-200 outline-none focus:border-amber-400 text-sm" />
+            </div>
+            <div className="flex-1 overflow-y-auto px-6 pb-2 bg-slate-50/30">
+              <div className="divide-y divide-slate-100 border border-slate-200 rounded-xl bg-white">
+                {indicatorsList.map((ind: any) => (
+                  <div key={ind.id} className="flex items-center gap-3 p-3">
+                    <div className="min-w-0 flex-1"><p className="text-sm font-bold text-slate-800 italic truncate">{ind.name}</p>{ind.category && <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest truncate">{ind.category}</p>}</div>
+                    <div className="flex items-center gap-1 shrink-0">
+                      <input type="number" step="any" value={batchValues[ind.id] ?? ''} onChange={e => setBatchValues({ ...batchValues, [ind.id]: e.target.value })} placeholder="—" className="w-24 p-2 rounded-lg border border-slate-200 outline-none focus:border-amber-400 text-sm text-right" />
+                      <span className="text-[10px] text-slate-400 w-8">{ind.unit || ''}</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+              <p className="text-[10px] text-slate-400 mt-2">Valores em branco são ignorados. Ao salvar, os gatilhos de cada indicador são avaliados automaticamente.</p>
+            </div>
+            <div className="p-6 border-t bg-white flex gap-3">
+              <button onClick={() => setBatchOpen(false)} className="flex-1 border border-slate-200 text-slate-600 py-3 rounded-xl font-bold uppercase text-[10px] tracking-[2px] hover:bg-slate-50">Cancelar</button>
+              <button disabled={batchSaving} onClick={saveBatch} className="flex-[2] bg-amber-600 text-white py-3 rounded-xl font-bold uppercase text-[10px] tracking-[2px] flex items-center justify-center gap-2 hover:bg-amber-700 shadow-xl disabled:opacity-50"><Save size={16} /> {batchSaving ? 'Salvando...' : 'Salvar lançamento'}</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ===== Modal: Importar planilha ===== */}
+      {importOpen && (
+        <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-md z-[100] flex items-center justify-center p-4">
+          <div className="bg-white w-full max-w-2xl rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[92vh] animate-in zoom-in-95">
+            <div className="p-6 border-b flex justify-between items-center bg-slate-50 gap-3">
+              <div className="min-w-0">
+                <h3 className="text-xl font-bold text-slate-800 italic flex items-center gap-2"><Upload size={20} className="text-amber-600" /> Importar planilha</h3>
+                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">CSV com colunas: indicador · competência · valor · (fonte)</p>
+              </div>
+              <button onClick={() => setImportOpen(false)} className="p-2 hover:bg-slate-200 rounded-full text-slate-400 shrink-0"><X size={20} /></button>
+            </div>
+            <div className="flex-1 overflow-y-auto p-6 bg-slate-50/30 space-y-4">
+              <div className="flex flex-wrap gap-2">
+                <button onClick={() => indCsvRef.current?.click()} className="bg-slate-900 hover:bg-slate-800 text-amber-500 px-4 py-2.5 rounded-lg text-[10px] font-bold uppercase tracking-widest inline-flex items-center gap-2"><Upload size={15} /> Escolher arquivo CSV</button>
+                <button onClick={downloadTemplate} className="border border-slate-200 text-slate-600 hover:border-amber-300 hover:text-amber-600 px-4 py-2.5 rounded-lg text-[10px] font-bold uppercase tracking-widest inline-flex items-center gap-2"><Download size={15} /> Baixar modelo</button>
+              </div>
+              <div className="text-[11px] text-slate-500 bg-white border border-slate-200 rounded-lg p-3">
+                <b>Como preparar:</b> no Excel, use uma coluna com o <b>nome exato</b> do indicador, outra com a <b>competência</b> (ex.: <code>2026-06</code> ou <code>06/2026</code>) e outra com o <b>valor</b> (decimal com vírgula, ex.: <code>12,4</code>). Salve como <b>CSV</b>. Dica: use o <b>modelo</b> acima, que já vem com seus indicadores.
+              </div>
+              {importRows.length > 0 && (() => {
+                const okN = importRows.filter((r: any) => r.ok).length;
+                const badN = importRows.length - okN;
+                return (
+                  <div>
+                    <p className="text-xs font-bold text-slate-600 mb-2">{okN} linha(s) prontas{badN > 0 ? ` · ${badN} ignorada(s)` : ''}</p>
+                    <div className="max-h-64 overflow-y-auto border border-slate-200 rounded-lg bg-white">
+                      <table className="w-full text-[12px]">
+                        <thead className="bg-slate-50/50 text-[9px] font-bold uppercase tracking-widest text-slate-400 sticky top-0"><tr><th className="px-3 py-2 text-left">Indicador</th><th className="px-3 py-2 text-left">Compet.</th><th className="px-3 py-2 text-right">Valor</th><th className="px-3 py-2 text-left">Status</th></tr></thead>
+                        <tbody className="divide-y divide-slate-50">
+                          {importRows.map((r: any, i: number) => (
+                            <tr key={i} className={r.ok ? '' : 'bg-red-50/40'}>
+                              <td className="px-3 py-1.5 text-slate-700 truncate max-w-[160px]">{r.name || '—'}</td>
+                              <td className="px-3 py-1.5 text-slate-500">{r.period ? String(r.period).slice(0, 7) : '—'}</td>
+                              <td className="px-3 py-1.5 text-right font-bold text-slate-800">{isNaN(r.value) ? '—' : r.value}</td>
+                              <td className="px-3 py-1.5">{r.ok ? <span className="text-emerald-600 font-bold text-[10px] uppercase">ok</span> : <span className="text-red-500 text-[10px]">{r.reason}</span>}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                );
+              })()}
+            </div>
+            <div className="p-6 border-t bg-white flex gap-3">
+              <button onClick={() => setImportOpen(false)} className="flex-1 border border-slate-200 text-slate-600 py-3 rounded-xl font-bold uppercase text-[10px] tracking-[2px] hover:bg-slate-50">Cancelar</button>
+              <button disabled={importing || importRows.filter((r: any) => r.ok).length === 0} onClick={runImport} className="flex-[2] bg-amber-600 text-white py-3 rounded-xl font-bold uppercase text-[10px] tracking-[2px] flex items-center justify-center gap-2 hover:bg-amber-700 shadow-xl disabled:opacity-50"><Save size={16} /> {importing ? 'Importando...' : `Importar ${importRows.filter((r: any) => r.ok).length} leitura(s)`}</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <input type="file" ref={indCsvRef} accept=".csv,text/csv" className="hidden" onChange={handleCsvFile} />
       <input type="file" ref={fileRef} className="hidden" onChange={(e) => handleFileUpload(e, 'materiais')} />
       <input type="file" ref={ataRef} className="hidden" onChange={(e) => handleFileUpload(e, 'atas')} />
       <input type="file" ref={assistantFileRef} className="hidden" onChange={assistantUploadMaterial} />
