@@ -1,20 +1,18 @@
 import React, { useState, useRef, useMemo, useEffect } from 'react';
 import { generateMeetingPDF } from './services/generateMeetingPDF';
 import { generateAtaPDF } from './services/generateAtaPDF';
-import { createClient } from '@supabase/supabase-js';
+import { supabase } from './services/supabaseClient';
+import { Estrategia } from './components/Estrategia';
 import {
   LayoutDashboard, Calendar, CalendarPlus, CalendarClock, ChevronRight, UserPlus,
   Clock, CheckCircle2, AlertCircle, FileText, Send, X, Trash2,
   Upload, Save, Lock, Target, FileCheck, BarChart3,
   PieChart as PieIcon, LogIn, User, Key, LogOut, UserCheck,
-  Mail, UserCog, Settings, Camera, UserCircle, History, Filter, MessageSquare, Download, ExternalLink, ListChecks, Plus, Edit2, Check, Menu, ChevronUp, ChevronDown, Play, Square, Timer, SkipForward, Building2, ChevronLeft, UserMinus, ThumbsUp, ThumbsDown, CircleSlash, MinusCircle, Archive, Search, PenLine, ShieldCheck, Scale, Monitor, MapPin, Gauge, TrendingUp, TrendingDown, Bell
+  Mail, UserCog, Settings, Camera, UserCircle, History, Filter, MessageSquare, Download, ExternalLink, ListChecks, Plus, Edit2, Check, Menu, ChevronUp, ChevronDown, Play, Square, Timer, SkipForward, Building2, ChevronLeft, UserMinus, ThumbsUp, ThumbsDown, CircleSlash, MinusCircle, Archive, Search, PenLine, ShieldCheck, Scale, Monitor, MapPin, Gauge, TrendingUp, TrendingDown, Bell, Compass
 } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend, LineChart, Line, ReferenceLine } from 'recharts';
 
-// --- CONFIGURAÇÃO SUPABASE ---
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-const supabaseKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
-const supabase = createClient(supabaseUrl, supabaseKey);
+// --- CONFIGURAÇÃO SUPABASE — cliente único em ./services/supabaseClient ---
 
 // Prioridades do Plano de Ação — escala de cor crescente (baixa → urgente)
 const PRIORITIES = ['Baixa', 'Média', 'Importante', 'Urgente'] as const;
@@ -2185,6 +2183,7 @@ const App = () => {
             { id: 'plano-acao', icon: <ListChecks size={18} />, label: 'Plano de Ação' },
             { id: 'deliberacoes', icon: <Scale size={18} />, label: 'Deliberações' },
             { id: 'indicadores', icon: <Gauge size={18} />, label: 'Indicadores' },
+            { id: 'estrategia', icon: <Compass size={18} />, label: 'Estratégia' },
             { id: 'repositorio-atas', icon: <Archive size={18} />, label: 'Repositório de Atas' },
             { id: 'usuarios', icon: <UserCog size={18} />, label: isSuper ? 'Contas de Clientes' : 'Membros', adm: true },
             { id: 'auditoria', icon: <History size={18} />, label: 'Auditoria', adm: true }
@@ -3636,6 +3635,11 @@ const App = () => {
                   </div>
                 );
               })()}
+
+              {/* ==================== ESTRATÉGIA (módulo componentizado) ==================== */}
+              {activeMenu === 'estrategia' && (
+                <Estrategia currentUser={currentUser} activeClientId={activeClientId} canEdit={canEdit} addLog={addLog} />
+              )}
 
               {/* ==================== SEÇÃO DE USUÁRIOS ==================== */}
               {activeMenu === 'usuarios' && (
