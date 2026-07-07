@@ -1286,7 +1286,7 @@ const App = () => {
     const file = e.target.files?.[0];
     if (!file) return;
     const ext = file.name.split('.').pop();
-    const fileName = `${currentUser.client_id}/logo.${ext}`;
+    const fileName = `${activeClientId || currentUser.client_id}/logo.${ext}`;
     const { error: upError } = await supabase.storage.from('client-logos').upload(fileName, file, { upsert: true });
     if (upError) { alert('Erro no upload: ' + upError.message); return; }
     const { data: urlData } = supabase.storage.from('client-logos').getPublicUrl(fileName);
@@ -1295,7 +1295,7 @@ const App = () => {
 
   const saveClientProfile = async () => {
     setSavingClientProfile(true);
-    const payload = { client_id: currentUser.client_id, name: clientProfileForm.name, logo_url: clientProfileForm.logo_url };
+    const payload = { client_id: activeClientId || currentUser.client_id, name: clientProfileForm.name, logo_url: clientProfileForm.logo_url };
     const { data, error } = await supabase.from('clients').upsert(payload, { onConflict: 'client_id' }).select().single();
     if (error) { alert('Erro ao salvar perfil: ' + error.message); }
     else { setClientProfile(data); addLog('Configuração', `Perfil da empresa atualizado: ${data.name}`); alert('✅ Perfil salvo com sucesso!'); }
