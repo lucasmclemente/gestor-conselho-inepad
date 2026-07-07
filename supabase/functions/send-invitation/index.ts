@@ -67,16 +67,19 @@ serve(async (req) => {
       ? { name: organizerInput.name || organizerInput.email, email: organizerInput.email }
       : { name: 'Governança INEPAD', email: 'conselho@inepadconsulting.com' }
 
-    // Geramos o HTML das Pautas (Ordem do Dia)
-    const pautasHtml = meetingData.pautas && meetingData.pautas.length > 0
-      ? meetingData.pautas.map((p: any, i: number) => `
+    // Renderiza uma lista de pautas (Ordem do Dia) — usada tanto para a agenda completa
+    // (participantes internos) quanto para o recorte por responsável (participantes externos)
+    const renderPautas = (pautas: any[], emptyMsg: string) =>
+      (pautas && pautas.length > 0)
+        ? pautas.map((p: any, i: number) => `
           <div style="padding: 10px 0; border-bottom: 1px solid #f1f5f9; font-size: 14px;">
             <span style="color: #64748b; font-weight: bold;">${i + 1}.</span>
             <strong style="color: #1e293b;">${escapeHtml(p.title)}</strong>
             <br/><small style="color: #94a3b8;">Responsável: ${escapeHtml(p.resp || 'N/D')} | Duração: ${escapeHtml(String(p.dur))}min</small>
           </div>
         `).join('')
-      : '<p style="color: #94a3b8; font-style: italic;">Nenhuma pauta definida para esta sessão.</p>'
+        : `<p style="color: #94a3b8; font-style: italic;">${escapeHtml(emptyMsg)}</p>`
+    const pautasHtml = renderPautas(meetingData.pautas, 'Nenhuma pauta definida para esta sessão.')
 
     // Geramos o HTML dos Materiais (se houver)
     const materiaisHtml = meetingData.materiais && meetingData.materiais.length > 0
@@ -91,11 +94,11 @@ serve(async (req) => {
         </div>
       ` : ''
 
-    // Gera o convite de calendário (.ics com RSVP) para reservar a agenda dos convocados
-    let attachments: any[] | undefined
-    if (meetingData.date) {
+    // Gera o convite de calendário (.ics com RSVP) para os e-mails informados
+    const buildIcsAttachments = (attendeeEmails: string[]): any[] | undefined => {
+      if (!meetingData.date) return undefined
       const locationParts = [meetingData.type, meetingData.address, meetingData.link].filter(Boolean)
-      const attendees: ICSAttendee[] = (recipients || []).map((email: string) => ({ email }))
+      const attendees: ICSAttendee[] = attendeeEmails.map((email: string) => ({ email }))
       const ics = buildICS(
         [{
           uid: `${meetingData.id || crypto.randomUUID()}@conselho.inepadconsulting.com`,
@@ -110,26 +113,14 @@ serve(async (req) => {
         organizer,
         'REQUEST',
       )
-      attachments = [{
+      return [{
         filename: 'convocacao.ics',
         content: icsToBase64(ics),
         content_type: 'text/calendar; method=REQUEST; charset=UTF-8',
       }]
     }
 
-    const res = await fetch('https://api.resend.com/emails', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${RESEND_API_KEY}`,
-      },
-      body: JSON.stringify({
-        from: 'Governança INEPAD <conselho@inepadconsulting.com>',
-        to: recipients,
-        reply_to: organizer.email,
-        subject: `CONVOCAÇÃO OFICIAL: ${meetingData.title}`,
-        ...(attachments ? { attachments } : {}),
-        html: `
+    const buildEmailBody = (pautas: string) => `
           <div style="font-family: sans-serif; max-width: 600px; margin: auto; border: 1px solid #e2e8f0; border-radius: 12px; overflow: hidden;">
             <div style="background: #0f172a; padding: 30px; text-align: center;">
               <img src="https://jrtrrubtjbinnddqdbta.supabase.co/storage/v1/object/public/meeting-files/logo-sidebar.jpg" style="height: 40px;" />
@@ -150,7 +141,7 @@ serve(async (req) => {
               </div>
 
               <h4 style="text-transform: uppercase; font-size: 12px; color: #64748b; border-bottom: 1px solid #f1f5f9; padding-bottom: 5px; margin-top: 30px;">Ordem do Dia</h4>
-              ${pautasHtml}
+              ${pautas}
 
               ${materiaisHtml}
 
@@ -160,12 +151,45 @@ serve(async (req) => {
               <p style="text-align: center; font-size: 11px; color: #94a3b8; margin-top: 20px;">Sua presença é essencial para as deliberações do conselho.</p>
             </div>
           </div>
-        `,
-      }),
-    })
+        `
 
-    const data = await res.json()
-    return new Response(JSON.stringify(data), {
+    const sendEmail = (to: string[], pautas: string, attendeeEmails: string[]) => {
+      const attachments = buildIcsAttachments(attendeeEmails)
+      return fetch('https://api.resend.com/emails', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${RESEND_API_KEY}` },
+        body: JSON.stringify({
+          from: 'Governança INEPAD <conselho@inepadconsulting.com>',
+          to,
+          reply_to: organizer.email,
+          subject: `CONVOCAÇÃO OFICIAL: ${meetingData.title}`,
+          ...(attachments ? { attachments } : {}),
+          html: buildEmailBody(pautas),
+        }),
+      })
+    }
+
+    // Internos: agenda completa em um único e-mail. Externos: e-mail individual, só
+    // com as pautas em que ele é o responsável (não recebem a pauta toda).
+    const participants = Array.isArray(meetingData.participants) ? meetingData.participants : []
+    const byEmail = new Map<string, any>()
+    participants.forEach((p: any) => { if (p?.email) byEmail.set(String(p.email).toLowerCase(), p) })
+    const norm = (s: any) => String(s || '').trim().toLowerCase()
+    const isExt = (e: string) => byEmail.get(String(e).toLowerCase())?.isExternal === true
+    const external = (recipients || []).filter((e: string) => isExt(e))
+    const internal = (recipients || []).filter((e: string) => !isExt(e))
+
+    const sends: Promise<any>[] = []
+    if (internal.length > 0) sends.push(sendEmail(internal, pautasHtml, internal))
+    for (const email of external) {
+      const p = byEmail.get(String(email).toLowerCase())
+      const mine = (meetingData.pautas || []).filter((pt: any) => norm(pt.resp) === norm(p?.name))
+      sends.push(sendEmail([email], renderPautas(mine, 'Você não tem pautas específicas atribuídas nesta reunião.'), [email]))
+    }
+
+    const results = await Promise.allSettled(sends)
+    const sent = results.filter((r) => r.status === 'fulfilled').length
+    return new Response(JSON.stringify({ success: true, sent, internal: internal.length, external: external.length }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       status: 200,
     })
