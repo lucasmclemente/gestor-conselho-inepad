@@ -585,6 +585,7 @@ const App = () => {
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>, type: 'materiais' | 'atas') => {
     if (!canEdit) return;
+    if (type === 'materiais' && (currentMeeting.atas || []).length > 0) { if (e.target) e.target.value = ''; return alert('Materiais bloqueados: a ata desta reunião já foi publicada.'); }
     const file = e.target.files?.[0];
     if (!file) return;
     setLoading(true);
@@ -668,6 +669,32 @@ const App = () => {
       alert(`✅ Notificação de materiais enviada a ${data.sent || emails.length} participante(s).`);
     } catch (e: any) { alert('Erro ao notificar: ' + (e?.message || e)); }
     finally { setNotifyingMaterials(false); }
+  };
+
+  // Exclui um material — permitido só enquanto a ata não foi publicada
+  const deleteMaterial = async (index: number) => {
+    if (!canEdit) return;
+    if ((currentMeeting.atas || []).length > 0) return alert('Materiais bloqueados: a ata desta reunião já foi publicada.');
+    const mat = (currentMeeting.materiais || [])[index];
+    if (!mat) return;
+    if (!window.confirm(`Excluir o material "${mat.name}"?`)) return;
+    const updated = (currentMeeting.materiais || []).filter((_: any, i: number) => i !== index);
+    try {
+      // Remove o arquivo do Storage (best-effort — extrai o caminho da URL assinada)
+      try {
+        const m = String(mat.url || '').match(/\/object\/sign\/meeting-files\/([^?]+)/);
+        if (m && m[1]) await supabase.storage.from('meeting-files').remove([decodeURIComponent(m[1])]);
+      } catch { /* ignora falha de storage */ }
+      if (currentMeeting.id) {
+        const { data: saved, error } = await supabase.from('meetings').update({ materiais: updated }).eq('id', currentMeeting.id).select().single();
+        if (error) throw error;
+        setCurrentMeeting(saved);
+        setMeetings(prev => prev.map(m => m.id === currentMeeting.id ? saved : m));
+      } else {
+        setCurrentMeeting((prev: any) => ({ ...prev, materiais: updated }));
+      }
+      addLog('Materiais', `Material removido: ${mat.name} — ${currentMeeting.title}`);
+    } catch (e: any) { alert('Erro ao excluir material: ' + (e?.message || e)); }
   };
 
   const saveMeeting = async () => {
@@ -2674,8 +2701,8 @@ const App = () => {
 
                     {tab === 'materiais' && (
                       <div className="bg-white p-8 rounded-xl border border-slate-200 shadow-sm animate-in fade-in space-y-6">
-                        <div className="flex justify-between items-center mb-4 gap-2 flex-wrap"><h3 className="text-xs font-bold uppercase text-slate-600 tracking-widest flex items-center gap-2">Documentos <span className="bg-red-50 text-red-500 text-[8px] px-2 py-0.5 rounded-full border border-red-100">Somente Internos</span></h3>{canEdit && <div className="flex items-center gap-2">{(currentMeeting.materiais || []).length > 0 && <button onClick={notifyMaterials} disabled={notifyingMaterials} className="bg-amber-600 hover:bg-amber-700 text-white px-4 py-2 rounded-lg text-[10px] font-bold uppercase flex items-center gap-2 transition-all shadow-sm disabled:opacity-50"><Bell size={14} /> {notifyingMaterials ? 'Enviando...' : 'Notificar participantes'}</button>}<button onClick={() => fileRef.current?.click()} className="bg-slate-100 hover:bg-slate-200 text-slate-700 px-4 py-2 rounded-lg text-[10px] font-bold uppercase flex items-center gap-2 transition-all"><Upload size={14} /> Upload</button></div>}</div>
-                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">{(currentMeeting.materiais || []).map((m: any, i: any) => (<div key={i} className="p-4 bg-white border border-slate-200 rounded-xl flex items-center gap-3 relative group"><FileText size={20} className="text-amber-600" /><div className="flex-1 truncate text-xs font-bold italic">{m.name}</div><a href={m.url} target="_blank" rel="noreferrer" className="text-slate-400 hover:text-amber-600"><ExternalLink size={14} /></a></div>))}</div>
+                        <div className="flex justify-between items-center mb-4 gap-2 flex-wrap"><h3 className="text-xs font-bold uppercase text-slate-600 tracking-widest flex items-center gap-2">Documentos <span className="bg-red-50 text-red-500 text-[8px] px-2 py-0.5 rounded-full border border-red-100">Somente Internos</span>{(currentMeeting.atas || []).length > 0 && <span className="bg-slate-100 text-slate-500 text-[8px] px-2 py-0.5 rounded-full border border-slate-200 inline-flex items-center gap-1"><Lock size={9} /> Bloqueado após a ata</span>}</h3>{canEdit && (currentMeeting.atas || []).length === 0 && <div className="flex items-center gap-2">{(currentMeeting.materiais || []).length > 0 && <button onClick={notifyMaterials} disabled={notifyingMaterials} className="bg-amber-600 hover:bg-amber-700 text-white px-4 py-2 rounded-lg text-[10px] font-bold uppercase flex items-center gap-2 transition-all shadow-sm disabled:opacity-50"><Bell size={14} /> {notifyingMaterials ? 'Enviando...' : 'Notificar participantes'}</button>}<button onClick={() => fileRef.current?.click()} className="bg-slate-100 hover:bg-slate-200 text-slate-700 px-4 py-2 rounded-lg text-[10px] font-bold uppercase flex items-center gap-2 transition-all"><Upload size={14} /> Upload</button></div>}</div>
+                        {(currentMeeting.materiais || []).length === 0 ? <p className="text-[11px] text-slate-400 italic">Nenhum material anexado.</p> : <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">{(currentMeeting.materiais || []).map((m: any, i: any) => (<div key={i} className="p-4 bg-white border border-slate-200 rounded-xl flex items-center gap-3 relative group"><FileText size={20} className="text-amber-600" /><div className="flex-1 truncate text-xs font-bold italic">{m.name}</div><a href={m.url} target="_blank" rel="noreferrer" className="text-slate-400 hover:text-amber-600" title="Abrir"><ExternalLink size={14} /></a>{canEdit && (currentMeeting.atas || []).length === 0 && <button onClick={() => deleteMaterial(i)} className="text-slate-300 hover:text-red-600 transition-colors" title="Excluir material"><Trash2 size={14} /></button>}</div>))}</div>}
                       </div>
                     )}
 
