@@ -243,14 +243,16 @@ export const Estrategia: React.FC<Props> = ({ currentUser, activeClientId, canEd
                     <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">Impulsionado por</p>
                     {inLinks.map(l => <div key={l.id} className="text-sm text-slate-500 py-1">← {objName(l.from_objective)}</div>)}
                   </div>}
-                  {canEdit && objectives.length > 1 && (
+                  {canEdit && (objectives.filter(x => x.id !== o.id).length > 0 ? (
                     <div className="pt-2 border-t border-slate-100">
                       <select defaultValue="" onChange={e => { if (e.target.value) { addLink(o.id, e.target.value); e.target.value = ''; } }} className="w-full p-2.5 rounded-lg border border-slate-200 text-sm bg-white cursor-pointer outline-none focus:border-amber-400">
-                        <option value="">+ Vincular a outro objetivo…</option>
+                        <option value="">+ Este objetivo contribui para…</option>
                         {objectives.filter(x => x.id !== o.id).map(x => <option key={x.id} value={x.id}>{x.name}</option>)}
                       </select>
                     </div>
-                  )}
+                  ) : (
+                    <p className="pt-2 border-t border-slate-100 text-[11px] text-slate-400 leading-relaxed">Crie ao menos <b>outro objetivo</b> para desenhar relações de causa e efeito — ex.: <i>"Formar sucessores"</i> contribui para <i>"Crescer receita"</i>.</p>
+                  ))}
                 </div>
               </div>
             </div>
