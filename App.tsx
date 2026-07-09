@@ -305,12 +305,15 @@ const App = () => {
   const [triggersList, setTriggersList] = useState<any[]>([]);
   const [indicatorSeries, setIndicatorSeries] = useState<Record<string, any[]>>({});
   const [readingsList, setReadingsList] = useState<any[]>([]);
+  const [targetsList, setTargetsList] = useState<any[]>([]);
+  const [farolView, setFarolView] = useState<'cards' | 'grid'>('cards');
   const [detailInd, setDetailInd] = useState<any>(null);
   const [govSettings, setGovSettings] = useState<any>({ active_scenario: 'Base', reeval_frequency: 'weekly' });
   // Alimentação em lote: grade mensal + importação de planilha
   const [batchOpen, setBatchOpen] = useState(false);
   const [batchPeriod, setBatchPeriod] = useState('');
   const [batchValues, setBatchValues] = useState<Record<string, string>>({});
+  const [batchTargets, setBatchTargets] = useState<Record<string, string>>({});
   const [batchSaving, setBatchSaving] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
   const [importRows, setImportRows] = useState<any[]>([]);
@@ -556,13 +559,14 @@ const App = () => {
         setAllClientsList(fullList);
       }
       // Indicadores & Gatilhos do cliente ativo (semáforos + alertas + cadastros + séries)
-      const [indStatusRes, indEventsRes, indListRes, trigListRes, readingsRes, govRes] = await Promise.all([
+      const [indStatusRes, indEventsRes, indListRes, trigListRes, readingsRes, govRes, targetsRes] = await Promise.all([
         supabase.from('indicator_current_status').select('*').eq('client_id', cid).order('breach_level', { ascending: false }),
         supabase.from('trigger_events').select('*, triggers(name, indicators(name, unit))').eq('client_id', cid).eq('status', 'open').order('fired_at', { ascending: false }),
         supabase.from('indicators').select('*').eq('client_id', cid).order('name'),
         supabase.from('triggers').select('*').eq('client_id', cid),
         supabase.from('indicator_readings').select('id, indicator_id, period, value, source').eq('client_id', cid).order('period', { ascending: true }),
         supabase.from('governance_settings').select('*').eq('client_id', cid).maybeSingle(),
+        supabase.from('indicator_targets').select('indicator_id, period, target_value').eq('client_id', cid),
       ]) as any;
       setIndicatorStatuses(indStatusRes.data || []);
       setOpenTriggerEvents(indEventsRes.data || []);
@@ -571,6 +575,7 @@ const App = () => {
       setReadingsList(readingsRes.data || []);
       setIndicatorSeries(buildSeriesMap(readingsRes.data || []));
       setGovSettings(govRes?.data || { active_scenario: 'Base', reeval_frequency: 'weekly' });
+      setTargetsList(targetsRes.data || []);
     } catch (e) { console.error(e); }
     setLoading(false);
   };
@@ -1026,13 +1031,14 @@ const App = () => {
   // Recarrega só os dados de indicadores (semáforos, alertas, cadastros, séries) do cliente ativo
   const reloadIndicators = async () => {
     const cid = activeClientId || currentUser.client_id;
-    const [st, ev, ind, tg, rd, gov] = await Promise.all([
+    const [st, ev, ind, tg, rd, gov, tgt] = await Promise.all([
       supabase.from('indicator_current_status').select('*').eq('client_id', cid).order('breach_level', { ascending: false }),
       supabase.from('trigger_events').select('*, triggers(name, indicators(name, unit))').eq('client_id', cid).eq('status', 'open').order('fired_at', { ascending: false }),
       supabase.from('indicators').select('*').eq('client_id', cid).order('name'),
       supabase.from('triggers').select('*').eq('client_id', cid),
       supabase.from('indicator_readings').select('id, indicator_id, period, value, source').eq('client_id', cid).order('period', { ascending: true }),
       supabase.from('governance_settings').select('*').eq('client_id', cid).maybeSingle(),
+      supabase.from('indicator_targets').select('indicator_id, period, target_value').eq('client_id', cid),
     ]) as any;
     setIndicatorStatuses(st.data || []);
     setOpenTriggerEvents(ev.data || []);
@@ -1041,6 +1047,7 @@ const App = () => {
     setReadingsList(rd.data || []);
     setIndicatorSeries(buildSeriesMap(rd.data || []));
     setGovSettings(gov?.data || { active_scenario: 'Base', reeval_frequency: 'weekly' });
+    setTargetsList(tgt.data || []);
   };
 
   // Salva configuração de governança (cenário ativo / frequência do cron) do cliente ativo
@@ -1059,15 +1066,15 @@ const App = () => {
   const openIndModal = (ind?: any) => {
     if (!canEdit) return;
     setIndModal(ind
-      ? { id: ind.id, name: ind.name || '', unit: ind.unit || '', description: ind.description || '', direction: ind.direction || 'higher_is_better', category: ind.category || '' }
-      : { name: '', unit: '', description: '', direction: 'higher_is_better', category: '' });
+      ? { id: ind.id, name: ind.name || '', unit: ind.unit || '', description: ind.description || '', direction: ind.direction || 'higher_is_better', category: ind.category || '', level: ind.level || '', responsible_member_id: ind.responsible_member_id || '' }
+      : { name: '', unit: '', description: '', direction: 'higher_is_better', category: '', level: '', responsible_member_id: '' });
   };
   const saveIndicator = async () => {
     if (!indModal?.name?.trim()) return alert('Informe o nome do indicador.');
     setIndSaving(true);
     try {
       const cid = activeClientId || currentUser.client_id;
-      const payload = { name: indModal.name.trim(), unit: indModal.unit?.trim() || null, description: indModal.description?.trim() || null, direction: indModal.direction, category: indModal.category?.trim() || null };
+      const payload = { name: indModal.name.trim(), unit: indModal.unit?.trim() || null, description: indModal.description?.trim() || null, direction: indModal.direction, category: indModal.category?.trim() || null, level: indModal.level || null, responsible_member_id: indModal.responsible_member_id || null };
       const { error } = indModal.id
         ? await supabase.from('indicators').update(payload).eq('id', indModal.id)
         : await supabase.from('indicators').insert([{ ...payload, client_id: cid }]);
@@ -1153,6 +1160,9 @@ const App = () => {
     const prefill: Record<string, string> = {};
     readingsList.filter((r: any) => String(r.period).slice(0, 7) === period).forEach((r: any) => { prefill[r.indicator_id] = String(r.value); });
     setBatchValues(prefill);
+    const prefillT: Record<string, string> = {};
+    targetsList.filter((t: any) => String(t.period).slice(0, 7) === period).forEach((t: any) => { prefillT[t.indicator_id] = String(t.target_value); });
+    setBatchTargets(prefillT);
   };
   const openBatch = () => {
     if (!canEdit) return;
@@ -1165,17 +1175,23 @@ const App = () => {
   };
   const saveBatch = async () => {
     if (!batchPeriod) return alert('Escolha a competência (mês).');
+    const cid = activeClientId || currentUser.client_id;
+    const period = `${batchPeriod}-01`;
     const items = indicatorsList
       .filter((ind: any) => { const v = batchValues[ind.id]; return v !== undefined && v !== '' && !isNaN(Number(v)); })
-      .map((ind: any) => ({ indicator_id: ind.id, period: `${batchPeriod}-01`, value: Number(batchValues[ind.id]) }));
-    if (items.length === 0) return alert('Preencha ao menos um valor.');
+      .map((ind: any) => ({ indicator_id: ind.id, period, value: Number(batchValues[ind.id]) }));
+    const targetRows = indicatorsList
+      .filter((ind: any) => { const t = batchTargets[ind.id]; return t !== undefined && t !== '' && !isNaN(Number(t)); })
+      .map((ind: any) => ({ client_id: cid, indicator_id: ind.id, period, target_value: Number(batchTargets[ind.id]) }));
+    if (items.length === 0 && targetRows.length === 0) return alert('Preencha ao menos um valor ou meta.');
     setBatchSaving(true);
     try {
-      const { ok, fired } = await commitReadings(items);
-      addLog('Indicadores', `Lançamento mensal (${batchPeriod}): ${ok} leitura(s).`);
+      if (targetRows.length > 0) await supabase.from('indicator_targets').upsert(targetRows, { onConflict: 'indicator_id,period' });
+      const { ok, fired } = items.length > 0 ? await commitReadings(items) : { ok: 0, fired: 0 };
+      addLog('Indicadores', `Lançamento mensal (${batchPeriod}): ${ok} leitura(s), ${targetRows.length} meta(s).`);
       setBatchOpen(false);
       await fetchInitialData();
-      alert(`✅ ${ok} leitura(s) registrada(s) para ${batchPeriod}.` + (fired > 0 ? `\n⚠ ${fired} gatilho(s) disparado(s).` : ''));
+      alert(`✅ ${batchPeriod}: ${ok} leitura(s) e ${targetRows.length} meta(s) salvas.` + (fired > 0 ? `\n⚠ ${fired} gatilho(s) disparado(s).` : ''));
     } catch (e: any) { alert('Erro no lançamento: ' + (e?.message || e)); }
     finally { setBatchSaving(false); }
   };
@@ -3488,13 +3504,63 @@ const App = () => {
 
                   {/* Cards de indicadores (semáforo) */}
                   <section>
-                    <h2 className="text-sm font-bold text-slate-700 uppercase tracking-widest mb-3">Indicadores monitorados ({indicatorStatuses.length})</h2>
+                    <div className="flex items-center justify-between gap-2 flex-wrap mb-3">
+                      <h2 className="text-sm font-bold text-slate-700 uppercase tracking-widest">Indicadores monitorados ({indicatorStatuses.length})</h2>
+                      {indicatorStatuses.length > 0 && (
+                        <div className="flex bg-slate-100 rounded-lg p-1">
+                          {(['cards', 'grid'] as const).map(v => <button key={v} onClick={() => setFarolView(v)} className={`px-3 py-1 rounded-md text-[10px] font-bold uppercase tracking-widest transition-all ${farolView === v ? 'bg-white text-amber-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>{v === 'cards' ? 'Cartões' : 'Farol'}</button>)}
+                        </div>
+                      )}
+                    </div>
                     {indicatorStatuses.length === 0 ? (
                       <div className="bg-white p-8 rounded-xl border border-slate-200 shadow-sm text-center">
                         <Gauge size={32} className="text-slate-300 mx-auto mb-2" />
                         <p className="text-sm text-slate-500">Nenhum indicador cadastrado ainda para este cliente.</p>
                         <p className="text-[11px] text-slate-400 mt-1">O cadastro de indicadores e gatilhos será habilitado na próxima etapa.</p>
                       </div>
+                    ) : farolView === 'grid' ? (
+                      (() => {
+                        const months: string[] = [];
+                        const now = new Date();
+                        for (let i = 5; i >= 0; i--) { const dt = new Date(now.getFullYear(), now.getMonth() - i, 1); months.push(`${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}`); }
+                        const rMap: Record<string, number> = {};
+                        readingsList.forEach((r: any) => { rMap[`${r.indicator_id}|${String(r.period).slice(0, 7)}`] = Number(r.value); });
+                        const tMap: Record<string, number> = {};
+                        targetsList.forEach((t: any) => { tMap[`${t.indicator_id}|${String(t.period).slice(0, 7)}`] = Number(t.target_value); });
+                        const cellColor = (ind: any, v: any, t: any) => {
+                          if (v === undefined) return 'none';
+                          if (t === undefined) return 'neutral';
+                          const higher = ind.direction !== 'lower_is_better';
+                          const ach = higher ? (t === 0 ? (v >= 0 ? 1 : 0) : v / t) : (v === 0 ? 2 : t / v);
+                          return ach >= 1 ? 'g' : ach >= 0.8 ? 'y' : 'r';
+                        };
+                        const fmtM = (m: string) => new Date(m + '-01T00:00:00').toLocaleDateString('pt-BR', { month: 'short', year: '2-digit' }).replace('.', '');
+                        return (
+                          <div>
+                            <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-x-auto">
+                              <table className="w-full text-xs border-collapse">
+                                <thead><tr>
+                                  <th className="text-left px-3 py-2 bg-slate-50 text-[9px] font-bold uppercase tracking-widest text-slate-400 sticky left-0 z-10">Indicador</th>
+                                  {months.map(m => <th key={m} className="px-2 py-2 bg-slate-50 text-[9px] font-bold uppercase tracking-widest text-slate-400 text-center whitespace-nowrap">{fmtM(m)}</th>)}
+                                </tr></thead>
+                                <tbody>
+                                  {indicatorsList.map((ind: any) => (
+                                    <tr key={ind.id} className="border-t border-slate-100">
+                                      <td className="px-3 py-2 font-bold text-slate-800 italic whitespace-nowrap sticky left-0 bg-white">{ind.name}{ind.unit ? <span className="text-[10px] font-normal text-slate-400"> ({ind.unit})</span> : null}</td>
+                                      {months.map(m => {
+                                        const v = rMap[`${ind.id}|${m}`]; const t = tMap[`${ind.id}|${m}`]; const c = cellColor(ind, v, t);
+                                        const bg = c === 'g' ? 'bg-emerald-500 text-white' : c === 'y' ? 'bg-amber-500 text-white' : c === 'r' ? 'bg-red-600 text-white' : c === 'neutral' ? 'bg-slate-100 text-slate-600' : 'text-slate-300';
+                                        return <td key={m} className="px-1 py-1 text-center"><span className={`inline-block min-w-[40px] rounded px-1.5 py-1 font-bold ${bg}`} title={t !== undefined ? `Meta: ${t}` : 'Sem meta definida'}>{v === undefined ? '—' : v}</span></td>;
+                                      })}
+                                    </tr>
+                                  ))}
+                                </tbody>
+                              </table>
+                            </div>
+                            <p className="text-[10px] text-slate-400 mt-2">Cor = realizado × meta do mês (🟢 ≥100% · 🟡 ≥80% · 🔴 &lt;80%, conforme a direção do indicador). Cinza = sem meta. Defina metas em "Lançar mês".</p>
+                          </div>
+                        );
+                      })()
                     ) : (
                       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
                         {indicatorStatuses.map((s: any) => {
@@ -4303,6 +4369,24 @@ const App = () => {
                   <option value="lower_is_better">Menor é melhor (ex.: inadimplência, custo)</option>
                 </select>
               </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Nível</label>
+                  <select value={indModal.level || ''} onChange={e => setIndModal({ ...indModal, level: e.target.value })} className="w-full mt-1 p-3 rounded-lg border border-slate-200 outline-none focus:border-amber-400 text-sm bg-white cursor-pointer">
+                    <option value="">—</option>
+                    <option value="estrategico">Estratégico</option>
+                    <option value="tatico">Tático</option>
+                    <option value="operacional">Operacional</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Responsável</label>
+                  <select value={indModal.responsible_member_id || ''} onChange={e => setIndModal({ ...indModal, responsible_member_id: e.target.value })} className="w-full mt-1 p-3 rounded-lg border border-slate-200 outline-none focus:border-amber-400 text-sm bg-white cursor-pointer">
+                    <option value="">—</option>
+                    {clientMembers.filter((u: any) => u.email).map((u: any) => <option key={u.id} value={u.id}>{u.name}</option>)}
+                  </select>
+                </div>
+              </div>
               <div>
                 <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Descrição (opcional)</label>
                 <textarea value={indModal.description} onChange={e => setIndModal({ ...indModal, description: e.target.value })} rows={2} className="w-full mt-1 p-3 rounded-lg border border-slate-200 outline-none focus:border-amber-400 text-sm resize-none" />
@@ -4462,18 +4546,25 @@ const App = () => {
               <input type="month" value={batchPeriod} onChange={e => { setBatchPeriod(e.target.value); fillBatchForPeriod(e.target.value); }} className="w-full mt-1 p-3 rounded-lg border border-slate-200 outline-none focus:border-amber-400 text-sm" />
             </div>
             <div className="flex-1 overflow-y-auto px-6 pb-2 bg-slate-50/30">
-              <div className="divide-y divide-slate-100 border border-slate-200 rounded-xl bg-white">
-                {indicatorsList.map((ind: any) => (
-                  <div key={ind.id} className="flex items-center gap-3 p-3">
-                    <div className="min-w-0 flex-1"><p className="text-sm font-bold text-slate-800 italic truncate">{ind.name}</p>{ind.category && <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest truncate">{ind.category}</p>}</div>
-                    <div className="flex items-center gap-1 shrink-0">
-                      <input type="number" step="any" value={batchValues[ind.id] ?? ''} onChange={e => setBatchValues({ ...batchValues, [ind.id]: e.target.value })} placeholder="—" className="w-24 p-2 rounded-lg border border-slate-200 outline-none focus:border-amber-400 text-sm text-right" />
-                      <span className="text-[10px] text-slate-400 w-8">{ind.unit || ''}</span>
+              <div className="border border-slate-200 rounded-xl bg-white overflow-hidden">
+                <div className="flex items-center gap-2 px-3 py-2 bg-slate-50 border-b border-slate-100">
+                  <div className="flex-1 text-[9px] font-bold text-slate-400 uppercase tracking-widest">Indicador</div>
+                  <div className="w-20 text-[9px] font-bold text-slate-400 uppercase tracking-widest text-right">Realizado</div>
+                  <div className="w-20 text-[9px] font-bold text-slate-400 uppercase tracking-widest text-right">Meta</div>
+                  <div className="w-7" />
+                </div>
+                <div className="divide-y divide-slate-100">
+                  {indicatorsList.map((ind: any) => (
+                    <div key={ind.id} className="flex items-center gap-2 p-3">
+                      <div className="min-w-0 flex-1"><p className="text-sm font-bold text-slate-800 italic truncate">{ind.name}</p>{ind.category && <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest truncate">{ind.category}</p>}</div>
+                      <input type="number" step="any" value={batchValues[ind.id] ?? ''} onChange={e => setBatchValues({ ...batchValues, [ind.id]: e.target.value })} placeholder="—" className="w-20 p-2 rounded-lg border border-slate-200 outline-none focus:border-amber-400 text-sm text-right shrink-0" />
+                      <input type="number" step="any" value={batchTargets[ind.id] ?? ''} onChange={e => setBatchTargets({ ...batchTargets, [ind.id]: e.target.value })} placeholder="—" className="w-20 p-2 rounded-lg border border-slate-200 bg-amber-50/40 outline-none focus:border-amber-400 text-sm text-right shrink-0" />
+                      <span className="text-[10px] text-slate-400 w-7 shrink-0">{ind.unit || ''}</span>
                     </div>
-                  </div>
-                ))}
+                  ))}
+                </div>
               </div>
-              <p className="text-[10px] text-slate-400 mt-2">Valores em branco são ignorados. Ao salvar, os gatilhos de cada indicador são avaliados automaticamente.</p>
+              <p className="text-[10px] text-slate-400 mt-2">Preencha o <b>realizado</b> e/ou a <b>meta</b> do mês. Campos em branco são ignorados. Ao salvar, os gatilhos são avaliados e o farol (realizado × meta) é atualizado.</p>
             </div>
             <div className="p-6 border-t bg-white flex gap-3">
               <button onClick={() => setBatchOpen(false)} className="flex-1 border border-slate-200 text-slate-600 py-3 rounded-xl font-bold uppercase text-[10px] tracking-[2px] hover:bg-slate-50">Cancelar</button>
