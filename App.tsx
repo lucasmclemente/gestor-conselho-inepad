@@ -3564,7 +3564,18 @@ const App = () => {
                     ) : (
                       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
                         {indicatorStatuses.map((s: any) => {
-                          const lvl = s.breach_level || 0;
+                          // Meta da competência atual + farol realizado × meta
+                          const curTarget = targetsList.find((x: any) => x.indicator_id === s.indicator_id && String(x.period).slice(0, 7) === String(s.current_period || '').slice(0, 7));
+                          const curMeta = curTarget ? Number(curTarget.target_value) : null;
+                          let metaLvl = 0;
+                          if (curMeta !== null && s.current_value != null) {
+                            const higher = s.direction !== 'lower_is_better';
+                            const v = Number(s.current_value), t = curMeta;
+                            const ach = higher ? (t === 0 ? (v >= 0 ? 1 : 0) : v / t) : (v === 0 ? 2 : t / v);
+                            metaLvl = ach >= 1 ? 0 : ach >= 0.8 ? 1 : 2;
+                          }
+                          // Semáforo do cartão = pior entre gatilho e meta
+                          const lvl = Math.max(s.breach_level || 0, metaLvl);
                           const dot = lvl === 2 ? 'bg-red-600' : lvl === 1 ? 'bg-amber-500' : 'bg-emerald-500';
                           const ring = lvl === 2 ? 'ring-red-200' : lvl === 1 ? 'ring-amber-200' : 'ring-emerald-200';
                           const label = lvl === 2 ? 'Crítico' : lvl === 1 ? 'Atenção' : 'No alvo';
@@ -3580,6 +3591,7 @@ const App = () => {
                               <p className="mt-3 text-3xl font-bold text-slate-900">
                                 {s.current_value ?? '—'}<span className="ml-1 text-sm font-normal text-slate-400">{s.unit}</span>
                               </p>
+                              <p className="text-[10px] text-slate-400 mt-0.5">{curMeta !== null ? <>Meta: <b className={metaLvl === 2 ? 'text-red-600' : metaLvl === 1 ? 'text-amber-600' : 'text-emerald-600'}>{curMeta}{s.unit ? ' ' + s.unit : ''}</b></> : 'Sem meta definida'}</p>
                               {(() => {
                                 const ser = (indicatorSeries[s.indicator_id] || []).slice(-12);
                                 if (ser.length < 2) return null;
