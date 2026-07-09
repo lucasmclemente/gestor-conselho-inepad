@@ -230,6 +230,7 @@ const App = () => {
 
   const [isConvocationOpen, setIsConvocationOpen] = useState(false);
   const [isSendingEmail, setIsSendingEmail] = useState(false);
+  const [notifyingMaterials, setNotifyingMaterials] = useState(false);
 
   const fileRef = useRef<HTMLInputElement>(null);
   const ataRef = useRef<HTMLInputElement>(null);
@@ -645,6 +646,28 @@ const App = () => {
       }
     } catch (err: any) { alert("Erro: " + err.message); }
     finally { setLoading(false); if (e.target) e.target.value = ''; }
+  };
+
+  // Notifica os participantes de que os materiais (subsídios) da reunião estão disponíveis
+  const notifyMaterials = async () => {
+    if (!canEdit) return;
+    const mats = currentMeeting.materiais || [];
+    if (mats.length === 0) return alert('Adicione ao menos um material antes de notificar.');
+    if (!currentMeeting.id) return alert('Salve a reunião antes de notificar os participantes.');
+    const internos = (currentMeeting.participants || []).filter((p: any) => !p.isExternal);
+    const emails = internos.map((p: any) => p.email).filter((e: string) => e);
+    if (emails.length === 0) return alert('Nenhum participante interno com e-mail para notificar.');
+    if (!window.confirm(`Enviar notificação de materiais a ${emails.length} participante(s)?`)) return;
+    setNotifyingMaterials(true);
+    try {
+      const { data, error } = await supabase.functions.invoke('send-materials-notification', {
+        body: { meetingData: currentMeeting, recipients: emails, organizer: { name: currentUser.name, email: currentUser.email } },
+      });
+      if (error || data?.error) throw new Error(error?.message || data?.error);
+      addLog('Materiais', `Notificação de materiais enviada a ${data.sent || emails.length} participante(s) — ${currentMeeting.title}`);
+      alert(`✅ Notificação de materiais enviada a ${data.sent || emails.length} participante(s).`);
+    } catch (e: any) { alert('Erro ao notificar: ' + (e?.message || e)); }
+    finally { setNotifyingMaterials(false); }
   };
 
   const saveMeeting = async () => {
@@ -2651,7 +2674,7 @@ const App = () => {
 
                     {tab === 'materiais' && (
                       <div className="bg-white p-8 rounded-xl border border-slate-200 shadow-sm animate-in fade-in space-y-6">
-                        <div className="flex justify-between items-center mb-4"><h3 className="text-xs font-bold uppercase text-slate-600 tracking-widest flex items-center gap-2">Documentos <span className="bg-red-50 text-red-500 text-[8px] px-2 py-0.5 rounded-full border border-red-100">Somente Internos</span></h3>{canEdit && <button onClick={() => fileRef.current?.click()} className="bg-slate-100 hover:bg-slate-200 text-slate-700 px-4 py-2 rounded-lg text-[10px] font-bold uppercase flex items-center gap-2 transition-all"><Upload size={14} /> Upload</button>}</div>
+                        <div className="flex justify-between items-center mb-4 gap-2 flex-wrap"><h3 className="text-xs font-bold uppercase text-slate-600 tracking-widest flex items-center gap-2">Documentos <span className="bg-red-50 text-red-500 text-[8px] px-2 py-0.5 rounded-full border border-red-100">Somente Internos</span></h3>{canEdit && <div className="flex items-center gap-2">{(currentMeeting.materiais || []).length > 0 && <button onClick={notifyMaterials} disabled={notifyingMaterials} className="bg-amber-600 hover:bg-amber-700 text-white px-4 py-2 rounded-lg text-[10px] font-bold uppercase flex items-center gap-2 transition-all shadow-sm disabled:opacity-50"><Bell size={14} /> {notifyingMaterials ? 'Enviando...' : 'Notificar participantes'}</button>}<button onClick={() => fileRef.current?.click()} className="bg-slate-100 hover:bg-slate-200 text-slate-700 px-4 py-2 rounded-lg text-[10px] font-bold uppercase flex items-center gap-2 transition-all"><Upload size={14} /> Upload</button></div>}</div>
                         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">{(currentMeeting.materiais || []).map((m: any, i: any) => (<div key={i} className="p-4 bg-white border border-slate-200 rounded-xl flex items-center gap-3 relative group"><FileText size={20} className="text-amber-600" /><div className="flex-1 truncate text-xs font-bold italic">{m.name}</div><a href={m.url} target="_blank" rel="noreferrer" className="text-slate-400 hover:text-amber-600"><ExternalLink size={14} /></a></div>))}</div>
                       </div>
                     )}
