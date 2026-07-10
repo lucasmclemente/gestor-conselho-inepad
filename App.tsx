@@ -353,6 +353,9 @@ const App = () => {
   const isSec = currentUser?.role === 'Secretário';
   const canEdit = isAdm || isSec;
   const isAssistant = currentUser?.role === 'Assistente';
+  const isController = currentUser?.role === 'Controller';
+  // Controller: só lança o realizado dos indicadores (não altera metas nem cadastra indicadores)
+  const canLancar = canEdit || isController;
   const SCENARIOS = ['Otimista', 'Base', 'Conservador', 'Trágico'];
   const FREQ_OPTS: [string, string][] = [['off', 'Desligada'], ['daily', 'Diária'], ['weekly', 'Semanal'], ['monthly', 'Mensal']];
   // Membros do cliente atual (SuperAdmin enxerga todos; aqui escopamos ao próprio cliente)
@@ -522,6 +525,7 @@ const App = () => {
         setLoading(false);
         return;
       }
+      if (isController) setActiveMenu('indicadores');
       const memberCols = 'id, name, email, role, client_id, created_at, secretary_clients';
       let mQuery = supabase.from('meetings').select('*');
       let lQuery = supabase.from('audit_logs').select('*');
@@ -1346,9 +1350,9 @@ const App = () => {
     const items = indicatorsList
       .filter((ind: any) => { const v = batchValues[ind.id]; return v !== undefined && v !== '' && !isNaN(Number(v)); })
       .map((ind: any) => ({ indicator_id: ind.id, period, value: Number(batchValues[ind.id]) }));
-    const targetRows = indicatorsList
+    const targetRows = canEdit ? indicatorsList
       .filter((ind: any) => { const t = batchTargets[ind.id]; return t !== undefined && t !== '' && !isNaN(Number(t)); })
-      .map((ind: any) => ({ client_id: cid, indicator_id: ind.id, period, target_value: Number(batchTargets[ind.id]) }));
+      .map((ind: any) => ({ client_id: cid, indicator_id: ind.id, period, target_value: Number(batchTargets[ind.id]) })) : [];
     if (items.length === 0 && targetRows.length === 0) return alert('Preencha ao menos um valor ou meta.');
     setBatchSaving(true);
     try {
@@ -2447,6 +2451,8 @@ const App = () => {
         <nav className="flex-1 px-3 py-4 space-y-1 text-[10px] font-bold uppercase tracking-widest">
           {(isAssistant ? [
             { id: 'materiais-assistente', icon: <Upload size={18} />, label: 'Materiais' },
+          ] : isController ? [
+            { id: 'indicadores', icon: <Gauge size={18} />, label: 'Indicadores' },
           ] : [
             { id: 'dashboard', icon: <LayoutDashboard size={18} />, label: 'Dashboard' },
             { id: 'reunioes', icon: <Calendar size={18} />, label: 'Conselho', action: () => setView('list') },
@@ -3693,13 +3699,13 @@ const App = () => {
                       <h1 className="text-2xl font-bold text-slate-800 tracking-tight italic flex items-center gap-2"><Gauge size={24} className="text-amber-600" /> Indicadores & Gatilhos</h1>
                       <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1">Semáforos de governança • {clientProfile?.name || activeClientId || currentUser.client_id}</p>
                     </div>
-                    {canEdit && (
+                    {canLancar && (
                       <div className="flex items-center gap-2 shrink-0 flex-wrap">
                         <button onClick={openBatch} className="bg-slate-900 hover:bg-slate-800 text-amber-500 px-4 py-2.5 rounded-lg text-[10px] font-bold uppercase tracking-widest inline-flex items-center gap-2 transition-all shadow-sm"><PenLine size={15} /> Lançar mês</button>
-                        <button onClick={openYearMetas} className="border border-slate-200 text-slate-600 hover:border-amber-300 hover:text-amber-600 px-4 py-2.5 rounded-lg text-[10px] font-bold uppercase tracking-widest inline-flex items-center gap-2 transition-all"><Target size={15} /> Metas do ano</button>
+                        {canEdit && <button onClick={openYearMetas} className="border border-slate-200 text-slate-600 hover:border-amber-300 hover:text-amber-600 px-4 py-2.5 rounded-lg text-[10px] font-bold uppercase tracking-widest inline-flex items-center gap-2 transition-all"><Target size={15} /> Metas do ano</button>}
                         <button onClick={openImport} className="border border-slate-200 text-slate-600 hover:border-amber-300 hover:text-amber-600 px-4 py-2.5 rounded-lg text-[10px] font-bold uppercase tracking-widest inline-flex items-center gap-2 transition-all"><Upload size={15} /> Importar</button>
-                        <button onClick={openCollect} className="border border-slate-200 text-slate-600 hover:border-amber-300 hover:text-amber-600 px-4 py-2.5 rounded-lg text-[10px] font-bold uppercase tracking-widest inline-flex items-center gap-2 transition-all"><ExternalLink size={15} /> Link de coleta</button>
-                        <button onClick={() => openIndModal()} className="bg-amber-600 hover:bg-amber-700 text-white px-4 py-2.5 rounded-lg text-[10px] font-bold uppercase tracking-widest inline-flex items-center gap-2 transition-all shadow-sm"><Plus size={16} /> Novo indicador</button>
+                        {canEdit && <button onClick={openCollect} className="border border-slate-200 text-slate-600 hover:border-amber-300 hover:text-amber-600 px-4 py-2.5 rounded-lg text-[10px] font-bold uppercase tracking-widest inline-flex items-center gap-2 transition-all"><ExternalLink size={15} /> Link de coleta</button>}
+                        {canEdit && <button onClick={() => openIndModal()} className="bg-amber-600 hover:bg-amber-700 text-white px-4 py-2.5 rounded-lg text-[10px] font-bold uppercase tracking-widest inline-flex items-center gap-2 transition-all shadow-sm"><Plus size={16} /> Novo indicador</button>}
                       </div>
                     )}
                   </div>
@@ -3866,11 +3872,11 @@ const App = () => {
                                 </span>
                                 <span className={`text-[9px] font-bold uppercase tracking-wider ${lvl === 2 ? 'text-red-600' : lvl === 1 ? 'text-amber-600' : 'text-emerald-600'}`}>{label}</span>
                               </div>
-                              {canEdit && (
+                              {canLancar && (
                                 <div className="mt-3 pt-3 border-t border-slate-100 flex items-center gap-1">
                                   <button onClick={(e) => { e.stopPropagation(); openReadingModal(s); }} className="flex-1 text-[9px] font-bold uppercase tracking-wider text-slate-600 hover:text-amber-600 border border-slate-200 hover:border-amber-300 rounded-lg py-1.5 inline-flex items-center justify-center gap-1 transition-all"><PenLine size={12} /> Leitura</button>
-                                  <button onClick={(e) => { e.stopPropagation(); const raw = indicatorsList.find((x: any) => x.id === s.indicator_id); openIndModal(raw || s); }} className="p-2 text-slate-400 hover:text-amber-600 border border-slate-200 hover:border-amber-300 rounded-lg transition-all" title="Editar indicador"><Edit2 size={12} /></button>
-                                  <button onClick={(e) => { e.stopPropagation(); deleteIndicator(s); }} className="p-2 text-slate-300 hover:text-red-600 border border-slate-200 hover:border-red-200 rounded-lg transition-all" title="Excluir indicador"><Trash2 size={12} /></button>
+                                  {canEdit && <button onClick={(e) => { e.stopPropagation(); const raw = indicatorsList.find((x: any) => x.id === s.indicator_id); openIndModal(raw || s); }} className="p-2 text-slate-400 hover:text-amber-600 border border-slate-200 hover:border-amber-300 rounded-lg transition-all" title="Editar indicador"><Edit2 size={12} /></button>}
+                                  {canEdit && <button onClick={(e) => { e.stopPropagation(); deleteIndicator(s); }} className="p-2 text-slate-300 hover:text-red-600 border border-slate-200 hover:border-red-200 rounded-lg transition-all" title="Excluir indicador"><Trash2 size={12} /></button>}
                                 </div>
                               )}
                             </div>
@@ -3913,7 +3919,7 @@ const App = () => {
                           <p className="text-2xl font-bold text-slate-900 leading-none">{dStatus.current_value ?? '—'}<span className="ml-1 text-sm font-normal text-slate-400">{unit}</span></p>
                           <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">{dStatus.current_period ? fmtMonth(dStatus.current_period) : 'sem leitura'}</p>
                         </div>
-                        {canEdit && <button onClick={() => openReadingModal(detailInd)} className="bg-amber-600 hover:bg-amber-700 text-white px-4 py-2.5 rounded-lg text-[10px] font-bold uppercase tracking-widest inline-flex items-center gap-2 transition-all shadow-sm"><PenLine size={14} /> Registrar leitura</button>}
+                        {canLancar && <button onClick={() => openReadingModal(detailInd)} className="bg-amber-600 hover:bg-amber-700 text-white px-4 py-2.5 rounded-lg text-[10px] font-bold uppercase tracking-widest inline-flex items-center gap-2 transition-all shadow-sm"><PenLine size={14} /> Registrar leitura</button>}
                       </div>
                     </div>
 
@@ -4257,6 +4263,7 @@ const App = () => {
                           <select className="w-full p-3 border border-slate-200 rounded-lg text-sm font-bold outline-none focus:border-amber-500 transition-colors bg-white" value={newUserForm.role} onChange={e => setnewUserForm({ ...newUserForm, role: e.target.value })}>
                             <option value="Conselheiro">Conselheiro</option>
                             <option value="Assistente">Assistente (só materiais)</option>
+                            <option value="Controller">Controller (só lançar indicadores)</option>
                             <option value="Secretário">Secretário</option>
                             <option value="Administrador">Administrador</option>
                             {isSuper && <option value="SuperAdmin">SuperAdmin</option>}
@@ -4300,6 +4307,7 @@ const App = () => {
                                 <select value={u.role} onChange={e => updateMemberRole(u, e.target.value)} className="px-3 py-1.5 rounded-lg text-[10px] font-bold uppercase bg-slate-50 text-slate-700 border border-slate-200 cursor-pointer outline-none hover:border-amber-400 transition-colors not-italic">
                                   <option value="Conselheiro">Conselheiro</option>
                                   <option value="Assistente">Assistente</option>
+                                  <option value="Controller">Controller</option>
                                   <option value="Secretário">Secretário</option>
                                   <option value="Administrador">Administrador</option>
                                   {isSuper && <option value="SuperAdmin">SuperAdmin</option>}
@@ -4856,7 +4864,7 @@ const App = () => {
                 <div className="flex items-center gap-2 px-3 py-2 bg-slate-50 border-b border-slate-100">
                   <div className="flex-1 text-[9px] font-bold text-slate-400 uppercase tracking-widest">Indicador</div>
                   <div className="w-20 text-[9px] font-bold text-slate-400 uppercase tracking-widest text-right">Realizado</div>
-                  <div className="w-20 text-[9px] font-bold text-slate-400 uppercase tracking-widest text-right">Meta</div>
+                  {canEdit && <div className="w-20 text-[9px] font-bold text-slate-400 uppercase tracking-widest text-right">Meta</div>}
                   <div className="w-7" />
                 </div>
                 <div className="divide-y divide-slate-100">
@@ -4864,7 +4872,7 @@ const App = () => {
                     <div key={ind.id} className="flex items-center gap-2 p-3">
                       <div className="min-w-0 flex-1"><p className="text-sm font-bold text-slate-800 italic truncate">{ind.name}</p>{ind.category && <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest truncate">{ind.category}</p>}</div>
                       <input type="number" step="any" value={batchValues[ind.id] ?? ''} onChange={e => setBatchValues({ ...batchValues, [ind.id]: e.target.value })} placeholder="—" className="w-20 p-2 rounded-lg border border-slate-200 outline-none focus:border-amber-400 text-sm text-right shrink-0" />
-                      <input type="number" step="any" value={batchTargets[ind.id] ?? ''} onChange={e => setBatchTargets({ ...batchTargets, [ind.id]: e.target.value })} placeholder="—" className="w-20 p-2 rounded-lg border border-slate-200 bg-amber-50/40 outline-none focus:border-amber-400 text-sm text-right shrink-0" />
+                      {canEdit && <input type="number" step="any" value={batchTargets[ind.id] ?? ''} onChange={e => setBatchTargets({ ...batchTargets, [ind.id]: e.target.value })} placeholder="—" className="w-20 p-2 rounded-lg border border-slate-200 bg-amber-50/40 outline-none focus:border-amber-400 text-sm text-right shrink-0" />}
                       <span className="text-[10px] text-slate-400 w-7 shrink-0">{ind.unit || ''}</span>
                     </div>
                   ))}
