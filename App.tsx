@@ -334,6 +334,11 @@ const App = () => {
   const [collectUrl, setCollectUrl] = useState('');
   const [collectMinting, setCollectMinting] = useState(false);
   const [collectCopied, setCollectCopied] = useState(false);
+  // Metas do ano (grade indicador × 12 meses)
+  const [yearMetasOpen, setYearMetasOpen] = useState(false);
+  const [yearMetasYear, setYearMetasYear] = useState<number>(new Date().getFullYear());
+  const [yearMetasVals, setYearMetasVals] = useState<Record<string, string>>({});
+  const [yearMetasSaving, setYearMetasSaving] = useState(false);
   const [indModal, setIndModal] = useState<any>(null);
   const [indSaving, setIndSaving] = useState(false);
   const [readingModal, setReadingModal] = useState<any>(null);
@@ -1355,6 +1360,44 @@ const App = () => {
       alert(`✅ ${batchPeriod}: ${ok} leitura(s) e ${targetRows.length} meta(s) salvas.` + (fired > 0 ? `\n⚠ ${fired} gatilho(s) disparado(s).` : ''));
     } catch (e: any) { alert('Erro no lançamento: ' + (e?.message || e)); }
     finally { setBatchSaving(false); }
+  };
+
+  // ----- Metas do ano (grade indicador × 12 meses) -----
+  const YM_MONTHS = Array.from({ length: 12 }, (_, i) => String(i + 1).padStart(2, '0'));
+  const fillYearMetas = (year: number) => {
+    const pre: Record<string, string> = {};
+    targetsList.filter((t: any) => String(t.period).slice(0, 4) === String(year)).forEach((t: any) => { pre[`${t.indicator_id}|${String(t.period).slice(5, 7)}`] = String(t.target_value); });
+    setYearMetasVals(pre);
+  };
+  const openYearMetas = () => {
+    if (!canEdit) return;
+    if (indicatorsList.length === 0) return alert('Cadastre ao menos um indicador antes de definir metas.');
+    const y = new Date().getFullYear();
+    setYearMetasYear(y); fillYearMetas(y); setYearMetasOpen(true);
+  };
+  const changeYearMetas = (delta: number) => { const y = yearMetasYear + delta; setYearMetasYear(y); fillYearMetas(y); };
+  const applyRowAll = (indId: string) => {
+    const first = YM_MONTHS.map(m => yearMetasVals[`${indId}|${m}`]).find(v => v !== undefined && v !== '');
+    if (first === undefined) return alert('Preencha um mês primeiro para replicar nos demais.');
+    setYearMetasVals(prev => { const n = { ...prev }; YM_MONTHS.forEach(m => { n[`${indId}|${m}`] = first; }); return n; });
+  };
+  const saveYearMetas = async () => {
+    const cid = activeClientId || currentUser.client_id;
+    const rows: any[] = [];
+    indicatorsList.forEach((ind: any) => YM_MONTHS.forEach(m => {
+      const v = yearMetasVals[`${ind.id}|${m}`];
+      if (v !== undefined && v !== '' && !isNaN(Number(v))) rows.push({ client_id: cid, indicator_id: ind.id, period: `${yearMetasYear}-${m}-01`, target_value: Number(v) });
+    }));
+    if (rows.length === 0) return alert('Preencha ao menos uma meta.');
+    setYearMetasSaving(true);
+    try {
+      await supabase.from('indicator_targets').upsert(rows, { onConflict: 'indicator_id,period' });
+      addLog('Indicadores', `Metas do ano ${yearMetasYear}: ${rows.length} meta(s) salvas.`);
+      setYearMetasOpen(false);
+      await reloadIndicators();
+      alert(`✅ ${rows.length} meta(s) salvas para ${yearMetasYear}.`);
+    } catch (e: any) { alert('Erro ao salvar metas: ' + (e?.message || e)); }
+    finally { setYearMetasSaving(false); }
   };
 
   // ----- Importação de planilha (CSV) -----
@@ -3653,6 +3696,7 @@ const App = () => {
                     {canEdit && (
                       <div className="flex items-center gap-2 shrink-0 flex-wrap">
                         <button onClick={openBatch} className="bg-slate-900 hover:bg-slate-800 text-amber-500 px-4 py-2.5 rounded-lg text-[10px] font-bold uppercase tracking-widest inline-flex items-center gap-2 transition-all shadow-sm"><PenLine size={15} /> Lançar mês</button>
+                        <button onClick={openYearMetas} className="border border-slate-200 text-slate-600 hover:border-amber-300 hover:text-amber-600 px-4 py-2.5 rounded-lg text-[10px] font-bold uppercase tracking-widest inline-flex items-center gap-2 transition-all"><Target size={15} /> Metas do ano</button>
                         <button onClick={openImport} className="border border-slate-200 text-slate-600 hover:border-amber-300 hover:text-amber-600 px-4 py-2.5 rounded-lg text-[10px] font-bold uppercase tracking-widest inline-flex items-center gap-2 transition-all"><Upload size={15} /> Importar</button>
                         <button onClick={openCollect} className="border border-slate-200 text-slate-600 hover:border-amber-300 hover:text-amber-600 px-4 py-2.5 rounded-lg text-[10px] font-bold uppercase tracking-widest inline-flex items-center gap-2 transition-all"><ExternalLink size={15} /> Link de coleta</button>
                         <button onClick={() => openIndModal()} className="bg-amber-600 hover:bg-amber-700 text-white px-4 py-2.5 rounded-lg text-[10px] font-bold uppercase tracking-widest inline-flex items-center gap-2 transition-all shadow-sm"><Plus size={16} /> Novo indicador</button>
@@ -4738,6 +4782,55 @@ const App = () => {
             <div className="p-6 border-t bg-white flex gap-3">
               <button onClick={() => setFcaModal(null)} className="flex-1 border border-slate-200 text-slate-600 py-3 rounded-xl font-bold uppercase text-[10px] tracking-[2px] hover:bg-slate-50">Cancelar</button>
               <button disabled={fcaSaving} onClick={saveFca} className="flex-[2] bg-amber-600 text-white py-3 rounded-xl font-bold uppercase text-[10px] tracking-[2px] flex items-center justify-center gap-2 hover:bg-amber-700 shadow-xl disabled:opacity-50"><Save size={16} /> {fcaSaving ? 'Salvando...' : 'Salvar análise'}</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ===== Modal: Metas do ano ===== */}
+      {yearMetasOpen && (
+        <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-md z-[100] flex items-center justify-center p-4">
+          <div className="bg-white w-full max-w-5xl rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[92vh] animate-in zoom-in-95">
+            <div className="p-6 border-b flex justify-between items-center bg-slate-50 gap-3">
+              <div className="min-w-0">
+                <h3 className="text-xl font-bold text-slate-800 italic flex items-center gap-2"><Target size={20} className="text-amber-600" /> Metas do ano</h3>
+                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Defina a meta de cada indicador para os 12 meses</p>
+              </div>
+              <div className="flex items-center gap-3">
+                <div className="flex items-center gap-1 bg-white border border-slate-200 rounded-lg px-1.5 py-1">
+                  <button onClick={() => changeYearMetas(-1)} className="p-1 text-slate-400 hover:text-amber-600"><ChevronLeft size={16} /></button>
+                  <span className="text-sm font-bold text-slate-800 w-12 text-center tabular-nums">{yearMetasYear}</span>
+                  <button onClick={() => changeYearMetas(1)} className="p-1 text-slate-400 hover:text-amber-600"><ChevronRight size={16} /></button>
+                </div>
+                <button onClick={() => setYearMetasOpen(false)} className="p-2 hover:bg-slate-200 rounded-full text-slate-400 shrink-0"><X size={20} /></button>
+              </div>
+            </div>
+            <div className="flex-1 overflow-auto p-4 bg-slate-50/30">
+              <table className="text-xs border-collapse">
+                <thead>
+                  <tr>
+                    <th className="sticky left-0 z-10 bg-slate-100 text-left px-3 py-2 text-[9px] font-bold uppercase tracking-widest text-slate-500 border-b border-slate-200">Indicador</th>
+                    {['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez'].map(mn => <th key={mn} className="px-1 py-2 text-[9px] font-bold uppercase text-slate-400 border-b border-slate-200 text-center">{mn}</th>)}
+                    <th className="px-2 py-2 border-b border-slate-200"></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {indicatorsList.map((ind: any) => (
+                    <tr key={ind.id} className="border-b border-slate-100">
+                      <td className="sticky left-0 z-10 bg-white px-3 py-1.5 font-bold text-slate-800 italic whitespace-nowrap max-w-[200px] truncate">{ind.name}{ind.unit ? <span className="text-[9px] font-normal text-slate-400"> ({ind.unit})</span> : null}</td>
+                      {YM_MONTHS.map(m => (
+                        <td key={m} className="px-0.5 py-0.5"><input type="number" step="any" value={yearMetasVals[`${ind.id}|${m}`] ?? ''} onChange={e => setYearMetasVals({ ...yearMetasVals, [`${ind.id}|${m}`]: e.target.value })} placeholder="—" className="w-14 p-1 rounded border border-slate-200 text-right text-[11px] outline-none focus:border-amber-400 bg-amber-50/30" /></td>
+                      ))}
+                      <td className="px-1 text-center"><button onClick={() => applyRowAll(ind.id)} title="Replicar o 1º valor preenchido nos 12 meses" className="text-slate-300 hover:text-amber-600 text-sm font-bold">⟳</button></td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              <p className="text-[10px] text-slate-400 mt-3">Dica: preencha o primeiro mês e clique em <b>⟳</b> para replicar nos 12. Metas em branco são ignoradas. Você também pode registrar realizado + meta mês a mês em "Lançar mês".</p>
+            </div>
+            <div className="p-6 border-t bg-white flex gap-3">
+              <button onClick={() => setYearMetasOpen(false)} className="flex-1 border border-slate-200 text-slate-600 py-3 rounded-xl font-bold uppercase text-[10px] tracking-[2px] hover:bg-slate-50">Cancelar</button>
+              <button disabled={yearMetasSaving} onClick={saveYearMetas} className="flex-[2] bg-amber-600 text-white py-3 rounded-xl font-bold uppercase text-[10px] tracking-[2px] flex items-center justify-center gap-2 hover:bg-amber-700 shadow-xl disabled:opacity-50"><Save size={16} /> {yearMetasSaving ? 'Salvando...' : 'Salvar metas do ano'}</button>
             </div>
           </div>
         </div>
