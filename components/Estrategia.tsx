@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { supabase } from '../services/supabaseClient';
+import { Okr } from './Okr';
 import {
   Compass, Target, Plus, X, Save, Edit2, Trash2, ChevronLeft, ChevronUp, ChevronDown,
   Gauge, Link2, TrendingUp, CheckCircle2, AlertCircle, PenLine, Building2, Sparkles,
@@ -23,7 +24,7 @@ export const Estrategia: React.FC<Props> = ({ currentUser, activeClientId, canEd
   const cid = activeClientId || currentUser?.client_id;
   const clientLabel = cid;
 
-  const [view, setView] = useState<'painel' | 'mapa'>('painel');
+  const [view, setView] = useState<'painel' | 'mapa' | 'okrs'>('painel');
   const [loading, setLoading] = useState(true);
   const [framework, setFramework] = useState<any>({ mission: '', vision: '', values_text: '', success_factors: '' });
   const [perspectives, setPerspectives] = useState<any[]>([]);
@@ -173,8 +174,8 @@ export const Estrategia: React.FC<Props> = ({ currentUser, activeClientId, canEd
         </div>
         <div className="flex items-center gap-2">
           <div className="flex bg-slate-100 rounded-lg p-1">
-            {(['painel', 'mapa'] as const).map(v => (
-              <button key={v} onClick={() => { setDetailObj(null); setView(v); }} className={`px-4 py-1.5 rounded-md text-[10px] font-bold uppercase tracking-widest transition-all ${view === v && !detailObj ? 'bg-white text-amber-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>{v === 'painel' ? 'Painel' : 'Mapa'}</button>
+            {(['painel', 'mapa', 'okrs'] as const).map(v => (
+              <button key={v} onClick={() => { setDetailObj(null); setView(v); }} className={`px-4 py-1.5 rounded-md text-[10px] font-bold uppercase tracking-widest transition-all ${view === v && !detailObj ? 'bg-white text-amber-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>{v === 'painel' ? 'Painel' : v === 'mapa' ? 'Mapa' : 'OKRs'}</button>
             ))}
           </div>
           {canEdit && <button onClick={() => setFwModal({ ...framework })} className="border border-slate-200 text-slate-600 hover:border-amber-300 hover:text-amber-600 px-4 py-2 rounded-lg text-[10px] font-bold uppercase tracking-widest inline-flex items-center gap-2 transition-all"><PenLine size={14} /> Identidade</button>}
@@ -294,6 +295,8 @@ export const Estrategia: React.FC<Props> = ({ currentUser, activeClientId, canEd
             </div>
           </div>
         </div>
+      ) : view === 'okrs' ? (
+        <Okr currentUser={currentUser} activeClientId={activeClientId} canEdit={canEdit} addLog={addLog} />
       ) : (
         /* ======= MAPA ======= */
         <div className="space-y-4">
