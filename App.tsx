@@ -4730,10 +4730,7 @@ const App = () => {
                 <textarea value={fcaModal.cause} onChange={e => setFcaModal({ ...fcaModal, cause: e.target.value })} rows={2} placeholder="Ex.: Atraso no lançamento de dois produtos." className="w-full mt-1 p-3 rounded-lg border border-slate-200 outline-none focus:border-amber-400 text-sm resize-none" />
               </div>
               <div>
-                <div className="flex items-center justify-between">
-                  <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Ação (contramedida)</label>
-                  <button onClick={suggestFcaAction} disabled={fcaSuggesting} className="text-[9px] font-bold uppercase tracking-wider text-amber-600 hover:text-amber-700 inline-flex items-center gap-1 disabled:opacity-50"><Sparkles size={11} /> {fcaSuggesting ? 'Sugerindo...' : 'Sugerir com IA'}</button>
-                </div>
+                <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Ação (contramedida)</label>
                 <textarea value={fcaModal.action_text} onChange={e => setFcaModal({ ...fcaModal, action_text: e.target.value })} rows={2} placeholder="Ex.: Antecipar o cronograma de lançamento." className="w-full mt-1 p-3 rounded-lg border border-slate-200 outline-none focus:border-amber-400 text-sm resize-none" />
               </div>
               <label className="flex items-center gap-2 text-xs text-slate-600 cursor-pointer"><input type="checkbox" checked={fcaModal.createAction} onChange={e => setFcaModal({ ...fcaModal, createAction: e.target.checked })} className="accent-amber-600 w-4 h-4" /> Criar esta ação no Plano de Ação</label>
