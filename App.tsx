@@ -209,6 +209,7 @@ const App = () => {
   const [filterStatus, setFilterStatus] = useState('all');
   const [filterOrigin, setFilterOrigin] = useState('all');
   const [filterPriority, setFilterPriority] = useState('all');
+  const [filterObjective, setFilterObjective] = useState('all'); // all | with | none | <objective_id>
   const [delibFilterResult, setDelibFilterResult] = useState('all');
   const [delibFilterOrigin, setDelibFilterOrigin] = useState('all');
   const [isExtraDelibOpen, setIsExtraDelibOpen] = useState(false);
@@ -1976,6 +1977,12 @@ const App = () => {
       })
       .filter(a => (filterOrigin === 'all' || a.mId === filterOrigin))
       .filter(a => (filterPriority === 'all' || (a.priority || 'Média') === filterPriority))
+      .filter(a => {
+        if (filterObjective === 'all') return true;
+        if (filterObjective === 'with') return !!a.objective_id;
+        if (filterObjective === 'none') return !a.objective_id;
+        return a.objective_id === filterObjective;
+      })
       // Ordena por prioridade (Urgente primeiro), depois pelo prazo mais próximo
       .sort((a, b) => (PRIORITY_WEIGHT[a.priority || 'Média'] - PRIORITY_WEIGHT[b.priority || 'Média']) || ((a.date || '9999').localeCompare(b.date || '9999')));
     const count = (st: string) => allA.filter(a => a.status === st).length;
@@ -1993,7 +2000,7 @@ const App = () => {
       ],
       barData: filteredM.slice(0, 6).map(m => ({ name: m.date || 'S/D', 'Pautas': m.pautas?.length || 0, 'Ações': m.acoes?.length || 0 }))
     };
-  }, [meetings, dashboardFilter, filterResp, filterStatus, filterOrigin, filterPriority]);
+  }, [meetings, dashboardFilter, filterResp, filterStatus, filterOrigin, filterPriority, filterObjective, strategyObjectives]);
 
   // Estatísticas exclusivas do Dashboard — dependem apenas do filtro de reunião
   // (não herdam os filtros de Responsável/Status/Origem do Plano de Ação)
@@ -3406,6 +3413,7 @@ const App = () => {
                       <div className="flex items-center gap-2 bg-white px-3 py-1.5 rounded border border-slate-200"><Target size={14} className="text-amber-500" /><select className="text-[10px] font-bold uppercase outline-none bg-transparent cursor-pointer text-slate-600" value={filterStatus} onChange={e => setFilterStatus(e.target.value)}><option value="all">Status</option><option value="Pendente">Pendente</option><option value="Em andamento">Em andamento</option><option value="Concluída">Concluída</option><option value="Atrasada">Atrasada</option></select></div>
                       <div className="flex items-center gap-2 bg-white px-3 py-1.5 rounded border border-slate-200"><AlertCircle size={14} className="text-amber-500" /><select className="text-[10px] font-bold uppercase outline-none bg-transparent cursor-pointer text-slate-600" value={filterPriority} onChange={e => setFilterPriority(e.target.value)}><option value="all">Prioridade</option>{PRIORITIES.map(p => <option key={p} value={p}>{p}</option>)}</select></div>
                       <div className="flex items-center gap-2 bg-white px-3 py-1.5 rounded border border-slate-200"><Building2 size={14} className="text-amber-500" /><select className="text-[10px] font-bold uppercase outline-none bg-transparent cursor-pointer text-slate-600" value={filterOrigin} onChange={e => setFilterOrigin(e.target.value)}><option value="all">Origem (Reunião)</option>{meetings.map(m => <option key={m.id} value={m.id}>{m.title}{m.date ? ` — ${new Date(m.date + 'T00:00:00').toLocaleDateString('pt-BR')}` : ''}</option>)}</select></div>
+                      <div className="flex items-center gap-2 bg-white px-3 py-1.5 rounded border border-slate-200"><Compass size={14} className="text-amber-500" /><select className="text-[10px] font-bold uppercase outline-none bg-transparent cursor-pointer text-slate-600" value={filterObjective} onChange={e => setFilterObjective(e.target.value)}><option value="all">Objetivo estratégico</option><option value="with">✓ Vinculadas a objetivo</option><option value="none">✕ Sem objetivo</option>{strategyObjectives.length > 0 && <option disabled>──────────</option>}{strategyObjectives.map((o: any) => <option key={o.id} value={o.id}>{o.name}</option>)}</select></div>
                     </div>
                   </div>
 
