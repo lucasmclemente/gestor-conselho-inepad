@@ -406,6 +406,11 @@ verify_jwt = true
 import_map = "./functions/analyze-minutes/deno.json"
 entrypoint = "./functions/analyze-minutes/index.ts"
 
+[functions.suggest-action]
+enabled = true
+verify_jwt = true
+entrypoint = "./functions/suggest-action/index.ts"
+
 [functions.send-invitation]
 enabled = true
 verify_jwt = true
