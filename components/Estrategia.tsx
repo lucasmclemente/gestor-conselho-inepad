@@ -24,7 +24,8 @@ export const Estrategia: React.FC<Props> = ({ currentUser, activeClientId, canEd
   const cid = activeClientId || currentUser?.client_id;
   const clientLabel = cid;
 
-  const [view, setView] = useState<'painel' | 'mapa' | 'okrs'>('painel');
+  const [view, setView] = useState<'painel' | 'mapa' | 'okrs' | 'swot'>('painel');
+  const [swot, setSwot] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [framework, setFramework] = useState<any>({ mission: '', vision: '', values_text: '', success_factors: '' });
   const [perspectives, setPerspectives] = useState<any[]>([]);
@@ -45,19 +46,21 @@ export const Estrategia: React.FC<Props> = ({ currentUser, activeClientId, canEd
   const load = useCallback(async () => {
     if (!cid) return;
     setLoading(true);
-    const [fw, ps, obj, lk, ind, st] = await Promise.all([
+    const [fw, ps, obj, lk, ind, st, sw] = await Promise.all([
       supabase.from('strategy_framework').select('*').eq('client_id', cid).maybeSingle(),
       supabase.from('perspectives').select('*').eq('client_id', cid).eq('active', true).order('position'),
       supabase.from('objectives').select('*').eq('client_id', cid).eq('active', true).order('position'),
       supabase.from('objective_links').select('*').eq('client_id', cid),
       supabase.from('indicators').select('id, name, unit, category, objective_id').eq('client_id', cid).eq('active', true).order('name'),
       supabase.from('indicator_current_status').select('indicator_id, breach_level').eq('client_id', cid),
+      supabase.from('swot_items').select('*').eq('client_id', cid).order('created_at'),
     ]) as any;
     setFramework(fw?.data || { mission: '', vision: '', values_text: '', success_factors: '' });
     setPerspectives(ps.data || []);
     setObjectives(obj.data || []);
     setLinks(lk.data || []);
     setIndicators(ind.data || []);
+    setSwot(sw.data || []);
     const sm: Record<string, number> = {};
     (st.data || []).forEach((r: any) => { sm[r.indicator_id] = r.breach_level || 0; });
     setStatusMap(sm);
@@ -152,6 +155,13 @@ export const Estrategia: React.FC<Props> = ({ currentUser, activeClientId, canEd
     await load();
   };
   const removeLink = async (id: string) => { await supabase.from('objective_links').delete().eq('id', id); await load(); };
+  const addSwot = async (category: string, text: string) => {
+    if (!text.trim()) return;
+    const { error } = await supabase.from('swot_items').insert([{ client_id: cid, category, text: text.trim() }]);
+    if (error) { alert('Erro: ' + error.message); return; }
+    await load();
+  };
+  const deleteSwot = async (id: string) => { await supabase.from('swot_items').delete().eq('id', id); setSwot(prev => prev.filter(s => s.id !== id)); };
 
   // ---------- render helpers ----------
   const farolCounts = () => {
@@ -174,8 +184,8 @@ export const Estrategia: React.FC<Props> = ({ currentUser, activeClientId, canEd
         </div>
         <div className="flex items-center gap-2">
           <div className="flex bg-slate-100 rounded-lg p-1">
-            {(['painel', 'mapa', 'okrs'] as const).map(v => (
-              <button key={v} onClick={() => { setDetailObj(null); setView(v); }} className={`px-4 py-1.5 rounded-md text-[10px] font-bold uppercase tracking-widest transition-all ${view === v && !detailObj ? 'bg-white text-amber-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>{v === 'painel' ? 'Painel' : v === 'mapa' ? 'Mapa' : 'OKRs'}</button>
+            {(['painel', 'mapa', 'okrs', 'swot'] as const).map(v => (
+              <button key={v} onClick={() => { setDetailObj(null); setView(v); }} className={`px-4 py-1.5 rounded-md text-[10px] font-bold uppercase tracking-widest transition-all ${view === v && !detailObj ? 'bg-white text-amber-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>{v === 'painel' ? 'Painel' : v === 'mapa' ? 'Mapa' : v === 'okrs' ? 'OKRs' : 'SWOT'}</button>
             ))}
           </div>
           {canEdit && <button onClick={() => setFwModal({ ...framework })} className="border border-slate-200 text-slate-600 hover:border-amber-300 hover:text-amber-600 px-4 py-2 rounded-lg text-[10px] font-bold uppercase tracking-widest inline-flex items-center gap-2 transition-all"><PenLine size={14} /> Identidade</button>}
@@ -297,6 +307,27 @@ export const Estrategia: React.FC<Props> = ({ currentUser, activeClientId, canEd
         </div>
       ) : view === 'okrs' ? (
         <Okr currentUser={currentUser} activeClientId={activeClientId} canEdit={canEdit} addLog={addLog} />
+      ) : view === 'swot' ? (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 animate-in fade-in">
+          {([['forca', 'Forças', 'border-emerald-200', 'bg-emerald-50/60', 'text-emerald-700'], ['fraqueza', 'Fraquezas', 'border-red-200', 'bg-red-50/60', 'text-red-700'], ['oportunidade', 'Oportunidades', 'border-sky-200', 'bg-sky-50/60', 'text-sky-700'], ['ameaca', 'Ameaças', 'border-amber-200', 'bg-amber-50/60', 'text-amber-700']] as [string, string, string, string, string][]).map(([cat, label, bd, bg, tx]) => {
+            const items = swot.filter(s => s.category === cat);
+            return (
+              <div key={cat} className={`rounded-xl border ${bd} ${bg} p-4 shadow-sm`}>
+                <h3 className={`text-sm font-bold uppercase tracking-widest ${tx} mb-3`}>{label} <span className="text-slate-400 font-normal">({items.length})</span></h3>
+                <div className="space-y-2">
+                  {items.length === 0 && <p className="text-[12px] text-slate-400 italic">Nenhum item.</p>}
+                  {items.map(it => (
+                    <div key={it.id} className="flex items-start justify-between gap-2 bg-white border border-slate-200 rounded-lg p-2.5">
+                      <span className="text-sm text-slate-700">{it.text}</span>
+                      {canEdit && <button onClick={() => deleteSwot(it.id)} className="text-slate-300 hover:text-red-600 shrink-0 mt-0.5"><X size={13} /></button>}
+                    </div>
+                  ))}
+                  {canEdit && <AddInline placeholder={`Adicionar em ${label.toLowerCase()}…`} onAdd={(t: string) => addSwot(cat, t)} />}
+                </div>
+              </div>
+            );
+          })}
+        </div>
       ) : (
         /* ======= MAPA ======= */
         <div className="space-y-4">
