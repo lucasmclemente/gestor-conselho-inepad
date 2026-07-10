@@ -1,9 +1,10 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { supabase } from '../services/supabaseClient';
 import { Okr } from './Okr';
+import { generateStrategyPDF } from '../services/generateStrategyPDF';
 import {
   Compass, Target, Plus, X, Save, Edit2, Trash2, ChevronLeft, ChevronUp, ChevronDown,
-  Gauge, Link2, TrendingUp, CheckCircle2, AlertCircle, PenLine, Building2, Sparkles,
+  Gauge, Link2, TrendingUp, CheckCircle2, AlertCircle, PenLine, Building2, Sparkles, Download,
 } from 'lucide-react';
 
 const DEFAULT_PERSPECTIVES = ['Financeira', 'Clientes', 'Processos Internos', 'Aprendizado & Crescimento'];
@@ -26,6 +27,7 @@ export const Estrategia: React.FC<Props> = ({ currentUser, activeClientId, canEd
 
   const [view, setView] = useState<'painel' | 'mapa' | 'okrs' | 'swot'>('painel');
   const [swot, setSwot] = useState<any[]>([]);
+  const [exporting, setExporting] = useState(false);
   const [loading, setLoading] = useState(true);
   const [framework, setFramework] = useState<any>({ mission: '', vision: '', values_text: '', success_factors: '' });
   const [perspectives, setPerspectives] = useState<any[]>([]);
@@ -155,6 +157,28 @@ export const Estrategia: React.FC<Props> = ({ currentUser, activeClientId, canEd
     await load();
   };
   const removeLink = async (id: string) => { await supabase.from('objective_links').delete().eq('id', id); await load(); };
+  const exportPDF = async () => {
+    setExporting(true);
+    try {
+      const [{ data: st }, { data: tg }, { data: cyc }, { data: oob }, { data: kr }, { data: cks }] = await Promise.all([
+        supabase.from('indicator_current_status').select('indicator_id, name, unit, direction, current_value, current_period, breach_level').eq('client_id', cid),
+        supabase.from('indicator_targets').select('indicator_id, period, target_value').eq('client_id', cid),
+        supabase.from('okr_cycles').select('*').eq('client_id', cid).order('created_at', { ascending: false }),
+        supabase.from('okr_objectives').select('*').eq('client_id', cid).order('position'),
+        supabase.from('key_results').select('*').eq('client_id', cid).order('position'),
+        supabase.from('key_result_checkins').select('key_result_id, confidence, created_at').eq('client_id', cid).order('created_at', { ascending: false }),
+      ]) as any;
+      const stArr = st || []; const stMap: any = {}; stArr.forEach((s: any) => { stMap[s.indicator_id] = s; });
+      const tMap: any = {}; (tg || []).forEach((t: any) => { tMap[`${t.indicator_id}|${String(t.period).slice(0, 7)}`] = Number(t.target_value); });
+      const indicatorsPdf = stArr.map((s: any) => { const per = s.current_period ? String(s.current_period).slice(0, 7) : ''; return { name: s.name, current: s.current_value, meta: tMap[`${s.indicator_id}|${per}`] ?? null, unit: s.unit, lvl: s.breach_level || 0 }; });
+      const objsPdf = objectives.map((o: any) => ({ id: o.id, name: o.name, perspective_id: o.perspective_id, farol: objFarol(o.id) ?? 0 }));
+      const krCurrent = (k: any) => { if (k.indicator_id) { const s = stMap[k.indicator_id]; return s && s.current_value != null ? Number(s.current_value) : null; } return k.current_value != null ? Number(k.current_value) : null; };
+      const krPct = (k: any) => { const c = krCurrent(k); if (c == null) return 0; const s = Number(k.start_value ?? 0), t = Number(k.target_value); if (t === s) return c >= t ? 100 : 0; return Math.round(Math.max(0, (c - s) / (t - s)) * 100); };
+      const okrPdf = (cyc || []).map((cy: any) => ({ cycleName: cy.name, objectives: (oob || []).filter((o: any) => o.cycle_id === cy.id).map((o: any) => { const list = (kr || []).filter((k: any) => k.okr_objective_id === o.id); const prog = list.length ? Math.round(list.reduce((a: number, k: any) => a + Math.min(100, krPct(k)), 0) / list.length) : 0; return { name: o.name, progress: prog, krs: list.map((k: any) => ({ name: k.name, pct: krPct(k) })) }; }) }));
+      generateStrategyPDF({ clientName: String(clientLabel || ''), framework, perspectives, objectives: objsPdf, indicators: indicatorsPdf, okr: okrPdf });
+    } catch (e: any) { alert('Erro ao gerar PDF: ' + (e?.message || e)); }
+    finally { setExporting(false); }
+  };
   const addSwot = async (category: string, text: string) => {
     if (!text.trim()) return;
     const { error } = await supabase.from('swot_items').insert([{ client_id: cid, category, text: text.trim() }]);
@@ -188,6 +212,7 @@ export const Estrategia: React.FC<Props> = ({ currentUser, activeClientId, canEd
               <button key={v} onClick={() => { setDetailObj(null); setView(v); }} className={`px-4 py-1.5 rounded-md text-[10px] font-bold uppercase tracking-widest transition-all ${view === v && !detailObj ? 'bg-white text-amber-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>{v === 'painel' ? 'Painel' : v === 'mapa' ? 'Mapa' : v === 'okrs' ? 'OKRs' : 'SWOT'}</button>
             ))}
           </div>
+          <button onClick={exportPDF} disabled={exporting} className="border border-slate-200 text-slate-600 hover:border-amber-300 hover:text-amber-600 px-4 py-2 rounded-lg text-[10px] font-bold uppercase tracking-widest inline-flex items-center gap-2 transition-all disabled:opacity-50"><Download size={14} /> {exporting ? 'Gerando...' : 'Exportar PDF'}</button>
           {canEdit && <button onClick={() => setFwModal({ ...framework })} className="border border-slate-200 text-slate-600 hover:border-amber-300 hover:text-amber-600 px-4 py-2 rounded-lg text-[10px] font-bold uppercase tracking-widest inline-flex items-center gap-2 transition-all"><PenLine size={14} /> Identidade</button>}
         </div>
       </div>
