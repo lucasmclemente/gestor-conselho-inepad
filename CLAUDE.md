@@ -1,6 +1,6 @@
 # CLAUDE.md — GovCorp | INEPAD Consultoria
 > Arquivo de contexto do projeto. Cole nas Project Instructions do Claude.
-> Última atualização: 29/06/2026 (v3)
+> Última atualização: 08/07/2026 (v4)
 
 ---
 
@@ -27,7 +27,8 @@ Plataforma corporativa que gerencia o ciclo completo de reuniões de Conselhos D
 - **Dashboard de governança** — KPIs clicáveis (drill-down) com barra de progresso, gráficos de status/produtividade, próximas reuniões programadas (contagem regressiva) e pendências prioritárias
 - **Auditoria** — logs automáticos e imutáveis de todas as ações do sistema
 - **Cadastro de Membros** — via Edge Function segura com criação no Auth + tabela members
-- **Indicadores & Gatilhos (Semáforos)** — Conselho define indicadores estratégicos, registra leituras no tempo e configura gatilhos (limites). Ao romper, o indicador muda de semáforo (🟢/🟡/🔴), dispara alerta por e-mail e gera ação no Plano de Ação. Avaliação determinística no banco; efeitos colaterais na Edge Function `evaluate-triggers`
+- **Indicadores (Semáforos)** — Conselho define indicadores estratégicos e registra leituras no tempo com **meta por competência**. Se a leitura não atinge a meta, o indicador muda de semáforo (🟢/🟡/🔴), dispara alerta por e-mail e gera ação no Plano de Ação. Avaliação no banco; efeitos colaterais nas Edge Functions `evaluate-triggers`/`reevaluate-triggers`
+- **Planejamento Estratégico (BSC + OKR)** — Missão/visão/valores, perspectivas, objetivos e **mapa estratégico** (farol vem dos indicadores); **OKRs** (ciclos, resultados-chave, check-ins com confiança); **SWOT**; **RAE** (reunião de análise com pauta automática); Plano de Ação **5W2H** + Kanban; exportação do plano em PDF. Paridade com o núcleo do ScorePlan
 
 ### Papéis de usuário
 
@@ -141,18 +142,37 @@ GESTOR-CONSELHO-INEPAD/
 
 | Tabela | Colunas principais |
 |---|---|
-| `indicators` | id, client_id, name, unit, description, direction (`higher_is_better`/`lower_is_better`), category, active |
-| `indicator_readings` | id, client_id, indicator_id, period (date, competência), value (numeric), source · **unique(indicator_id, period)** |
-| `triggers` | id, client_id, indicator_id, name, operator (`gt`/`gte`/`lt`/`lte`/`outside`/`inside`), threshold_value, threshold_value_secondary, severity (`attention`/`critical`), **scenario** (default 'Base'), create_action_on_breach, notify_on_breach, assignee_member_id, active |
-| `trigger_events` | id, client_id, trigger_id, indicator_reading_id, observed_value, severity, status (`open`/`acknowledged`/`resolved`), generated_action_id (text), fired_at · **unique(trigger_id, indicator_reading_id)** (idempotência) · **INSERT só via Edge Function (service role)** |
-| `governance_settings` | client_id (PK), **active_scenario** (cenário ativo: Otimista/Base/Conservador/Trágico — texto livre), **reeval_frequency** (`off`/`daily`/`weekly`/`monthly`), last_reeval_at |
+| `indicators` | id, client_id, name, unit, description, direction (`higher_is_better`/`lower_is_better`), category, active, **level** (estratégico/tático/operacional), **responsible_member_id**, **objective_id** (vínculo ao objetivo BSC) |
+| `indicator_readings` | id, client_id, indicator_id, period (competência), value, source · **unique(indicator_id, period)** |
+| `indicator_targets` | id, client_id, indicator_id, period, target_value · **unique(indicator_id, period)** — meta por competência |
+| `trigger_events` | id, client_id, **indicator_id**, indicator_reading_id, observed_value, severity, status, generated_action_id, **source** (`meta`/`trigger`), fired_at · alertas de meta idempotentes (unique parcial indicator_id+reading) · INSERT só via Edge Function |
+| `fca` | id, client_id, indicator_id, period, fact, cause, action_text, action_id — Ficha de Controle Analítico (Fato→Causa→Ação) |
+| `governance_settings` | client_id (PK), **reeval_frequency** (`off`/`daily`/`weekly`/`monthly`), last_reeval_at, active_scenario (legado, dormente) |
 
-- **`eval_breach(v, op, t1, t2)`** — função pura imutável: fonte única da regra de rompimento.
-- **`breached_triggers_for_reading(reading_id)`** — `SECURITY DEFINER`, `EXECUTE` revogado de authenticated; só a Edge Function chama.
-- **View `indicator_current_status`** (`security_invoker = on`) — semáforo em tempo real: `breach_level` 0 (verde) / 1 (amarelo) / 2 (vermelho) a partir da leitura mais recente.
-- Ação gerada por gatilho vai num **container** `meetings` com `type='Indicadores'` (oculto na lista de reuniões; aparece no Plano de Ação global), mesmo formato de "deliberação vira ação". Severidade → prioridade: `attention`→Importante, `critical`→Urgente.
-- **Cenários nomeados:** cada gatilho tem `scenario`; o cliente escolhe o **cenário ativo** (`governance_settings.active_scenario`). A view e a RPC só consideram gatilhos do cenário ativo (`active_scenario(client)`), então o semáforo/alertas mudam ao trocar de cenário. Frontend: seletor no topo do painel + chips por gatilho.
-- **Reavaliação agendada (cron):** `_shared/triggers.ts` (`fireForReading`) é reusado por `evaluate-triggers` (no registro de leitura) e `reevaluate-triggers` (cron). O cron usa **pg_cron + pg_net** (`0 12 * * *` UTC) chamando `reevaluate-triggers` (protegida por `CRON_SECRET`, **distinto por ambiente**); reavalia a última leitura de cada indicador + manda lembrete-resumo dos alertas abertos, respeitando `reeval_frequency` por cliente. Detalhes em memória [[cron_reevaluate]].
+- **⚠ Evolução (a META dirige tudo — desde 04/07/2026):** os **gatilhos manuais e cenários foram aposentados**. A **meta** (`indicator_targets`) é a fonte única do **farol** e dos **alertas**. A view `indicator_current_status` (security_invoker) calcula `breach_level` 0/1/2 por **realizado × meta** (🟢 ≥100% · 🟡 ≥80% · 🔴 <80%, conforme a direção). As tabelas `triggers`, `governance_settings.active_scenario` e a RPC `breached_triggers_for_reading` continuam no banco mas **sem uso** (`eval_breach` idem).
+- **Alertas por meta:** `_shared/triggers.ts` → **`fireForReadingMeta`** (reusado por `evaluate-triggers` no registro de leitura e `reevaluate-triggers` no cron): quando a leitura não atinge a meta, cria evento (`source='meta'`), **ação no Plano de Ação** (container `meetings` `type='Indicadores'`) e **e-mail** ao responsável/Administradores. Severidade → prioridade: attention→Importante, critical→Urgente.
+- **Cron:** pg_cron + pg_net (`0 12 * * *` UTC) chamam `reevaluate-triggers` (protegida por `CRON_SECRET`, distinto por ambiente); reavalia a última leitura + lembrete-resumo, respeitando `reeval_frequency`. Detalhes em [[cron_reevaluate]].
+- **Farol em grade** (mês × indicador) e **FCA** (análise Fato→Causa→Ação, com ação opcional no Plano) no painel/detalhe.
+
+### Módulo Planejamento Estratégico (BSC + OKR)
+
+> Migrações `20260703`..`20260708`. **Primeiro módulo componentizado** do sistema: `components/Estrategia.tsx`, `components/Okr.tsx`, cliente único em `services/supabaseClient.ts`, PDF em `services/generateStrategyPDF.ts`. Menu **"Estratégia"** (Painel · Mapa · OKRs · SWOT). RLS de governança reusada. Paridade com o núcleo do ScorePlan.
+
+| Tabela | Para quê |
+|---|---|
+| `strategy_framework` | client_id (PK): mission, vision, values_text, success_factors |
+| `perspectives` | perspectivas do BSC (4 padrão, editáveis) |
+| `objectives` | objetivos estratégicos por perspectiva (+ progress) |
+| `objective_links` | relações de causa-efeito (from_objective/to_objective) |
+| `swot_items` | matriz SWOT (category: forca/fraqueza/oportunidade/ameaca) |
+| `okr_cycles`·`okr_objectives`·`key_results`·`key_result_checkins` | OKR: ciclos, objetivos (nível org/área/individual), KRs (de→para, indicator_id opcional), check-ins (value, confidence green/yellow/red) |
+
+- **Mapa Estratégico:** objetivos coloridos pelo pior farol dos indicadores vinculados (via `indicator_current_status`).
+- **OKR:** progresso do KR = (atual−início)/(meta−início); KR "medido por indicador" puxa o atual da última leitura; farol do KR pela confiança do último check-in; objetivo = média dos KRs.
+- **RAE:** reunião `type='RAE'` com **pauta automática** (objetivos em alerta, indicadores fora da meta, ações atrasadas, OKRs em risco) — reusa o módulo de Reuniões.
+- **Plano de Ação 5W2H:** ações (jsonb `meetings.acoes`) ganham `why/where/how/how_much/objective_id`; visão **Kanban** por status (Tabela | Kanban).
+- **suggest-action** (Edge Function, Gemini): sugere ação corretiva — **desativada no front por ora** (função existe; botão removido; requer `GEMINI_API_KEY`).
+- **Exportar PDF:** `generateStrategyPDF` (jsPDF) gera o plano (identidade + objetivos por perspectiva + indicadores realizado×meta + OKRs).
 
 ---
 
@@ -235,8 +255,11 @@ GESTOR-CONSELHO-INEPAD/
 | `clicksign-check` | Verifica status da assinatura + baixa PDF assinado + atualiza banco | OFF (verifica Bearer token manualmente) |
 | `clicksign-webhook` | Recebe notificação do ClickSign ao concluir assinaturas + atualiza ata automaticamente | — (público, sem auth) |
 | `set-secretary-clients` | SuperAdmin atribui empresas a um usuário multi-empresa (`secretary_clients` no Auth + members) | OFF (valida SuperAdmin em código) |
-| `evaluate-triggers` | Avalia os gatilhos de uma leitura (RPC `breached_triggers_for_reading`); cria evento idempotente, ação no Plano de Ação, alerta Resend e log. Usa `_shared/triggers.ts` | OFF (valida JWT + papel write em código) |
-| `reevaluate-triggers` | Cron (pg_cron diário): reavalia a última leitura de cada indicador + lembrete-resumo dos alertas abertos; respeita `reeval_frequency` por cliente | OFF (valida header `x-cron-secret` == `CRON_SECRET`) |
+| `evaluate-triggers` | Avalia a leitura vs **meta** (`fireForReadingMeta` em `_shared/triggers.ts`); cria evento (`source='meta'`), ação no Plano de Ação, alerta Resend e log | OFF (valida JWT + papel write em código) |
+| `reevaluate-triggers` | Cron (pg_cron diário): reavalia a última leitura vs meta + lembrete-resumo dos alertas abertos; respeita `reeval_frequency` por cliente | OFF (valida header `x-cron-secret` == `CRON_SECRET`) |
+| `collect-readings` | Link de coleta: SuperAdmin/Adm/Sec gera token HMAC (cliente+competência, 45d); controller preenche leituras sem login → upsert + avaliação | OFF (mint valida JWT; info/submit validam token) |
+| `send-materials-notification` | Avisa participantes internos que os materiais (subsídios) da reunião estão disponíveis | ON |
+| `suggest-action` | (Gemini) sugere ação corretiva p/ indicador fora da meta — **desativada no front por ora** | ON |
 
 > **Código compartilhado:** `supabase/functions/_shared/ics.ts` — gerador de `.ics` (iCalendar/RFC 5545) com RSVP, usado por `send-invitation` e `send-calendar-invites`. Converte horário de Brasília (UTC−3) para UTC. Empacotado automaticamente no deploy de cada função que o importa.
 
@@ -458,4 +481,4 @@ git checkout main && git merge develop && git push origin main && git checkout d
 
 ---
 
-*Atualizado em 29/06/2026 (v3) — módulo Indicadores & Gatilhos (Semáforos): tabelas `indicators`/`indicator_readings`/`triggers`/`trigger_events`/`governance_settings`, view `indicator_current_status`, Edge Functions `evaluate-triggers` e `reevaluate-triggers` (+ `_shared/triggers.ts`); painel + cadastro + tela de detalhe (sparkline/histórico) + KPI no Dashboard; **cenários nomeados** (cenário ativo por cliente) e **reavaliação agendada** (pg_cron diário, frequência por cliente, lembrete-resumo). Multi-empresa generalizado para Administrador/Secretário/Conselheiro via `secretary_clients` + `set-secretary-clients`. Papel Assistente (só upload). Versão anterior (v2): programação anual de reuniões em lote; convites `.ics` (RSVP); melhorias de UX no dashboard; deploy manual de Edge Functions.*
+*Atualizado em 08/07/2026 (v4) — **Módulo de Planejamento Estratégico (BSC + OKR)**, paridade com o núcleo do ScorePlan, em 5 fases: (1) fundação/mapa/objetivos/causa-efeito; (2) indicadores evoluídos — **meta por período**, farol em grade, nível/responsável, FCA — e a virada em que a **META passa a comandar farol + alertas + ações + e-mail** (gatilhos e cenários aposentados; `fireForReadingMeta`); (3) OKR (ciclos, KRs, check-ins, confiança, KR por indicador); (4) Plano 5W2H + Kanban + RAE (pauta automática); (5) SWOT + IA de sugestão (Gemini, desativada) + exportação PDF. Novas tabelas `strategy_framework`/`perspectives`/`objectives`/`objective_links`/`indicator_targets`/`fca`/`okr_*`/`swot_items`. **Primeiro módulo componentizado** (`components/Estrategia.tsx`, `Okr.tsx`, `services/supabaseClient.ts`, `generateStrategyPDF.ts`). Também: link de coleta de indicadores (`collect-readings`), notificação de materiais, correções de multi-empresa (perfil/cadastro usam cliente ativo). Versão anterior (v3): módulo Indicadores & Gatilhos + multi-empresa por papel + Assistente.*
