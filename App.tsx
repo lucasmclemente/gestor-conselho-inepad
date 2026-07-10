@@ -306,6 +306,9 @@ const App = () => {
   const [indicatorSeries, setIndicatorSeries] = useState<Record<string, any[]>>({});
   const [readingsList, setReadingsList] = useState<any[]>([]);
   const [targetsList, setTargetsList] = useState<any[]>([]);
+  const [fcaList, setFcaList] = useState<any[]>([]);
+  const [fcaModal, setFcaModal] = useState<any>(null);
+  const [fcaSaving, setFcaSaving] = useState(false);
   const [farolView, setFarolView] = useState<'cards' | 'grid'>('cards');
   const [detailInd, setDetailInd] = useState<any>(null);
   const [govSettings, setGovSettings] = useState<any>({ active_scenario: 'Base', reeval_frequency: 'weekly' });
@@ -559,7 +562,7 @@ const App = () => {
         setAllClientsList(fullList);
       }
       // Indicadores & Gatilhos do cliente ativo (semáforos + alertas + cadastros + séries)
-      const [indStatusRes, indEventsRes, indListRes, trigListRes, readingsRes, govRes, targetsRes] = await Promise.all([
+      const [indStatusRes, indEventsRes, indListRes, trigListRes, readingsRes, govRes, targetsRes, fcaRes] = await Promise.all([
         supabase.from('indicator_current_status').select('*').eq('client_id', cid).order('breach_level', { ascending: false }),
         supabase.from('trigger_events').select('*, indicators(name, unit), triggers(name, indicators(name, unit))').eq('client_id', cid).eq('status', 'open').order('fired_at', { ascending: false }),
         supabase.from('indicators').select('*').eq('client_id', cid).order('name'),
@@ -567,6 +570,7 @@ const App = () => {
         supabase.from('indicator_readings').select('id, indicator_id, period, value, source').eq('client_id', cid).order('period', { ascending: true }),
         supabase.from('governance_settings').select('*').eq('client_id', cid).maybeSingle(),
         supabase.from('indicator_targets').select('indicator_id, period, target_value').eq('client_id', cid),
+        supabase.from('fca').select('*').eq('client_id', cid).order('created_at', { ascending: false }),
       ]) as any;
       setIndicatorStatuses(indStatusRes.data || []);
       setOpenTriggerEvents(indEventsRes.data || []);
@@ -576,6 +580,7 @@ const App = () => {
       setIndicatorSeries(buildSeriesMap(readingsRes.data || []));
       setGovSettings(govRes?.data || { active_scenario: 'Base', reeval_frequency: 'weekly' });
       setTargetsList(targetsRes.data || []);
+      setFcaList(fcaRes.data || []);
     } catch (e) { console.error(e); }
     setLoading(false);
   };
@@ -1031,7 +1036,7 @@ const App = () => {
   // Recarrega só os dados de indicadores (semáforos, alertas, cadastros, séries) do cliente ativo
   const reloadIndicators = async () => {
     const cid = activeClientId || currentUser.client_id;
-    const [st, ev, ind, tg, rd, gov, tgt] = await Promise.all([
+    const [st, ev, ind, tg, rd, gov, tgt, fca] = await Promise.all([
       supabase.from('indicator_current_status').select('*').eq('client_id', cid).order('breach_level', { ascending: false }),
       supabase.from('trigger_events').select('*, indicators(name, unit), triggers(name, indicators(name, unit))').eq('client_id', cid).eq('status', 'open').order('fired_at', { ascending: false }),
       supabase.from('indicators').select('*').eq('client_id', cid).order('name'),
@@ -1039,6 +1044,7 @@ const App = () => {
       supabase.from('indicator_readings').select('id, indicator_id, period, value, source').eq('client_id', cid).order('period', { ascending: true }),
       supabase.from('governance_settings').select('*').eq('client_id', cid).maybeSingle(),
       supabase.from('indicator_targets').select('indicator_id, period, target_value').eq('client_id', cid),
+      supabase.from('fca').select('*').eq('client_id', cid).order('created_at', { ascending: false }),
     ]) as any;
     setIndicatorStatuses(st.data || []);
     setOpenTriggerEvents(ev.data || []);
@@ -1048,6 +1054,7 @@ const App = () => {
     setIndicatorSeries(buildSeriesMap(rd.data || []));
     setGovSettings(gov?.data || { active_scenario: 'Base', reeval_frequency: 'weekly' });
     setTargetsList(tgt.data || []);
+    setFcaList(fca.data || []);
   };
 
   // Salva configuração de governança (cenário ativo / frequência do cron) do cliente ativo
@@ -1137,6 +1144,58 @@ const App = () => {
     const { error } = await supabase.from('indicator_readings').delete().eq('id', r.id);
     if (error) { alert('Erro ao excluir leitura: ' + error.message); return; }
     addLog('Indicadores', `Leitura excluída (${String(r.period).slice(0, 7)}).`);
+    await reloadIndicators();
+  };
+
+  // ----- FCA (Ficha de Controle Analítico: Fato → Causa → Ação) -----
+  const ensureIndicatorsContainer = async () => {
+    const cid = activeClientId || currentUser.client_id;
+    const found = meetings.find((m: any) => m.type === 'Indicadores' && m.client_id === cid);
+    if (found) return found;
+    const { data, error } = await supabase.from('meetings').insert([{ title: 'Gatilhos de Indicadores', status: 'Indicadores', type: 'Indicadores', date: null, time: null, link: '', address: '', participants: [], pautas: [], materiais: [], deliberacoes: [], acoes: [], atas: [], client_id: cid }]).select().single();
+    if (error) { alert('Erro ao preparar o Plano de Ação: ' + error.message); return null; }
+    setMeetings((prev: any) => [data, ...prev]);
+    return data;
+  };
+  const openFca = (ind: any, period?: string) => {
+    if (!canEdit) return;
+    const now = new Date();
+    const ym = period || `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+    setFcaModal({ indicator: ind, period: ym, fact: '', cause: '', action_text: '', createAction: true });
+  };
+  const saveFca = async () => {
+    if (!fcaModal) return;
+    if (!fcaModal.fact?.trim()) return alert('Descreva o fato (o que aconteceu).');
+    setFcaSaving(true);
+    try {
+      const cid = activeClientId || currentUser.client_id;
+      const indId = fcaModal.indicator.indicator_id || fcaModal.indicator.id;
+      let actionId: string | null = null;
+      // Cria a ação (contramedida) no Plano de Ação, se marcado e preenchido
+      if (fcaModal.createAction && fcaModal.action_text?.trim()) {
+        const container = await ensureIndicatorsContainer();
+        if (container) {
+          const aId = Date.now() + Math.floor(Math.random() * 1000);
+          const action = { id: aId, title: fcaModal.action_text.trim(), resps: [], resp: '', date: '', obs: `FCA — ${fcaModal.indicator.name} (${fcaModal.period}). Fato: ${fcaModal.fact.trim()}${fcaModal.cause?.trim() ? ` · Causa: ${fcaModal.cause.trim()}` : ''}.`, status: 'Pendente', priority: 'Importante', fromFca: true };
+          const acoes = [...(container.acoes || []), action];
+          await supabase.from('meetings').update({ acoes }).eq('id', container.id);
+          setMeetings((prev: any) => prev.map((m: any) => m.id === container.id ? { ...container, acoes } : m));
+          actionId = String(aId);
+        }
+      }
+      const { error } = await supabase.from('fca').insert([{ client_id: cid, indicator_id: indId, period: `${fcaModal.period}-01`, fact: fcaModal.fact.trim(), cause: fcaModal.cause?.trim() || null, action_text: fcaModal.action_text?.trim() || null, action_id: actionId }]);
+      if (error) throw new Error(error.message);
+      addLog('Indicadores', `FCA registrada: ${fcaModal.indicator.name} (${fcaModal.period})`);
+      setFcaModal(null);
+      await reloadIndicators();
+    } catch (e: any) { alert('Erro ao salvar FCA: ' + (e?.message || e)); }
+    finally { setFcaSaving(false); }
+  };
+  const deleteFca = async (f: any) => {
+    if (!canEdit) return;
+    if (!window.confirm('Excluir esta análise (FCA)?')) return;
+    const { error } = await supabase.from('fca').delete().eq('id', f.id);
+    if (error) { alert('Erro ao excluir: ' + error.message); return; }
     await reloadIndicators();
   };
 
@@ -3705,7 +3764,10 @@ const App = () => {
                               return (
                                 <div key={detailInd.indicator_id + p} className="flex items-center justify-between gap-2 border border-slate-100 rounded-lg p-3">
                                   <span className="flex items-center gap-2 text-sm font-bold text-slate-700"><span className={`h-2.5 w-2.5 rounded-full ${dot}`} />{new Date(p + '-01T00:00:00').toLocaleDateString('pt-BR', { month: '2-digit', year: 'numeric' })}</span>
-                                  <span className="text-[12px] text-slate-500">real <b className="text-slate-800">{real === undefined ? '—' : real}</b> · meta <b className="text-slate-800">{meta}</b>{unit ? ` ${unit}` : ''}</span>
+                                  <span className="flex items-center gap-2 shrink-0">
+                                    <span className="text-[12px] text-slate-500">real <b className="text-slate-800">{real === undefined ? '—' : real}</b> · meta <b className="text-slate-800">{meta}</b>{unit ? ` ${unit}` : ''}</span>
+                                    {c === 'r' && canEdit && <button onClick={() => openFca(detailInd, p)} className="text-[9px] font-bold uppercase tracking-wider text-amber-600 hover:text-white hover:bg-amber-600 border border-amber-300 rounded px-1.5 py-0.5 transition-all">FCA</button>}
+                                  </span>
                                 </div>
                               );
                             });
@@ -3746,6 +3808,29 @@ const App = () => {
                             </table>
                           </div>
                         )}
+                      </div>
+                    </div>
+
+                    {/* Análise de Causa — FCA */}
+                    <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+                      <div className="p-4 border-b border-slate-50 bg-slate-50/50 flex justify-between items-center">
+                        <h3 className="text-xs font-bold uppercase text-slate-500 tracking-widest italic flex items-center gap-2"><Search size={16} className="text-amber-600" /> Análise de Causa — FCA ({fcaList.filter((f: any) => f.indicator_id === detailInd.indicator_id).length})</h3>
+                        {canEdit && <button onClick={() => openFca(detailInd)} className="text-[10px] font-bold uppercase tracking-widest text-amber-600 hover:text-amber-700 flex items-center gap-1"><Plus size={12} /> Nova análise</button>}
+                      </div>
+                      <div className="p-3 space-y-2">
+                        {fcaList.filter((f: any) => f.indicator_id === detailInd.indicator_id).length === 0 ? (
+                          <p className="text-sm text-slate-400 p-2">Nenhuma análise. Registre o <b>Fato → Causa → Ação</b> quando um mês não atinge a meta.</p>
+                        ) : fcaList.filter((f: any) => f.indicator_id === detailInd.indicator_id).map((f: any) => (
+                          <div key={f.id} className="border border-slate-100 rounded-lg p-3">
+                            <div className="flex items-center justify-between gap-2 mb-1">
+                              <span className="text-[10px] font-bold text-amber-600 uppercase tracking-widest">{f.period ? new Date(f.period + 'T00:00:00').toLocaleDateString('pt-BR', { month: '2-digit', year: 'numeric' }) : ''}</span>
+                              {canEdit && <button onClick={() => deleteFca(f)} className="text-slate-300 hover:text-red-600" title="Excluir análise"><Trash2 size={14} /></button>}
+                            </div>
+                            <p className="text-[13px] text-slate-700"><b className="text-slate-800">Fato:</b> {f.fact}</p>
+                            {f.cause && <p className="text-[13px] text-slate-700"><b className="text-slate-800">Causa:</b> {f.cause}</p>}
+                            {f.action_text && <p className="text-[13px] text-slate-700"><b className="text-slate-800">Ação:</b> {f.action_text}{f.action_id ? <span className="text-[10px] text-emerald-600 ml-1">(no Plano de Ação)</span> : null}</p>}
+                          </div>
+                        ))}
                       </div>
                     </div>
                   </div>
@@ -4431,6 +4516,44 @@ const App = () => {
             <div className="p-6 border-t bg-white flex gap-3">
               <button onClick={() => setReadingModal(null)} className="flex-1 border border-slate-200 text-slate-600 py-3 rounded-xl font-bold uppercase text-[10px] tracking-[2px] hover:bg-slate-50">Cancelar</button>
               <button disabled={readingSaving} onClick={saveReading} className="flex-[2] bg-amber-600 text-white py-3 rounded-xl font-bold uppercase text-[10px] tracking-[2px] flex items-center justify-center gap-2 hover:bg-amber-700 shadow-xl disabled:opacity-50"><Save size={16} /> {readingSaving ? 'Registrando...' : 'Registrar e avaliar'}</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ===== Modal: FCA (Ficha de Controle Analítico) ===== */}
+      {fcaModal && (
+        <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-md z-[100] flex items-center justify-center p-4">
+          <div className="bg-white w-full max-w-lg rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[92vh] animate-in zoom-in-95">
+            <div className="p-6 border-b flex justify-between items-center bg-slate-50 gap-3">
+              <div className="min-w-0">
+                <h3 className="text-xl font-bold text-slate-800 italic flex items-center gap-2"><Search size={20} className="text-amber-600" /> Análise de Causa (FCA)</h3>
+                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest truncate">{fcaModal.indicator.name} — Fato → Causa → Ação</p>
+              </div>
+              <button onClick={() => setFcaModal(null)} className="p-2 hover:bg-slate-200 rounded-full text-slate-400 shrink-0"><X size={20} /></button>
+            </div>
+            <div className="flex-1 overflow-y-auto p-6 space-y-3 bg-slate-50/30">
+              <div>
+                <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Competência</label>
+                <input type="month" value={fcaModal.period} onChange={e => setFcaModal({ ...fcaModal, period: e.target.value })} className="w-full mt-1 p-3 rounded-lg border border-slate-200 outline-none focus:border-amber-400 text-sm" />
+              </div>
+              <div>
+                <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Fato — o que aconteceu *</label>
+                <textarea value={fcaModal.fact} onChange={e => setFcaModal({ ...fcaModal, fact: e.target.value })} rows={2} placeholder="Ex.: Receita ficou 40% abaixo da meta no mês." className="w-full mt-1 p-3 rounded-lg border border-slate-200 outline-none focus:border-amber-400 text-sm resize-none" />
+              </div>
+              <div>
+                <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Causa — por quê</label>
+                <textarea value={fcaModal.cause} onChange={e => setFcaModal({ ...fcaModal, cause: e.target.value })} rows={2} placeholder="Ex.: Atraso no lançamento de dois produtos." className="w-full mt-1 p-3 rounded-lg border border-slate-200 outline-none focus:border-amber-400 text-sm resize-none" />
+              </div>
+              <div>
+                <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Ação (contramedida)</label>
+                <textarea value={fcaModal.action_text} onChange={e => setFcaModal({ ...fcaModal, action_text: e.target.value })} rows={2} placeholder="Ex.: Antecipar o cronograma de lançamento." className="w-full mt-1 p-3 rounded-lg border border-slate-200 outline-none focus:border-amber-400 text-sm resize-none" />
+              </div>
+              <label className="flex items-center gap-2 text-xs text-slate-600 cursor-pointer"><input type="checkbox" checked={fcaModal.createAction} onChange={e => setFcaModal({ ...fcaModal, createAction: e.target.checked })} className="accent-amber-600 w-4 h-4" /> Criar esta ação no Plano de Ação</label>
+            </div>
+            <div className="p-6 border-t bg-white flex gap-3">
+              <button onClick={() => setFcaModal(null)} className="flex-1 border border-slate-200 text-slate-600 py-3 rounded-xl font-bold uppercase text-[10px] tracking-[2px] hover:bg-slate-50">Cancelar</button>
+              <button disabled={fcaSaving} onClick={saveFca} className="flex-[2] bg-amber-600 text-white py-3 rounded-xl font-bold uppercase text-[10px] tracking-[2px] flex items-center justify-center gap-2 hover:bg-amber-700 shadow-xl disabled:opacity-50"><Save size={16} /> {fcaSaving ? 'Salvando...' : 'Salvar análise'}</button>
             </div>
           </div>
         </div>
