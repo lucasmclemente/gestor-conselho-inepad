@@ -309,6 +309,11 @@ const App = () => {
   const [fcaList, setFcaList] = useState<any[]>([]);
   const [fcaModal, setFcaModal] = useState<any>(null);
   const [fcaSaving, setFcaSaving] = useState(false);
+  // Plano de Ação: 5W2H + vínculo a objetivo + Kanban
+  const [strategyObjectives, setStrategyObjectives] = useState<any[]>([]);
+  const [actionModal, setActionModal] = useState<any>(null);
+  const [actionModalSaving, setActionModalSaving] = useState(false);
+  const [planoView, setPlanoView] = useState<'tabela' | 'kanban'>('tabela');
   const [farolView, setFarolView] = useState<'cards' | 'grid'>('cards');
   const [detailInd, setDetailInd] = useState<any>(null);
   const [govSettings, setGovSettings] = useState<any>({ active_scenario: 'Base', reeval_frequency: 'weekly' });
@@ -562,7 +567,7 @@ const App = () => {
         setAllClientsList(fullList);
       }
       // Indicadores & Gatilhos do cliente ativo (semáforos + alertas + cadastros + séries)
-      const [indStatusRes, indEventsRes, indListRes, trigListRes, readingsRes, govRes, targetsRes, fcaRes] = await Promise.all([
+      const [indStatusRes, indEventsRes, indListRes, trigListRes, readingsRes, govRes, targetsRes, fcaRes, objsRes] = await Promise.all([
         supabase.from('indicator_current_status').select('*').eq('client_id', cid).order('breach_level', { ascending: false }),
         supabase.from('trigger_events').select('*, indicators(name, unit), triggers(name, indicators(name, unit))').eq('client_id', cid).eq('status', 'open').order('fired_at', { ascending: false }),
         supabase.from('indicators').select('*').eq('client_id', cid).order('name'),
@@ -571,7 +576,9 @@ const App = () => {
         supabase.from('governance_settings').select('*').eq('client_id', cid).maybeSingle(),
         supabase.from('indicator_targets').select('indicator_id, period, target_value').eq('client_id', cid),
         supabase.from('fca').select('*').eq('client_id', cid).order('created_at', { ascending: false }),
+        supabase.from('objectives').select('id, name, perspective_id').eq('client_id', cid).eq('active', true).order('position'),
       ]) as any;
+      setStrategyObjectives(objsRes?.data || []);
       setIndicatorStatuses(indStatusRes.data || []);
       setOpenTriggerEvents(indEventsRes.data || []);
       setIndicatorsList(indListRes.data || []);
@@ -915,6 +922,34 @@ const App = () => {
     const { error } = await supabase.from('meetings').update({ acoes: newAcoes }).eq('id', meetingId);
     if (!error) setMeetings(prev => prev.map(m => m.id === meetingId ? { ...m, acoes: newAcoes } : m));
   };
+
+  // Atualiza campos arbitrários de uma ação (5W2H, objetivo, status via Kanban…)
+  const updateActionFields = async (meetingId: string, actionId: string | number, patch: any) => {
+    if (!canEdit) return;
+    const meeting = meetings.find(m => m.id === meetingId);
+    if (!meeting) return;
+    const newAcoes = (meeting.acoes || []).map((a: any) => a.id === actionId ? { ...a, ...patch } : a);
+    const { error } = await supabase.from('meetings').update({ acoes: newAcoes }).eq('id', meetingId);
+    if (error) { alert('Erro ao salvar: ' + error.message); return false; }
+    setMeetings(prev => prev.map(m => m.id === meetingId ? { ...m, acoes: newAcoes } : m));
+    return true;
+  };
+  const openActionModal = (acao: any) => {
+    if (!canEdit) return;
+    setActionModal({ mId: acao.mId, id: acao.id, title: acao.title || '', why: acao.why || '', where: acao.where || '', how: acao.how || '', how_much: acao.how_much || '', objective_id: acao.objective_id || '', obs: acao.obs || '' });
+  };
+  const saveActionModal = async () => {
+    if (!actionModal) return;
+    if (!actionModal.title?.trim()) return alert('O título da ação é obrigatório.');
+    setActionModalSaving(true);
+    const ok = await updateActionFields(actionModal.mId, actionModal.id, {
+      title: actionModal.title.trim(), why: actionModal.why?.trim() || '', where: actionModal.where?.trim() || '',
+      how: actionModal.how?.trim() || '', how_much: actionModal.how_much?.trim() || '', objective_id: actionModal.objective_id || '', obs: actionModal.obs?.trim() || '',
+    });
+    setActionModalSaving(false);
+    if (ok) { addLog('Plano de Ação', `Ação detalhada (5W2H): ${actionModal.title}`); setActionModal(null); }
+  };
+  const objectiveName = (id: string) => strategyObjectives.find((o: any) => o.id === id)?.name || '';
 
   // --- CADASTRO DE NOVO MEMBRO (via Edge Function segura) ---
   // CORREÇÃO FINAL: verifica diretamente no banco se o membro foi criado,
@@ -3258,6 +3293,13 @@ const App = () => {
                     </div>
                   </div>
 
+                  <div className="flex justify-end">
+                    <div className="flex bg-slate-100 rounded-lg p-1">
+                      {(['tabela', 'kanban'] as const).map(v => <button key={v} onClick={() => setPlanoView(v)} className={`px-4 py-1.5 rounded-md text-[10px] font-bold uppercase tracking-widest transition-all ${planoView === v ? 'bg-white text-amber-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>{v === 'tabela' ? 'Tabela' : 'Kanban'}</button>)}
+                    </div>
+                  </div>
+
+                  {planoView === 'tabela' ? (
                   <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden overflow-x-auto">
                     <table className="w-full text-left text-sm min-w-[1100px] font-bold italic">
                       <thead className="bg-slate-900 text-[10px] font-bold uppercase text-amber-500 tracking-widest">
@@ -3275,6 +3317,7 @@ const App = () => {
                               {/* INICIATIVA + OBS INLINE */}
                               <td className="px-6 py-4 text-slate-800 max-w-xs">
                                 <p className="leading-snug">{acao.title}</p>
+                                {acao.objective_id && objectiveName(acao.objective_id) && <span className="mt-1 inline-flex items-center gap-1 text-[8px] font-bold uppercase tracking-wider text-amber-700 bg-amber-50 border border-amber-100 rounded px-1.5 py-0.5 not-italic"><Compass size={9} /> {objectiveName(acao.objective_id)}</span>}
                                 {canEdit && editingObsKey === acaoKey ? (
                                   <textarea
                                     autoFocus
@@ -3353,13 +3396,54 @@ const App = () => {
                               <td className="px-6 py-4"><input type="date" className="bg-transparent border-none outline-none text-[10px] font-bold text-slate-600" value={acao.date || ''} onChange={e => updateActionDateGlobal(acao.mId, acao.id, e.target.value)} disabled={!canEdit} /></td>
                               <td className="px-6 py-4 text-center"><select value={acao.priority || 'Média'} onChange={e => updateActionPriorityGlobal(acao.mId, acao.id, e.target.value)} className={`px-3 py-1.5 rounded-lg text-[10px] font-bold uppercase cursor-pointer border ${PRIORITY_STYLES[acao.priority || 'Média']}`} disabled={!canEdit}>{PRIORITIES.map(p => <option key={p} value={p}>{p}</option>)}</select></td>
                               <td className="px-6 py-4 text-center"><select value={acao.status} onChange={e => updateActionStatusGlobal(acao.mId, acao.id, e.target.value)} className="px-3 py-1.5 rounded-lg text-[10px] font-bold uppercase bg-amber-50 text-amber-700 cursor-pointer" disabled={!canEdit}><option value="Pendente">Aguardando</option><option value="Em andamento">Execução</option><option value="Concluída">Finalizado</option></select></td>
-                              {canEdit && <td className="px-6 py-4 text-center"><button onClick={() => deleteActionGlobal(acao.mId, acao.id)} className="text-slate-200 hover:text-red-600 transition-colors"><Trash2 size={16} /></button></td>}
+                              {canEdit && <td className="px-6 py-4 text-center"><div className="flex items-center justify-center gap-2"><button onClick={() => openActionModal(acao)} className="text-slate-300 hover:text-amber-600 transition-colors" title="Detalhes 5W2H"><PenLine size={15} /></button><button onClick={() => deleteActionGlobal(acao.mId, acao.id)} className="text-slate-200 hover:text-red-600 transition-colors" title="Excluir"><Trash2 size={16} /></button></div></td>}
                             </tr>
                           );
                         })}
                       </tbody>
                     </table>
                   </div>
+                  ) : (
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                      {([['Pendente', 'Aguardando'], ['Em andamento', 'Execução'], ['Concluída', 'Finalizado']] as [string, string][]).map(([st, lbl]) => {
+                        const cards = stats.allActions.filter((a: any) => a.status === st);
+                        return (
+                          <div key={st} className="bg-slate-50 rounded-xl border border-slate-200 p-3">
+                            <div className="flex items-center justify-between mb-2 px-1">
+                              <span className="text-[10px] font-bold uppercase tracking-widest text-slate-500">{lbl}</span>
+                              <span className="text-[10px] font-bold text-slate-400 bg-white border border-slate-200 rounded-full px-2">{cards.length}</span>
+                            </div>
+                            <div className="space-y-2">
+                              {cards.length === 0 ? <p className="text-[11px] text-slate-300 italic px-1 py-4 text-center">—</p> : cards.map((acao: any) => {
+                                const resps: string[] = acao.resps?.length > 0 ? acao.resps : (acao.resp ? [acao.resp] : []);
+                                const stIdx = ['Pendente', 'Em andamento', 'Concluída'].indexOf(acao.status);
+                                return (
+                                  <div key={`${acao.mId}-${acao.id}`} className="bg-white rounded-lg border border-slate-200 p-3 shadow-sm">
+                                    <p className="text-sm font-bold italic text-slate-800 leading-snug">{acao.title}</p>
+                                    {acao.objective_id && objectiveName(acao.objective_id) && <span className="mt-1 inline-flex items-center gap-1 text-[8px] font-bold uppercase text-amber-700 bg-amber-50 border border-amber-100 rounded px-1.5 py-0.5"><Compass size={9} />{objectiveName(acao.objective_id)}</span>}
+                                    <div className="flex items-center justify-between mt-2 gap-2">
+                                      <div className="flex flex-wrap gap-1 items-center">
+                                        <span className={`text-[8px] font-bold uppercase px-1.5 py-0.5 rounded border ${PRIORITY_STYLES[acao.priority || 'Média']}`}>{acao.priority || 'Média'}</span>
+                                        {resps.slice(0, 2).map((r: string) => <span key={r} className="text-[8px] bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded-full">{r}</span>)}
+                                      </div>
+                                      {canEdit && (
+                                        <div className="flex items-center gap-1 shrink-0">
+                                          <button disabled={stIdx <= 0} onClick={() => updateActionStatusGlobal(acao.mId, acao.id, ['Pendente', 'Em andamento', 'Concluída'][stIdx - 1])} className="text-slate-300 hover:text-amber-600 disabled:opacity-20" title="Voltar"><ChevronLeft size={15} /></button>
+                                          <button onClick={() => openActionModal(acao)} className="text-slate-300 hover:text-amber-600" title="Detalhes 5W2H"><PenLine size={12} /></button>
+                                          <button disabled={stIdx >= 2} onClick={() => updateActionStatusGlobal(acao.mId, acao.id, ['Pendente', 'Em andamento', 'Concluída'][stIdx + 1])} className="text-slate-300 hover:text-amber-600 disabled:opacity-20" title="Avançar"><ChevronRight size={15} /></button>
+                                        </div>
+                                      )}
+                                    </div>
+                                    {acao.date && <p className="text-[9px] text-slate-400 mt-1.5 flex items-center gap-1"><Calendar size={9} />{new Date(acao.date + 'T00:00:00').toLocaleDateString('pt-BR')}</p>}
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
 
                   {/* FORMULÁRIO — Nova Ação Global */}
                   {canEdit && (
@@ -4516,6 +4600,39 @@ const App = () => {
             <div className="p-6 border-t bg-white flex gap-3">
               <button onClick={() => setReadingModal(null)} className="flex-1 border border-slate-200 text-slate-600 py-3 rounded-xl font-bold uppercase text-[10px] tracking-[2px] hover:bg-slate-50">Cancelar</button>
               <button disabled={readingSaving} onClick={saveReading} className="flex-[2] bg-amber-600 text-white py-3 rounded-xl font-bold uppercase text-[10px] tracking-[2px] flex items-center justify-center gap-2 hover:bg-amber-700 shadow-xl disabled:opacity-50"><Save size={16} /> {readingSaving ? 'Registrando...' : 'Registrar e avaliar'}</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ===== Modal: Detalhes da Ação (5W2H) ===== */}
+      {actionModal && (
+        <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-md z-[100] flex items-center justify-center p-4">
+          <div className="bg-white w-full max-w-lg rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[92vh] animate-in zoom-in-95">
+            <div className="p-6 border-b flex justify-between items-center bg-slate-50">
+              <h3 className="text-xl font-bold text-slate-800 italic flex items-center gap-2"><ListChecks size={20} className="text-amber-600" /> Detalhes da Ação (5W2H)</h3>
+              <button onClick={() => setActionModal(null)} className="p-2 hover:bg-slate-200 rounded-full text-slate-400"><X size={20} /></button>
+            </div>
+            <div className="flex-1 overflow-y-auto p-6 space-y-3 bg-slate-50/30">
+              <div><label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">O quê — título *</label><input value={actionModal.title} onChange={e => setActionModal({ ...actionModal, title: e.target.value })} className="w-full mt-1 p-3 rounded-lg border border-slate-200 outline-none focus:border-amber-400 text-sm" /></div>
+              <div><label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Objetivo estratégico vinculado</label>
+                <select value={actionModal.objective_id || ''} onChange={e => setActionModal({ ...actionModal, objective_id: e.target.value })} className="w-full mt-1 p-3 rounded-lg border border-slate-200 outline-none focus:border-amber-400 text-sm bg-white cursor-pointer">
+                  <option value="">— nenhum —</option>
+                  {strategyObjectives.map((o: any) => <option key={o.id} value={o.id}>{o.name}</option>)}
+                </select>
+              </div>
+              <div><label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Por quê — justificativa</label><textarea value={actionModal.why} onChange={e => setActionModal({ ...actionModal, why: e.target.value })} rows={2} className="w-full mt-1 p-3 rounded-lg border border-slate-200 outline-none focus:border-amber-400 text-sm resize-none" /></div>
+              <div className="grid grid-cols-2 gap-3">
+                <div><label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Onde</label><input value={actionModal.where} onChange={e => setActionModal({ ...actionModal, where: e.target.value })} className="w-full mt-1 p-3 rounded-lg border border-slate-200 outline-none focus:border-amber-400 text-sm" /></div>
+                <div><label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Quanto — custo</label><input value={actionModal.how_much} onChange={e => setActionModal({ ...actionModal, how_much: e.target.value })} className="w-full mt-1 p-3 rounded-lg border border-slate-200 outline-none focus:border-amber-400 text-sm" /></div>
+              </div>
+              <div><label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Como</label><textarea value={actionModal.how} onChange={e => setActionModal({ ...actionModal, how: e.target.value })} rows={2} className="w-full mt-1 p-3 rounded-lg border border-slate-200 outline-none focus:border-amber-400 text-sm resize-none" /></div>
+              <div><label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Observações</label><textarea value={actionModal.obs} onChange={e => setActionModal({ ...actionModal, obs: e.target.value })} rows={2} className="w-full mt-1 p-3 rounded-lg border border-slate-200 outline-none focus:border-amber-400 text-sm resize-none" /></div>
+              <p className="text-[10px] text-slate-400"><b>Quem</b> (responsáveis), <b>Quando</b> (prazo), <b>Prioridade</b> e <b>Status</b> são editados direto na tabela ou no Kanban.</p>
+            </div>
+            <div className="p-6 border-t bg-white flex gap-3">
+              <button onClick={() => setActionModal(null)} className="flex-1 border border-slate-200 text-slate-600 py-3 rounded-xl font-bold uppercase text-[10px] tracking-[2px] hover:bg-slate-50">Cancelar</button>
+              <button disabled={actionModalSaving} onClick={saveActionModal} className="flex-[2] bg-amber-600 text-white py-3 rounded-xl font-bold uppercase text-[10px] tracking-[2px] flex items-center justify-center gap-2 hover:bg-amber-700 shadow-xl disabled:opacity-50"><Save size={16} /> {actionModalSaving ? 'Salvando...' : 'Salvar detalhes'}</button>
             </div>
           </div>
         </div>
