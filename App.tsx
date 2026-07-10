@@ -712,6 +712,59 @@ const App = () => {
     } catch (e: any) { alert('Erro ao excluir material: ' + (e?.message || e)); }
   };
 
+  // Gera uma RAE (Reunião de Análise Estratégica) com pauta automática
+  const generateRAE = async () => {
+    if (!canEdit) return;
+    const cid = activeClientId || currentUser.client_id;
+    const now = new Date();
+    const mesAno = now.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' });
+    const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+    const P = (title: string) => ({ title, resp: '', dur: 10, realDur: 0, completed: false });
+    const objFarol = (objId: string) => {
+      const inds = indicatorsList.filter((i: any) => i.objective_id === objId);
+      if (!inds.length) return 0;
+      return Math.max(...inds.map((i: any) => (indicatorStatuses.find((s: any) => s.indicator_id === i.id)?.breach_level) || 0));
+    };
+    const pautas: any[] = [P('Abertura e leitura do painel estratégico')];
+    // Objetivos
+    const objAlert = strategyObjectives.filter((o: any) => objFarol(o.id) > 0);
+    pautas.push(P('— OBJETIVOS ESTRATÉGICOS —'));
+    objAlert.length === 0 ? pautas.push(P('✅ Nenhum objetivo em alerta'))
+      : objAlert.forEach((o: any) => pautas.push(P(`${objFarol(o.id) === 2 ? '🔴' : '🟡'} Objetivo em alerta: ${o.name}`)));
+    // Indicadores
+    const indAlert = indicatorStatuses.filter((s: any) => (s.breach_level || 0) > 0);
+    pautas.push(P('— INDICADORES —'));
+    indAlert.length === 0 ? pautas.push(P('✅ Todos os indicadores no alvo'))
+      : indAlert.forEach((s: any) => pautas.push(P(`${s.breach_level === 2 ? '🔴' : '🟡'} Indicador fora da meta: ${s.name} (realizado ${s.current_value ?? '—'})`)));
+    // Ações atrasadas
+    const lateActions = meetings.flatMap((m: any) => (m.acoes || [])).filter((a: any) => a.status !== 'Concluída' && a.date && a.date < today);
+    pautas.push(P('— PLANO DE AÇÃO —'));
+    lateActions.length === 0 ? pautas.push(P('✅ Sem ações atrasadas'))
+      : lateActions.forEach((a: any) => pautas.push(P(`⏰ Ação atrasada: ${a.title} (venceu ${new Date(a.date + 'T00:00:00').toLocaleDateString('pt-BR')})`)));
+    // OKRs em risco
+    try {
+      const [{ data: krs }, { data: cks }] = await Promise.all([
+        supabase.from('key_results').select('id, name').eq('client_id', cid),
+        supabase.from('key_result_checkins').select('key_result_id, confidence').eq('client_id', cid).order('created_at', { ascending: false }),
+      ]) as any;
+      const latest: Record<string, string> = {};
+      (cks || []).forEach((c: any) => { if (!latest[c.key_result_id]) latest[c.key_result_id] = c.confidence; });
+      const riskKrs = (krs || []).filter((k: any) => latest[k.id] === 'red');
+      pautas.push(P('— OKRs —'));
+      riskKrs.length === 0 ? pautas.push(P('✅ Sem OKRs em risco'))
+        : riskKrs.forEach((k: any) => pautas.push(P(`🎯 OKR em risco: ${k.name}`)));
+    } catch (_) { /* segue sem OKR */ }
+    pautas.push(P('Encaminhamentos e próximos passos'));
+
+    const internos = clientMembers.filter((u: any) => u.email).map((u: any) => ({ name: u.name, email: u.email, isExternal: false }));
+    const row = { title: `RAE — ${mesAno}`, status: 'Agendada', type: 'RAE', date: today, time: '09:00', link: '', address: '', participants: internos, pautas, materiais: [], deliberacoes: [], acoes: [], atas: [], client_id: cid };
+    const { data, error } = await supabase.from('meetings').insert([row]).select().single();
+    if (error) { alert('Erro ao gerar RAE: ' + error.message); return; }
+    setMeetings((prev: any) => [data, ...prev]);
+    addLog('RAE', `Reunião de Análise Estratégica gerada (${mesAno}).`);
+    setCurrentMeeting(data); setView('details'); setTab('pauta'); setActiveMenu('reunioes');
+  };
+
   const saveMeeting = async () => {
     if (!canEdit) return;
     if (!currentMeeting.title) return alert("O título é obrigatório.");
@@ -2604,7 +2657,7 @@ const App = () => {
               {activeMenu === 'reunioes' && (
                 view === 'list' ? (
                   <div className="space-y-6 animate-in fade-in">
-                    <div className="flex justify-between items-center gap-4 bg-white p-4 rounded-xl border border-slate-200 shadow-sm"><h1 className="text-2xl font-bold text-slate-800 tracking-tight italic">Conselho Deliberativo</h1>{canEdit && (<div className="flex items-center gap-3"><button onClick={openScheduleModal} className="bg-slate-900 hover:bg-slate-800 text-amber-500 px-5 py-3 rounded-lg font-bold text-xs uppercase flex items-center justify-center gap-2 transition-all shadow-md tracking-widest"><CalendarPlus size={16} /> Programar Ano</button><button onClick={() => { setCurrentMeeting(blankMeeting); setView('details'); setTab('info'); }} className="bg-amber-600 hover:bg-amber-700 text-white px-6 py-3 rounded-lg font-bold text-xs uppercase flex items-center justify-center gap-2 transition-all shadow-md tracking-widest">+ Nova Reunião</button></div>)}</div>
+                    <div className="flex justify-between items-center gap-4 bg-white p-4 rounded-xl border border-slate-200 shadow-sm"><h1 className="text-2xl font-bold text-slate-800 tracking-tight italic">Conselho Deliberativo</h1>{canEdit && (<div className="flex items-center gap-3 flex-wrap"><button onClick={generateRAE} className="border border-amber-300 text-amber-700 hover:bg-amber-50 px-4 py-3 rounded-lg font-bold text-xs uppercase flex items-center justify-center gap-2 transition-all tracking-widest" title="Reunião de Análise Estratégica com pauta automática"><Compass size={15} /> Gerar RAE</button><button onClick={openScheduleModal} className="bg-slate-900 hover:bg-slate-800 text-amber-500 px-5 py-3 rounded-lg font-bold text-xs uppercase flex items-center justify-center gap-2 transition-all shadow-md tracking-widest"><CalendarPlus size={16} /> Programar Ano</button><button onClick={() => { setCurrentMeeting(blankMeeting); setView('details'); setTab('info'); }} className="bg-amber-600 hover:bg-amber-700 text-white px-6 py-3 rounded-lg font-bold text-xs uppercase flex items-center justify-center gap-2 transition-all shadow-md tracking-widest">+ Nova Reunião</button></div>)}</div>
                     <div className="grid gap-4">{meetings.filter((m: any) => !isExtraContainer(m) && m.type !== 'Indicadores').map((m) => (<div key={m.id} onClick={() => { setCurrentMeeting(m); setView('details'); setTab('info'); }} className="bg-white p-6 rounded-xl border border-slate-200 flex justify-between items-center group cursor-pointer hover:border-amber-500 hover:shadow-md transition-all shadow-sm"><div className="flex items-center gap-4"><div className="p-3 bg-slate-100 text-slate-500 rounded-lg group-hover:bg-amber-100 group-hover:text-amber-700 transition-all"><Calendar size={24} /></div><div><h3 className="font-bold text-lg text-slate-800 group-hover:text-amber-600 transition-all italic">{m.title}</h3><p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">{m.status} • {m.date || 'DATA N/D'}</p></div></div><div className="flex items-center gap-3">{canEdit && (<button onClick={(e) => { e.stopPropagation(); deleteMeeting(m.id, m.title); }} className="p-3 text-slate-200 hover:text-red-600 rounded-lg"><Trash2 size={20} /></button>)}<ChevronRight size={20} className="text-slate-300 group-hover:text-amber-500 transition-all" /></div></div>))}</div>
                   </div>
                 ) : (
