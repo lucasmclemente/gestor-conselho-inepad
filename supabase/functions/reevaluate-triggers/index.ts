@@ -1,6 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2"
-import { fireForReading, sendDigestEmail } from "../_shared/triggers.ts"
+import { fireForReadingMeta, sendDigestEmail } from "../_shared/triggers.ts"
 
 // Acionada por pg_cron (diariamente). Respeita a frequência por cliente
 // (governance_settings.reeval_frequency) e o last_reeval_at. Protegida por segredo.
@@ -55,8 +55,8 @@ serve(async (req) => {
 
       for (const r of latest.values()) {
         try {
-          const res = await fireForReading(admin, {
-            id: r.id, client_id: cid, value: r.value, period: r.period,
+          const res = await fireForReadingMeta(admin, {
+            id: r.id, client_id: cid, indicator_id: r.indicator_id, value: r.value, period: r.period,
             indicatorName: (r as any).indicators?.name ?? 'Indicador',
             indicatorUnit: (r as any).indicators?.unit ?? '',
           })

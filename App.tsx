@@ -561,7 +561,7 @@ const App = () => {
       // Indicadores & Gatilhos do cliente ativo (semáforos + alertas + cadastros + séries)
       const [indStatusRes, indEventsRes, indListRes, trigListRes, readingsRes, govRes, targetsRes] = await Promise.all([
         supabase.from('indicator_current_status').select('*').eq('client_id', cid).order('breach_level', { ascending: false }),
-        supabase.from('trigger_events').select('*, triggers(name, indicators(name, unit))').eq('client_id', cid).eq('status', 'open').order('fired_at', { ascending: false }),
+        supabase.from('trigger_events').select('*, indicators(name, unit), triggers(name, indicators(name, unit))').eq('client_id', cid).eq('status', 'open').order('fired_at', { ascending: false }),
         supabase.from('indicators').select('*').eq('client_id', cid).order('name'),
         supabase.from('triggers').select('*').eq('client_id', cid),
         supabase.from('indicator_readings').select('id, indicator_id, period, value, source').eq('client_id', cid).order('period', { ascending: true }),
@@ -1033,7 +1033,7 @@ const App = () => {
     const cid = activeClientId || currentUser.client_id;
     const [st, ev, ind, tg, rd, gov, tgt] = await Promise.all([
       supabase.from('indicator_current_status').select('*').eq('client_id', cid).order('breach_level', { ascending: false }),
-      supabase.from('trigger_events').select('*, triggers(name, indicators(name, unit))').eq('client_id', cid).eq('status', 'open').order('fired_at', { ascending: false }),
+      supabase.from('trigger_events').select('*, indicators(name, unit), triggers(name, indicators(name, unit))').eq('client_id', cid).eq('status', 'open').order('fired_at', { ascending: false }),
       supabase.from('indicators').select('*').eq('client_id', cid).order('name'),
       supabase.from('triggers').select('*').eq('client_id', cid),
       supabase.from('indicator_readings').select('id, indicator_id, period, value, source').eq('client_id', cid).order('period', { ascending: true }),
@@ -3450,16 +3450,8 @@ const App = () => {
                     )}
                   </div>
 
-                  {/* Configuração: cenário ativo + reavaliação agendada */}
+                  {/* Configuração: reavaliação agendada */}
                   <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex flex-wrap items-center gap-x-8 gap-y-3">
-                    <div className="flex items-center gap-2">
-                      <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Cenário ativo</span>
-                      {canEdit ? (
-                        <select value={govSettings.active_scenario || 'Base'} onChange={e => saveGovSetting({ active_scenario: e.target.value })} className="text-xs font-bold uppercase tracking-wider bg-amber-50 border border-amber-200 text-amber-700 rounded-lg px-3 py-1.5 outline-none cursor-pointer">
-                          {SCENARIOS.map(sc => <option key={sc} value={sc}>{sc}</option>)}
-                        </select>
-                      ) : <span className="text-xs font-bold uppercase tracking-wider bg-amber-50 border border-amber-200 text-amber-700 rounded-lg px-3 py-1.5">{govSettings.active_scenario || 'Base'}</span>}
-                    </div>
                     <div className="flex items-center gap-2">
                       <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest flex items-center gap-1"><Timer size={13} className="text-slate-400" /> Reavaliação automática</span>
                       {canEdit ? (
@@ -3468,7 +3460,7 @@ const App = () => {
                         </select>
                       ) : <span className="text-xs font-bold uppercase tracking-wider bg-slate-50 border border-slate-200 text-slate-600 rounded-lg px-3 py-1.5">{(FREQ_OPTS.find(([v]) => v === (govSettings.reeval_frequency || 'weekly')) || ['', '—'])[1]}</span>}
                     </div>
-                    <p className="text-[10px] text-slate-400 flex-1 min-w-[180px]">O semáforo e os alertas seguem o <b>cenário ativo</b>. A reavaliação reverifica os limites periodicamente e lembra dos alertas em aberto.</p>
+                    <p className="text-[10px] text-slate-400 flex-1 min-w-[180px]">O semáforo e os alertas seguem a <b>meta</b> de cada mês. A reavaliação reverifica as metas periodicamente e lembra dos alertas em aberto.</p>
                   </div>
 
                   {/* Alertas abertos */}
@@ -3480,9 +3472,9 @@ const App = () => {
                       <div className="bg-white rounded-xl border border-slate-200 shadow-sm divide-y divide-slate-100">
                         {openTriggerEvents.map((e: any) => {
                           const crit = e.severity === 'critical';
-                          const ind = e.triggers?.indicators?.name || 'Indicador';
-                          const unit = e.triggers?.indicators?.unit || '';
-                          const trig = e.triggers?.name || '';
+                          const ind = e.indicators?.name || e.triggers?.indicators?.name || 'Indicador';
+                          const unit = e.indicators?.unit || e.triggers?.indicators?.unit || '';
+                          const trig = e.source === 'meta' ? 'Meta não atingida' : (e.triggers?.name || '');
                           return (
                             <div key={e.id} className="flex items-center justify-between gap-3 p-4">
                               <div className="flex items-start gap-3 min-w-0">
@@ -3574,8 +3566,8 @@ const App = () => {
                             const ach = higher ? (t === 0 ? (v >= 0 ? 1 : 0) : v / t) : (v === 0 ? 2 : t / v);
                             metaLvl = ach >= 1 ? 0 : ach >= 0.8 ? 1 : 2;
                           }
-                          // Semáforo do cartão = pior entre gatilho e meta
-                          const lvl = Math.max(s.breach_level || 0, metaLvl);
+                          // Semáforo do cartão vem da view (realizado × meta)
+                          const lvl = s.breach_level || 0;
                           const dot = lvl === 2 ? 'bg-red-600' : lvl === 1 ? 'bg-amber-500' : 'bg-emerald-500';
                           const ring = lvl === 2 ? 'ring-red-200' : lvl === 1 ? 'ring-amber-200' : 'ring-emerald-200';
                           const label = lvl === 2 ? 'Crítico' : lvl === 1 ? 'Atenção' : 'No alvo';
@@ -3623,7 +3615,6 @@ const App = () => {
                               {canEdit && (
                                 <div className="mt-3 pt-3 border-t border-slate-100 flex items-center gap-1">
                                   <button onClick={(e) => { e.stopPropagation(); openReadingModal(s); }} className="flex-1 text-[9px] font-bold uppercase tracking-wider text-slate-600 hover:text-amber-600 border border-slate-200 hover:border-amber-300 rounded-lg py-1.5 inline-flex items-center justify-center gap-1 transition-all"><PenLine size={12} /> Leitura</button>
-                                  <button onClick={(e) => { e.stopPropagation(); openTrigModal(s); }} className="flex-1 text-[9px] font-bold uppercase tracking-wider text-slate-600 hover:text-amber-600 border border-slate-200 hover:border-amber-300 rounded-lg py-1.5 inline-flex items-center justify-center gap-1 transition-all"><Target size={12} /> Gatilhos ({triggersList.filter((t: any) => t.indicator_id === s.indicator_id).length})</button>
                                   <button onClick={(e) => { e.stopPropagation(); const raw = indicatorsList.find((x: any) => x.id === s.indicator_id); openIndModal(raw || s); }} className="p-2 text-slate-400 hover:text-amber-600 border border-slate-200 hover:border-amber-300 rounded-lg transition-all" title="Editar indicador"><Edit2 size={12} /></button>
                                   <button onClick={(e) => { e.stopPropagation(); deleteIndicator(s); }} className="p-2 text-slate-300 hover:text-red-600 border border-slate-200 hover:border-red-200 rounded-lg transition-all" title="Excluir indicador"><Trash2 size={12} /></button>
                                 </div>
@@ -3647,7 +3638,10 @@ const App = () => {
                 const unit = dStatus.unit || '';
                 const series = indicatorSeries[detailInd.indicator_id] || [];
                 const rows = readingsList.filter((r: any) => r.indicator_id === detailInd.indicator_id).slice().sort((a: any, b: any) => String(b.period).localeCompare(String(a.period)));
-                const trigs = triggersList.filter((t: any) => t.indicator_id === detailInd.indicator_id);
+                const tByPeriod: Record<string, number> = {};
+                targetsList.filter((t: any) => t.indicator_id === detailInd.indicator_id).forEach((t: any) => { tByPeriod[String(t.period).slice(0, 7)] = Number(t.target_value); });
+                const chartData = (series || []).map((pt: any) => ({ ...pt, meta: tByPeriod[String(pt.period).slice(0, 7)] ?? null }));
+                const hasMeta = Object.keys(tByPeriod).length > 0;
                 const fmtMonth = (p: any) => new Date(p + 'T00:00:00').toLocaleDateString('pt-BR', { month: '2-digit', year: '2-digit' });
                 return (
                   <div className="space-y-6 animate-in fade-in">
@@ -3669,31 +3663,21 @@ const App = () => {
                       </div>
                     </div>
 
-                    {/* Gráfico grande com limites dos gatilhos */}
+                    {/* Gráfico grande: realizado × meta */}
                     <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm">
-                      <h3 className="text-xs font-bold uppercase text-slate-500 tracking-widest italic mb-3 flex items-center gap-2"><BarChart3 size={16} className="text-amber-600" /> Tendência {trigs.length > 0 && <span className="text-[9px] text-slate-400 normal-case tracking-normal not-italic">(linhas tracejadas = limites do cenário {govSettings.active_scenario || 'Base'})</span>}</h3>
+                      <h3 className="text-xs font-bold uppercase text-slate-500 tracking-widest italic mb-3 flex items-center gap-2"><BarChart3 size={16} className="text-amber-600" /> Tendência {hasMeta && <span className="text-[9px] text-slate-400 normal-case tracking-normal not-italic">(linha tracejada = meta)</span>}</h3>
                       {series.length < 2 ? (
                         <p className="text-sm text-slate-400 py-10 text-center">Registre ao menos 2 leituras para ver a tendência.</p>
                       ) : (
                         <div className="h-64">
                           <ResponsiveContainer width="100%" height="100%">
-                            <LineChart data={series} margin={{ top: 8, right: 16, bottom: 0, left: 0 }}>
+                            <LineChart data={chartData} margin={{ top: 8, right: 16, bottom: 0, left: 0 }}>
                               <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
                               <XAxis dataKey="period" tickFormatter={fmtMonth} tick={{ fontSize: 11, fill: '#94a3b8' }} />
                               <YAxis tick={{ fontSize: 11, fill: '#94a3b8' }} width={40} />
-                              <Tooltip contentStyle={{ fontSize: '12px', borderRadius: '8px', border: '1px solid #e2e8f0' }} labelFormatter={(l: any) => new Date(l + 'T00:00:00').toLocaleDateString('pt-BR', { month: '2-digit', year: 'numeric' })} formatter={(v: any) => [`${v}${unit ? ' ' + unit : ''}`, 'Valor']} />
-                              {trigs.filter((t: any) => (t.scenario || 'Base') === (govSettings.active_scenario || 'Base')).flatMap((t: any) => {
-                                const col = t.severity === 'critical' ? '#dc2626' : '#f59e0b';
-                                const isRange = t.operator === 'outside' || t.operator === 'inside';
-                                const lines = [
-                                  <ReferenceLine key={t.id} y={Number(t.threshold_value)} stroke={col} strokeWidth={1.5} strokeDasharray="5 4" ifOverflow="extendDomain" label={{ value: `${t.name}: ${t.threshold_value}`, position: 'insideTopRight', fontSize: 9, fill: col }} />,
-                                ];
-                                if (isRange && t.threshold_value_secondary != null) lines.push(
-                                  <ReferenceLine key={`${t.id}-2`} y={Number(t.threshold_value_secondary)} stroke={col} strokeWidth={1.5} strokeDasharray="5 4" ifOverflow="extendDomain" label={{ value: `${t.threshold_value_secondary}`, position: 'insideBottomRight', fontSize: 9, fill: col }} />
-                                );
-                                return lines;
-                              })}
-                              <Line type="monotone" dataKey="value" stroke={stroke} strokeWidth={2.5} dot={{ r: 3 }} isAnimationActive={false} />
+                              <Tooltip contentStyle={{ fontSize: '12px', borderRadius: '8px', border: '1px solid #e2e8f0' }} labelFormatter={(l: any) => new Date(l + 'T00:00:00').toLocaleDateString('pt-BR', { month: '2-digit', year: 'numeric' })} formatter={(v: any, n: any) => [`${v}${unit ? ' ' + unit : ''}`, n === 'meta' ? 'Meta' : 'Realizado']} />
+                              {hasMeta && <Line type="monotone" dataKey="meta" name="meta" stroke="#94a3b8" strokeWidth={1.5} strokeDasharray="5 4" dot={false} isAnimationActive={false} connectNulls />}
+                              <Line type="monotone" dataKey="value" name="value" stroke={stroke} strokeWidth={2.5} dot={{ r: 3 }} isAnimationActive={false} />
                             </LineChart>
                           </ResponsiveContainer>
                         </div>
@@ -3701,27 +3685,31 @@ const App = () => {
                     </div>
 
                     <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                      {/* Gatilhos */}
+                      {/* Metas por competência */}
                       <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
                         <div className="p-4 border-b border-slate-50 bg-slate-50/50 flex justify-between items-center">
-                          <h3 className="text-xs font-bold uppercase text-slate-500 tracking-widest italic flex items-center gap-2"><Target size={16} className="text-amber-600" /> Gatilhos ({trigs.length})</h3>
-                          {canEdit && <button onClick={() => openTrigModal(detailInd)} className="text-[10px] font-bold uppercase tracking-widest text-amber-600 hover:text-amber-700 flex items-center gap-1 transition-colors"><Plus size={12} /> Gerir</button>}
+                          <h3 className="text-xs font-bold uppercase text-slate-500 tracking-widest italic flex items-center gap-2"><Target size={16} className="text-amber-600" /> Metas por competência</h3>
+                          {canEdit && <button onClick={() => openBatch()} className="text-[10px] font-bold uppercase tracking-widest text-amber-600 hover:text-amber-700 flex items-center gap-1"><PenLine size={12} /> Lançar</button>}
                         </div>
-                        <div className="p-3 space-y-2">
-                          {trigs.length === 0 ? <p className="text-sm text-slate-400 p-2">Nenhum gatilho. {canEdit ? 'Clique em "Gerir" para criar.' : ''}</p> : trigs.map((t: any) => {
-                            const crit = t.severity === 'critical';
-                            const isRange = t.operator === 'outside' || t.operator === 'inside';
-                            const opl = ({ lt: '<', lte: '≤', gt: '>', gte: '≥', outside: 'fora de', inside: 'dentro de' } as any)[t.operator] || t.operator;
-                            return (
-                              <div key={t.id} className="flex items-center justify-between gap-2 border border-slate-100 rounded-lg p-3">
-                                <div className="min-w-0">
-                                  <p className="text-sm font-bold text-slate-800 italic truncate flex items-center gap-2"><span className={`h-2.5 w-2.5 rounded-full shrink-0 ${crit ? 'bg-red-600' : 'bg-amber-500'}`} />{t.name}<span className={`ml-1 text-[8px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded ${(t.scenario || 'Base') === (govSettings.active_scenario || 'Base') ? 'bg-amber-100 text-amber-700' : 'bg-slate-100 text-slate-400'}`}>{t.scenario || 'Base'}</span></p>
-                                  <p className="text-[11px] text-slate-500">valor {opl} {isRange ? `${t.threshold_value}–${t.threshold_value_secondary}` : t.threshold_value} · {crit ? 'Crítico' : 'Atenção'}</p>
+                        <div className="p-3 space-y-2 max-h-72 overflow-y-auto">
+                          {(() => {
+                            const mine = targetsList.filter((t: any) => t.indicator_id === detailInd.indicator_id).slice().sort((a: any, b: any) => String(b.period).localeCompare(String(a.period)));
+                            if (mine.length === 0) return <p className="text-sm text-slate-400 p-2">Nenhuma meta definida. {canEdit ? 'Use "Lançar" para definir metas por mês.' : ''}</p>;
+                            const rMap: Record<string, number> = {}; rows.forEach((r: any) => { rMap[String(r.period).slice(0, 7)] = Number(r.value); });
+                            const higher = detailInd.direction !== 'lower_is_better';
+                            return mine.map((t: any) => {
+                              const p = String(t.period).slice(0, 7); const meta = Number(t.target_value); const real = rMap[p];
+                              let c = 'none';
+                              if (real !== undefined) { const ach = higher ? (meta === 0 ? 1 : real / meta) : (real === 0 ? 2 : meta / real); c = ach >= 1 ? 'g' : ach >= 0.8 ? 'y' : 'r'; }
+                              const dot = c === 'g' ? 'bg-emerald-500' : c === 'y' ? 'bg-amber-500' : c === 'r' ? 'bg-red-600' : 'bg-slate-200';
+                              return (
+                                <div key={detailInd.indicator_id + p} className="flex items-center justify-between gap-2 border border-slate-100 rounded-lg p-3">
+                                  <span className="flex items-center gap-2 text-sm font-bold text-slate-700"><span className={`h-2.5 w-2.5 rounded-full ${dot}`} />{new Date(p + '-01T00:00:00').toLocaleDateString('pt-BR', { month: '2-digit', year: 'numeric' })}</span>
+                                  <span className="text-[12px] text-slate-500">real <b className="text-slate-800">{real === undefined ? '—' : real}</b> · meta <b className="text-slate-800">{meta}</b>{unit ? ` ${unit}` : ''}</span>
                                 </div>
-                                {canEdit && <button onClick={() => deleteTrigger(t)} className="p-2 text-slate-300 hover:text-red-600 rounded-lg shrink-0" title="Excluir gatilho"><Trash2 size={15} /></button>}
-                              </div>
-                            );
-                          })}
+                              );
+                            });
+                          })()}
                         </div>
                       </div>
 
@@ -4448,100 +4436,6 @@ const App = () => {
         </div>
       )}
 
-      {/* ===== Modal: Gatilhos do indicador ===== */}
-      {trigModal && (
-        <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-md z-[100] flex items-center justify-center p-4">
-          <div className="bg-white w-full max-w-xl rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[92vh] animate-in zoom-in-95">
-            <div className="p-6 border-b flex justify-between items-center bg-slate-50">
-              <div className="min-w-0">
-                <h3 className="text-xl font-bold text-slate-800 italic flex items-center gap-2"><Target size={20} className="text-amber-600" /> Gatilhos</h3>
-                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest truncate">{trigModal.name}{trigModal.unit ? ` (${trigModal.unit})` : ''}</p>
-              </div>
-              <button onClick={() => setTrigModal(null)} className="p-2 hover:bg-slate-200 rounded-full text-slate-400 shrink-0"><X size={20} /></button>
-            </div>
-            <div className="flex-1 overflow-y-auto p-6 space-y-5 bg-slate-50/30">
-              {/* Lista de gatilhos existentes */}
-              <div className="space-y-2">
-                {triggersList.filter((t: any) => t.indicator_id === (trigModal.indicator_id || trigModal.id)).length === 0 ? (
-                  <p className="text-sm text-slate-400">Nenhum gatilho ainda. Crie o primeiro abaixo.</p>
-                ) : triggersList.filter((t: any) => t.indicator_id === (trigModal.indicator_id || trigModal.id)).map((t: any) => {
-                  const crit = t.severity === 'critical';
-                  const isRange = t.operator === 'outside' || t.operator === 'inside';
-                  const opl = ({ lt: '<', lte: '≤', gt: '>', gte: '≥', outside: 'fora de', inside: 'dentro de' } as any)[t.operator] || t.operator;
-                  return (
-                    <div key={t.id} className="flex items-center justify-between gap-2 bg-white border border-slate-200 rounded-lg p-3">
-                      <div className="min-w-0">
-                        <p className="text-sm font-bold text-slate-800 italic truncate flex items-center gap-2"><span className={`h-2.5 w-2.5 rounded-full shrink-0 ${crit ? 'bg-red-600' : 'bg-amber-500'}`} />{t.name}<span className={`ml-1 text-[8px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded ${(t.scenario || 'Base') === (govSettings.active_scenario || 'Base') ? 'bg-amber-100 text-amber-700' : 'bg-slate-100 text-slate-400'}`}>{t.scenario || 'Base'}</span></p>
-                        <p className="text-[11px] text-slate-500">Dispara quando valor {opl} {isRange ? `${t.threshold_value}–${t.threshold_value_secondary}` : t.threshold_value} · {crit ? 'Crítico' : 'Atenção'}{t.create_action_on_breach ? ' · gera ação' : ''}{t.notify_on_breach ? ' · e-mail' : ''}</p>
-                      </div>
-                      <button onClick={() => deleteTrigger(t)} className="p-2 text-slate-300 hover:text-red-600 rounded-lg shrink-0" title="Excluir gatilho"><Trash2 size={16} /></button>
-                    </div>
-                  );
-                })}
-              </div>
-
-              {/* Form novo gatilho */}
-              <div className="bg-white border border-slate-200 rounded-xl p-4 space-y-3">
-                <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Novo gatilho</p>
-                <input value={trigForm.name} onChange={e => setTrigForm({ ...trigForm, name: e.target.value })} placeholder="Nome (ex.: Margem abaixo do mínimo)" className="w-full p-3 rounded-lg border border-slate-200 outline-none focus:border-amber-400 text-sm" />
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <label className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">Condição</label>
-                    <select value={trigForm.operator} onChange={e => setTrigForm({ ...trigForm, operator: e.target.value })} className="w-full mt-1 p-3 rounded-lg border border-slate-200 outline-none focus:border-amber-400 text-sm bg-white cursor-pointer">
-                      <option value="lt">menor que (&lt;)</option>
-                      <option value="lte">menor ou igual (≤)</option>
-                      <option value="gt">maior que (&gt;)</option>
-                      <option value="gte">maior ou igual (≥)</option>
-                      <option value="outside">fora da faixa</option>
-                      <option value="inside">dentro da faixa</option>
-                    </select>
-                  </div>
-                  <div>
-                    <label className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">Severidade</label>
-                    <select value={trigForm.severity} onChange={e => setTrigForm({ ...trigForm, severity: e.target.value })} className="w-full mt-1 p-3 rounded-lg border border-slate-200 outline-none focus:border-amber-400 text-sm bg-white cursor-pointer">
-                      <option value="attention">🟡 Atenção (Importante)</option>
-                      <option value="critical">🔴 Crítico (Urgente)</option>
-                    </select>
-                  </div>
-                </div>
-                <div>
-                  <label className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">Cenário</label>
-                  <select value={trigForm.scenario} onChange={e => setTrigForm({ ...trigForm, scenario: e.target.value })} className="w-full mt-1 p-3 rounded-lg border border-slate-200 outline-none focus:border-amber-400 text-sm bg-white cursor-pointer">
-                    {SCENARIOS.map(sc => <option key={sc} value={sc}>{sc}{sc === (govSettings.active_scenario || 'Base') ? ' (ativo)' : ''}</option>)}
-                  </select>
-                </div>
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <label className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">Limite</label>
-                    <input type="number" step="any" value={trigForm.threshold_value} onChange={e => setTrigForm({ ...trigForm, threshold_value: e.target.value })} placeholder="0" className="w-full mt-1 p-3 rounded-lg border border-slate-200 outline-none focus:border-amber-400 text-sm" />
-                  </div>
-                  {(trigForm.operator === 'outside' || trigForm.operator === 'inside') && (
-                    <div>
-                      <label className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">2º limite (faixa)</label>
-                      <input type="number" step="any" value={trigForm.threshold_value_secondary} onChange={e => setTrigForm({ ...trigForm, threshold_value_secondary: e.target.value })} placeholder="0" className="w-full mt-1 p-3 rounded-lg border border-slate-200 outline-none focus:border-amber-400 text-sm" />
-                    </div>
-                  )}
-                </div>
-                <div>
-                  <label className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">Responsável da ação/alerta (opcional)</label>
-                  <select value={trigForm.assignee_member_id} onChange={e => setTrigForm({ ...trigForm, assignee_member_id: e.target.value })} className="w-full mt-1 p-3 rounded-lg border border-slate-200 outline-none focus:border-amber-400 text-sm bg-white cursor-pointer">
-                    <option value="">— Administradores do cliente —</option>
-                    {clientMembers.filter((u: any) => u.email).map((u: any) => <option key={u.id} value={u.id}>{u.name}</option>)}
-                  </select>
-                </div>
-                <div className="flex flex-col gap-2 pt-1">
-                  <label className="flex items-center gap-2 text-xs text-slate-600 cursor-pointer"><input type="checkbox" checked={trigForm.create_action_on_breach} onChange={e => setTrigForm({ ...trigForm, create_action_on_breach: e.target.checked })} className="accent-amber-600 w-4 h-4" /> Gerar ação no Plano de Ação ao romper</label>
-                  <label className="flex items-center gap-2 text-xs text-slate-600 cursor-pointer"><input type="checkbox" checked={trigForm.notify_on_breach} onChange={e => setTrigForm({ ...trigForm, notify_on_breach: e.target.checked })} className="accent-amber-600 w-4 h-4" /> Enviar alerta por e-mail ao romper</label>
-                </div>
-                <button disabled={trigSaving} onClick={saveTrigger} className="w-full bg-slate-900 text-amber-500 py-3 rounded-xl font-bold uppercase text-[10px] tracking-[2px] flex items-center justify-center gap-2 hover:bg-slate-800 disabled:opacity-50"><Plus size={16} /> {trigSaving ? 'Adicionando...' : 'Adicionar gatilho'}</button>
-              </div>
-            </div>
-            <div className="p-6 border-t bg-white">
-              <button onClick={() => setTrigModal(null)} className="w-full border border-slate-200 text-slate-600 py-3 rounded-xl font-bold uppercase text-[10px] tracking-[2px] hover:bg-slate-50">Fechar</button>
-            </div>
-          </div>
-        </div>
-      )}
       {/* ===== Modal: Lançar mês (grade) ===== */}
       {batchOpen && (
         <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-md z-[100] flex items-center justify-center p-4">

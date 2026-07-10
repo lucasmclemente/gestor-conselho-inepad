@@ -18,6 +18,77 @@ export interface ReadingCtx {
   period: string | null
   indicatorName: string
   indicatorUnit: string
+  indicator_id?: string
+}
+
+// Dispara alerta/ação/e-mail quando a leitura NÃO atinge a meta da competência.
+// Idempotente (unique parcial meta por indicador+leitura). Fonte única desde que
+// os gatilhos manuais foram aposentados.
+export async function fireForReadingMeta(admin: any, reading: ReadingCtx): Promise<{ evaluated: number; fired: any[] }> {
+  const cid = reading.client_id
+  const indId = reading.indicator_id
+  if (!indId) return { evaluated: 0, fired: [] }
+  const periodLabel = reading.period ? new Date(reading.period + 'T00:00:00').toLocaleDateString('pt-BR', { month: '2-digit', year: 'numeric' }) : ''
+
+  const { data: tgt } = await admin.from('indicator_targets').select('target_value').eq('indicator_id', indId).eq('period', reading.period).maybeSingle()
+  if (!tgt) return { evaluated: 0, fired: [] } // sem meta → sem alerta
+  const meta = Number(tgt.target_value)
+  const { data: ind } = await admin.from('indicators').select('direction, responsible_member_id, name, unit').eq('id', indId).maybeSingle()
+  const higher = (ind?.direction ?? 'higher_is_better') !== 'lower_is_better'
+  const v = Number(reading.value)
+  const ach = higher ? (meta === 0 ? (v >= 0 ? 1 : 0) : v / meta) : (v === 0 ? 2 : meta / v)
+  const severity = ach >= 1 ? null : ach >= 0.8 ? 'attention' : 'critical'
+  if (!severity) return { evaluated: 1, fired: [] } // meta atingida
+
+  const { data: ev, error: evErr } = await admin
+    .from('trigger_events')
+    .insert({ client_id: cid, trigger_id: null, indicator_id: indId, indicator_reading_id: reading.id, observed_value: v, severity, status: 'open', source: 'meta' })
+    .select('id').single()
+  if (evErr || !ev) return { evaluated: 1, fired: [] } // já existia → idempotente
+
+  const iName = reading.indicatorName || ind?.name || 'Indicador'
+  const iUnit = reading.indicatorUnit || ind?.unit || ''
+  const origemLabel = `Meta não atingida: ${iName} (realizado ${v}${iUnit ? ' ' + iUnit : ''} × meta ${meta}${iUnit ? ' ' + iUnit : ''})`
+
+  const container = await ensureContainer(admin, cid)
+  let respName = ''
+  if (ind?.responsible_member_id) {
+    const { data: m } = await admin.from('members').select('name').eq('id', ind.responsible_member_id).maybeSingle()
+    respName = m?.name || ''
+  }
+  const actionId = Date.now() + Math.floor(Math.random() * 1000)
+  const action = {
+    id: actionId, title: `Tratar meta não atingida: ${iName}`,
+    resps: respName ? [respName] : [], resp: respName, date: '',
+    obs: `${origemLabel}${periodLabel ? ' — ' + periodLabel : ''}.`,
+    status: 'Pendente', priority: PRIORITY_BY_SEVERITY[severity] || 'Importante', fromTrigger: true,
+  }
+  await admin.from('meetings').update({ acoes: [...container.acoes, action] }).eq('id', container.id)
+  const generatedActionId = String(actionId)
+  await admin.from('trigger_events').update({ generated_action_id: generatedActionId }).eq('id', ev.id)
+
+  try {
+    let recipients: string[] = []
+    if (ind?.responsible_member_id) {
+      const { data: m } = await admin.from('members').select('email').eq('id', ind.responsible_member_id).maybeSingle()
+      if (m?.email) recipients = [m.email]
+    }
+    if (recipients.length === 0) {
+      const { data: admins } = await admin.from('members').select('email').eq('client_id', cid).in('role', ['Administrador', 'SuperAdmin'])
+      recipients = (admins || []).map((a: any) => a.email).filter(Boolean)
+    }
+    if (recipients.length > 0) {
+      await sendAlertEmail(recipients, { indicatorName: iName, triggerName: 'Meta do mês', value: v, unit: iUnit, severity, origem: origemLabel, period: periodLabel })
+    }
+  } catch (_) { /* e-mail best-effort */ }
+
+  await admin.from('audit_logs').insert({
+    username: 'Sistema (Meta)', action: 'meta_alert',
+    details: `${origemLabel} [${severity === 'critical' ? 'crítico' : 'atenção'}]`,
+    client_id: cid,
+  })
+
+  return { evaluated: 1, fired: [{ indicator_id: indId, severity, event_id: ev.id, action_id: generatedActionId }] }
 }
 
 async function ensureContainer(admin: any, cid: string): Promise<{ id: string; acoes: any[] }> {

@@ -1,6 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2"
-import { fireForReading } from "../_shared/triggers.ts"
+import { fireForReadingMeta } from "../_shared/triggers.ts"
 
 const ALLOWED_ORIGINS = [
   'https://conselho.inepadconsulting.com',
@@ -51,8 +51,8 @@ serve(async (req) => {
     const tenantOk = role === 'SuperAdmin' || cid === clientId || secClients.includes(cid)
     if (!tenantOk) return json({ error: 'tenant mismatch' }, 403)
 
-    const result = await fireForReading(admin, {
-      id: reading.id, client_id: cid, value: reading.value, period: reading.period,
+    const result = await fireForReadingMeta(admin, {
+      id: reading.id, client_id: cid, indicator_id: reading.indicator_id, value: reading.value, period: reading.period,
       indicatorName: (reading as any).indicators?.name ?? 'Indicador',
       indicatorUnit: (reading as any).indicators?.unit ?? '',
     })
