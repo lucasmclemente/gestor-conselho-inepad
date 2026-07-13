@@ -357,6 +357,8 @@ const App = () => {
   const isController = currentUser?.role === 'Controller';
   // Controller: só lança o realizado dos indicadores (não altera metas nem cadastra indicadores)
   const canLancar = canEdit || isController;
+  // Add-on "Planejamento Estratégico": libera os menus Estratégia + Indicadores (por cliente)
+  const strategyEnabled = !!clientProfile?.strategy_enabled;
   const SCENARIOS = ['Otimista', 'Base', 'Conservador', 'Trágico'];
   const FREQ_OPTS: [string, string][] = [['off', 'Desligada'], ['daily', 'Diária'], ['weekly', 'Semanal'], ['monthly', 'Mensal']];
   // Membros do cliente atual (SuperAdmin enxerga todos; aqui escopamos ao próprio cliente)
@@ -431,6 +433,12 @@ const App = () => {
   useEffect(() => { if (currentUser && !activeClientId) setActiveClientId(currentUser.client_id); }, [currentUser, activeClientId]);
   // (Re)carrega os dados sempre que o cliente ativo muda (login ou troca de cliente)
   useEffect(() => { if (currentUser && activeClientId) { setDetailInd(null); fetchInitialData(); } /* eslint-disable-next-line */ }, [activeClientId]);
+  // Add-on desligado: não permite ficar em Estratégia/Indicadores (ex.: ao trocar de cliente)
+  useEffect(() => {
+    if (!strategyEnabled && !isController && (activeMenu === 'estrategia' || activeMenu === 'indicadores')) setActiveMenu('dashboard');
+    if (!strategyEnabled && filterObjective !== 'all') setFilterObjective('all');
+    /* eslint-disable-next-line */
+  }, [strategyEnabled, activeMenu]);
   // Carrega os nomes dos clientes que o secretário pode atender (para o seletor)
   useEffect(() => {
     const sec = currentUser?.secretary_clients || [];
@@ -1624,6 +1632,23 @@ const App = () => {
     }
   };
 
+  const toggleManagedStrategy = async () => {
+    if (!managedClientId) return;
+    const newVal = !managedClientProfile?.strategy_enabled;
+    const payload = {
+      client_id: managedClientId,
+      name: managedClientForm.name || managedClientId,
+      logo_url: managedClientForm.logo_url || '',
+      strategy_enabled: newVal
+    };
+    const { data, error } = await supabase.from('clients').upsert(payload, { onConflict: 'client_id' }).select().single();
+    if (!error && data) {
+      setManagedClientProfile(data);
+      setAllClientsList(prev => prev.map((c: any) => c.client_id === managedClientId ? data : c));
+      addLog('Configuração', `Planejamento Estratégico ${newVal ? 'ativado' : 'desativado'} para ${managedClientId}`);
+    }
+  };
+
   // Cria um novo cliente (tenant) — apenas SuperAdmin
   const createClient = async () => {
     if (!isSuper) return;
@@ -2458,20 +2483,20 @@ const App = () => {
         <nav className="flex-1 px-3 py-4 space-y-1 text-[10px] font-bold uppercase tracking-widest">
           {(isAssistant ? [
             { id: 'materiais-assistente', icon: <Upload size={18} />, label: 'Materiais' },
-          ] : isController ? [
+          ] : isController ? (strategyEnabled ? [
             { id: 'indicadores', icon: <Gauge size={18} />, label: 'Indicadores' },
-          ] : [
+          ] : []) : [
             { id: 'dashboard', icon: <LayoutDashboard size={18} />, label: 'Dashboard' },
             { id: 'reunioes', icon: <Calendar size={18} />, label: 'Conselho', action: () => setView('list') },
             { id: 'plano-acao', icon: <ListChecks size={18} />, label: 'Plano de Ação' },
             { id: 'deliberacoes', icon: <Scale size={18} />, label: 'Deliberações' },
-            { id: 'indicadores', icon: <Gauge size={18} />, label: 'Indicadores' },
-            { id: 'estrategia', icon: <Compass size={18} />, label: 'Estratégia' },
+            { id: 'indicadores', icon: <Gauge size={18} />, label: 'Indicadores', addon: true },
+            { id: 'estrategia', icon: <Compass size={18} />, label: 'Estratégia', addon: true },
             { id: 'repositorio-atas', icon: <Archive size={18} />, label: 'Repositório de Atas' },
             { id: 'usuarios', icon: <UserCog size={18} />, label: isSuper ? 'Contas de Clientes' : 'Membros', adm: true },
             { id: 'auditoria', icon: <History size={18} />, label: 'Auditoria', adm: true }
-          ]).map((item) => (
-            (!item.adm || isAdm) && (
+          ]).map((item: any) => (
+            (!item.adm || isAdm) && (!item.addon || strategyEnabled) && (
               <button key={item.id} onClick={() => { setActiveMenu(item.id); if (item.action) item.action(); setIsMobileMenuOpen(false); }} className={`w-full flex items-center gap-3 rounded-lg transition-all ${activeMenu === item.id ? 'bg-amber-600 text-white shadow-sm' : 'hover:bg-slate-700 hover:text-white'} ${isSidebarCollapsed ? 'justify-center p-3' : 'px-4 py-3'}`}>
                 <span className="shrink-0">{item.icon}</span>
                 {!isSidebarCollapsed && <span className="truncate">{item.label}</span>}
@@ -2727,7 +2752,7 @@ const App = () => {
               {activeMenu === 'reunioes' && (
                 view === 'list' ? (
                   <div className="space-y-6 animate-in fade-in">
-                    <div className="flex justify-between items-center gap-4 bg-white p-4 rounded-xl border border-slate-200 shadow-sm"><h1 className="text-2xl font-bold text-slate-800 tracking-tight italic">Conselho Deliberativo</h1>{canEdit && (<div className="flex items-center gap-3 flex-wrap"><button onClick={generateRAE} className="border border-amber-300 text-amber-700 hover:bg-amber-50 px-4 py-3 rounded-lg font-bold text-xs uppercase flex items-center justify-center gap-2 transition-all tracking-widest" title="Reunião de Análise Estratégica com pauta automática"><Compass size={15} /> Gerar RAE</button><button onClick={openScheduleModal} className="bg-slate-900 hover:bg-slate-800 text-amber-500 px-5 py-3 rounded-lg font-bold text-xs uppercase flex items-center justify-center gap-2 transition-all shadow-md tracking-widest"><CalendarPlus size={16} /> Programar Ano</button><button onClick={() => { setCurrentMeeting(blankMeeting); setView('details'); setTab('info'); }} className="bg-amber-600 hover:bg-amber-700 text-white px-6 py-3 rounded-lg font-bold text-xs uppercase flex items-center justify-center gap-2 transition-all shadow-md tracking-widest">+ Nova Reunião</button></div>)}</div>
+                    <div className="flex justify-between items-center gap-4 bg-white p-4 rounded-xl border border-slate-200 shadow-sm"><h1 className="text-2xl font-bold text-slate-800 tracking-tight italic">Conselho Deliberativo</h1>{canEdit && (<div className="flex items-center gap-3 flex-wrap">{strategyEnabled && <button onClick={generateRAE} className="border border-amber-300 text-amber-700 hover:bg-amber-50 px-4 py-3 rounded-lg font-bold text-xs uppercase flex items-center justify-center gap-2 transition-all tracking-widest" title="Reunião de Análise Estratégica com pauta automática"><Compass size={15} /> Gerar RAE</button>}<button onClick={openScheduleModal} className="bg-slate-900 hover:bg-slate-800 text-amber-500 px-5 py-3 rounded-lg font-bold text-xs uppercase flex items-center justify-center gap-2 transition-all shadow-md tracking-widest"><CalendarPlus size={16} /> Programar Ano</button><button onClick={() => { setCurrentMeeting(blankMeeting); setView('details'); setTab('info'); }} className="bg-amber-600 hover:bg-amber-700 text-white px-6 py-3 rounded-lg font-bold text-xs uppercase flex items-center justify-center gap-2 transition-all shadow-md tracking-widest">+ Nova Reunião</button></div>)}</div>
                     <div className="grid gap-4">{meetings.filter((m: any) => !isExtraContainer(m) && m.type !== 'Indicadores').map((m) => (<div key={m.id} onClick={() => { setCurrentMeeting(m); setView('details'); setTab('info'); }} className="bg-white p-6 rounded-xl border border-slate-200 flex justify-between items-center group cursor-pointer hover:border-amber-500 hover:shadow-md transition-all shadow-sm"><div className="flex items-center gap-4"><div className="p-3 bg-slate-100 text-slate-500 rounded-lg group-hover:bg-amber-100 group-hover:text-amber-700 transition-all"><Calendar size={24} /></div><div><h3 className="font-bold text-lg text-slate-800 group-hover:text-amber-600 transition-all italic">{m.title}</h3><p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">{m.status} • {m.date || 'DATA N/D'}</p></div></div><div className="flex items-center gap-3">{canEdit && (<button onClick={(e) => { e.stopPropagation(); deleteMeeting(m.id, m.title); }} className="p-3 text-slate-200 hover:text-red-600 rounded-lg"><Trash2 size={20} /></button>)}<ChevronRight size={20} className="text-slate-300 group-hover:text-amber-500 transition-all" /></div></div>))}</div>
                   </div>
                 ) : (
@@ -3413,7 +3438,7 @@ const App = () => {
                       <div className="flex items-center gap-2 bg-white px-3 py-1.5 rounded border border-slate-200"><Target size={14} className="text-amber-500" /><select className="text-[10px] font-bold uppercase outline-none bg-transparent cursor-pointer text-slate-600" value={filterStatus} onChange={e => setFilterStatus(e.target.value)}><option value="all">Status</option><option value="Pendente">Pendente</option><option value="Em andamento">Em andamento</option><option value="Concluída">Concluída</option><option value="Atrasada">Atrasada</option></select></div>
                       <div className="flex items-center gap-2 bg-white px-3 py-1.5 rounded border border-slate-200"><AlertCircle size={14} className="text-amber-500" /><select className="text-[10px] font-bold uppercase outline-none bg-transparent cursor-pointer text-slate-600" value={filterPriority} onChange={e => setFilterPriority(e.target.value)}><option value="all">Prioridade</option>{PRIORITIES.map(p => <option key={p} value={p}>{p}</option>)}</select></div>
                       <div className="flex items-center gap-2 bg-white px-3 py-1.5 rounded border border-slate-200"><Building2 size={14} className="text-amber-500" /><select className="text-[10px] font-bold uppercase outline-none bg-transparent cursor-pointer text-slate-600" value={filterOrigin} onChange={e => setFilterOrigin(e.target.value)}><option value="all">Origem (Reunião)</option>{meetings.map(m => <option key={m.id} value={m.id}>{m.title}{m.date ? ` — ${new Date(m.date + 'T00:00:00').toLocaleDateString('pt-BR')}` : ''}</option>)}</select></div>
-                      <div className="flex items-center gap-2 bg-white px-3 py-1.5 rounded border border-slate-200"><Compass size={14} className="text-amber-500" /><select className="text-[10px] font-bold uppercase outline-none bg-transparent cursor-pointer text-slate-600" value={filterObjective} onChange={e => setFilterObjective(e.target.value)}><option value="all">Objetivo estratégico</option><option value="with">✓ Vinculadas a objetivo</option><option value="none">✕ Sem objetivo</option>{strategyObjectives.length > 0 && <option disabled>──────────</option>}{strategyObjectives.map((o: any) => <option key={o.id} value={o.id}>{o.name}</option>)}</select></div>
+                      {strategyEnabled && <div className="flex items-center gap-2 bg-white px-3 py-1.5 rounded border border-slate-200"><Compass size={14} className="text-amber-500" /><select className="text-[10px] font-bold uppercase outline-none bg-transparent cursor-pointer text-slate-600" value={filterObjective} onChange={e => setFilterObjective(e.target.value)}><option value="all">Objetivo estratégico</option><option value="with">✓ Vinculadas a objetivo</option><option value="none">✕ Sem objetivo</option>{strategyObjectives.length > 0 && <option disabled>──────────</option>}{strategyObjectives.map((o: any) => <option key={o.id} value={o.id}>{o.name}</option>)}</select></div>}
                     </div>
                   </div>
 
@@ -3699,8 +3724,17 @@ const App = () => {
                 </div>
               )}
 
+              {/* Controller em cliente sem o add-on de Planejamento Estratégico */}
+              {activeMenu === 'indicadores' && isController && !strategyEnabled && (
+                <div className="max-w-lg mx-auto mt-16 text-center bg-white p-10 rounded-2xl border border-slate-200 shadow-sm animate-in fade-in">
+                  <Gauge size={32} className="text-slate-200 mx-auto mb-3" />
+                  <h2 className="text-lg font-bold text-slate-800 italic">Módulo de Indicadores indisponível</h2>
+                  <p className="text-sm text-slate-500 mt-2">O add-on de Planejamento Estratégico não está ativo para esta empresa. Fale com a administração para liberar o acesso.</p>
+                </div>
+              )}
+
               {/* ==================== INDICADORES & GATILHOS (SEMÁFOROS) ==================== */}
-              {activeMenu === 'indicadores' && !detailInd && (
+              {activeMenu === 'indicadores' && !detailInd && strategyEnabled && (
                 <div className="space-y-8 animate-in fade-in">
                   <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex items-center justify-between">
                     <div>
@@ -3897,7 +3931,7 @@ const App = () => {
               )}
 
               {/* ==================== DETALHE DO INDICADOR ==================== */}
-              {activeMenu === 'indicadores' && detailInd && (() => {
+              {activeMenu === 'indicadores' && detailInd && strategyEnabled && (() => {
                 const dStatus = indicatorStatuses.find((x: any) => x.indicator_id === detailInd.indicator_id) || detailInd;
                 const lvl = dStatus.breach_level || 0;
                 const dot = lvl === 2 ? 'bg-red-600' : lvl === 1 ? 'bg-amber-500' : 'bg-emerald-500';
@@ -4128,6 +4162,7 @@ const App = () => {
                                   <p className="text-[9px] text-slate-400 uppercase tracking-widest truncate">{c.client_id}</p>
                                   <div className="flex gap-1.5 mt-1 flex-wrap">
                                     {c.active === false && <span className="text-[8px] bg-red-100 text-red-600 border border-red-200 px-1.5 py-0.5 rounded-full font-bold">Inativo</span>}
+                                    {c.strategy_enabled && <span className="text-[8px] bg-emerald-100 text-emerald-700 border border-emerald-200 px-1.5 py-0.5 rounded-full font-bold">Estratégia</span>}
                                     {c.clicksign_enabled && <span className="text-[8px] bg-amber-100 text-amber-700 border border-amber-200 px-1.5 py-0.5 rounded-full font-bold">ClickSign</span>}
                                     {!c.name && <span className="text-[8px] bg-slate-100 text-slate-400 border border-slate-200 px-1.5 py-0.5 rounded-full font-bold">Sem perfil</span>}
                                   </div>
@@ -4190,6 +4225,25 @@ const App = () => {
                                 <Save size={14} /> {savingManagedClient ? 'Salvando...' : 'Salvar Perfil'}
                               </button>
                             </div>
+                          </div>
+
+                          {/* Add-on Planejamento Estratégico */}
+                          <div className="border-t border-slate-100 pt-5 space-y-3">
+                            <h4 className="text-[10px] font-bold uppercase text-slate-400 tracking-widest flex items-center gap-2">
+                              <Compass size={13} className="text-amber-600" /> Add-on: Planejamento Estratégico
+                            </h4>
+                            <div className="flex items-center justify-between p-4 bg-slate-50 rounded-xl border border-slate-200">
+                              <div>
+                                <p className="text-sm font-bold text-slate-800 italic">Estratégia + Indicadores — {managedClientForm.name || managedClientId}</p>
+                                <p className="text-[10px] text-slate-400 font-normal not-italic mt-0.5">Libera os menus Estratégia (BSC/OKR/SWOT) e Indicadores (semáforos, metas, faróis)</p>
+                              </div>
+                              <button onClick={toggleManagedStrategy} className={`relative inline-flex h-7 w-12 shrink-0 items-center rounded-full transition-colors duration-200 focus:outline-none ${managedClientProfile?.strategy_enabled ? 'bg-amber-600' : 'bg-slate-200'}`}>
+                                <span className={`inline-block h-5 w-5 transform rounded-full bg-white shadow-md transition-transform duration-200 ${managedClientProfile?.strategy_enabled ? 'translate-x-6' : 'translate-x-1'}`} />
+                              </button>
+                            </div>
+                            {managedClientProfile?.strategy_enabled
+                              ? <p className="text-[10px] text-emerald-600 font-bold not-italic flex items-center gap-1.5"><CheckCircle2 size={12} /> Add-on ativo — menus Estratégia e Indicadores visíveis para o cliente</p>
+                              : <p className="text-[10px] text-slate-400 font-normal not-italic">Add-on inativo — o cliente não verá Estratégia nem Indicadores</p>}
                           </div>
 
                           {/* Add-on ClickSign */}
@@ -4742,12 +4796,12 @@ const App = () => {
             </div>
             <div className="flex-1 overflow-y-auto p-6 space-y-3 bg-slate-50/30">
               <div><label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">O quê — título *</label><input value={actionModal.title} onChange={e => setActionModal({ ...actionModal, title: e.target.value })} className="w-full mt-1 p-3 rounded-lg border border-slate-200 outline-none focus:border-amber-400 text-sm" /></div>
-              <div><label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Objetivo estratégico vinculado</label>
+              {strategyEnabled && <div><label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Objetivo estratégico vinculado</label>
                 <select value={actionModal.objective_id || ''} onChange={e => setActionModal({ ...actionModal, objective_id: e.target.value })} className="w-full mt-1 p-3 rounded-lg border border-slate-200 outline-none focus:border-amber-400 text-sm bg-white cursor-pointer">
                   <option value="">— nenhum —</option>
                   {strategyObjectives.map((o: any) => <option key={o.id} value={o.id}>{o.name}</option>)}
                 </select>
-              </div>
+              </div>}
               <div><label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Por quê — justificativa</label><textarea value={actionModal.why} onChange={e => setActionModal({ ...actionModal, why: e.target.value })} rows={2} className="w-full mt-1 p-3 rounded-lg border border-slate-200 outline-none focus:border-amber-400 text-sm resize-none" /></div>
               <div className="grid grid-cols-2 gap-3">
                 <div><label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Onde</label><input value={actionModal.where} onChange={e => setActionModal({ ...actionModal, where: e.target.value })} className="w-full mt-1 p-3 rounded-lg border border-slate-200 outline-none focus:border-amber-400 text-sm" /></div>
