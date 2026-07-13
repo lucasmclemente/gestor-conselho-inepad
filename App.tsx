@@ -313,6 +313,10 @@ const App = () => {
   const [fcaSuggesting, setFcaSuggesting] = useState(false);
   // Plano de Ação: 5W2H + vínculo a objetivo + Kanban
   const [strategyObjectives, setStrategyObjectives] = useState<any[]>([]);
+  // Dashboard estratégico (add-on): perspectivas BSC + OKR (para os blocos da home)
+  const [perspectivesList, setPerspectivesList] = useState<any[]>([]);
+  const [okrKrs, setOkrKrs] = useState<any[]>([]);
+  const [okrCheckins, setOkrCheckins] = useState<any[]>([]);
   const [actionModal, setActionModal] = useState<any>(null);
   const [actionModalSaving, setActionModalSaving] = useState(false);
   const [planoView, setPlanoView] = useState<'tabela' | 'kanban'>('tabela');
@@ -586,7 +590,7 @@ const App = () => {
         setAllClientsList(fullList);
       }
       // Indicadores & Gatilhos do cliente ativo (semáforos + alertas + cadastros + séries)
-      const [indStatusRes, indEventsRes, indListRes, trigListRes, readingsRes, govRes, targetsRes, fcaRes, objsRes] = await Promise.all([
+      const [indStatusRes, indEventsRes, indListRes, trigListRes, readingsRes, govRes, targetsRes, fcaRes, objsRes, perspRes, krRes, ckRes] = await Promise.all([
         supabase.from('indicator_current_status').select('*').eq('client_id', cid).order('breach_level', { ascending: false }),
         supabase.from('trigger_events').select('*, indicators(name, unit), triggers(name, indicators(name, unit))').eq('client_id', cid).eq('status', 'open').order('fired_at', { ascending: false }),
         supabase.from('indicators').select('*').eq('client_id', cid).order('name'),
@@ -596,8 +600,14 @@ const App = () => {
         supabase.from('indicator_targets').select('indicator_id, period, target_value').eq('client_id', cid),
         supabase.from('fca').select('*').eq('client_id', cid).order('created_at', { ascending: false }),
         supabase.from('objectives').select('id, name, perspective_id').eq('client_id', cid).eq('active', true).order('position'),
+        supabase.from('perspectives').select('id, name, position').eq('client_id', cid).order('position'),
+        supabase.from('key_results').select('id, okr_objective_id, indicator_id, start_value, target_value, current_value').eq('client_id', cid),
+        supabase.from('key_result_checkins').select('key_result_id, confidence, created_at').eq('client_id', cid).order('created_at', { ascending: false }),
       ]) as any;
       setStrategyObjectives(objsRes?.data || []);
+      setPerspectivesList(perspRes?.data || []);
+      setOkrKrs(krRes?.data || []);
+      setOkrCheckins(ckRes?.data || []);
       setIndicatorStatuses(indStatusRes.data || []);
       setOpenTriggerEvents(indEventsRes.data || []);
       setIndicatorsList(indListRes.data || []);
@@ -2061,6 +2071,46 @@ const App = () => {
     };
   }, [meetings, dashboardFilter]);
 
+  // Estatísticas do add-on (camada estratégica da home): farol, OKR e objetivos por perspectiva
+  const strategyStats = useMemo(() => {
+    // Farol dos indicadores (realizado × meta)
+    const farol = { verde: 0, amarelo: 0, vermelho: 0 };
+    indicatorStatuses.forEach((s: any) => { const b = s.breach_level || 0; if (b >= 2) farol.vermelho++; else if (b === 1) farol.amarelo++; else farol.verde++; });
+    const indTotal = indicatorStatuses.length;
+
+    // Farol de um objetivo = pior farol dos indicadores vinculados (-1 = sem indicador)
+    const stMap: Record<string, any> = {}; indicatorStatuses.forEach((s: any) => { stMap[s.indicator_id] = s; });
+    const objFarol = (objId: string) => {
+      const inds = indicatorsList.filter((i: any) => i.objective_id === objId);
+      if (!inds.length) return -1;
+      return Math.max(...inds.map((i: any) => (stMap[i.id]?.breach_level) || 0));
+    };
+    const perspRows = perspectivesList.map((p: any) => {
+      const objs = strategyObjectives.filter((o: any) => o.perspective_id === p.id);
+      let verde = 0, amarelo = 0, vermelho = 0;
+      objs.forEach((o: any) => { const f = objFarol(o.id); if (f >= 2) vermelho++; else if (f === 1) amarelo++; else verde++; });
+      return { id: p.id, name: p.name, total: objs.length, verde, amarelo, vermelho };
+    }).filter((r: any) => r.total > 0);
+    const objTotal = strategyObjectives.length;
+    const objNoAlvo = strategyObjectives.filter((o: any) => objFarol(o.id) <= 0).length;
+
+    // OKR do ciclo — progresso médio + confiança do último check-in
+    const curMap: Record<string, any> = {}; indicatorStatuses.forEach((s: any) => { curMap[s.indicator_id] = s.current_value; });
+    const krCurrent = (kr: any): number | null => kr.indicator_id ? (curMap[kr.indicator_id] != null ? Number(curMap[kr.indicator_id]) : null) : (kr.current_value != null ? Number(kr.current_value) : null);
+    const krProgress = (kr: any): number => { const cur = krCurrent(kr); if (cur == null) return 0; const s = Number(kr.start_value ?? 0), t = Number(kr.target_value); if (t === s) return cur >= t ? 1 : 0; return Math.max(0, (cur - s) / (t - s)); };
+    const latestConf: Record<string, string> = {}; okrCheckins.forEach((c: any) => { if (!latestConf[c.key_result_id]) latestConf[c.key_result_id] = c.confidence; });
+    const krCount = okrKrs.length;
+    const okrAvg = krCount ? Math.round(okrKrs.reduce((a: number, k: any) => a + Math.min(1, krProgress(k)), 0) / krCount * 100) : 0;
+    const okrRisco = okrKrs.filter((k: any) => latestConf[k.id] === 'red').length;
+    const okrRitmo = okrKrs.filter((k: any) => latestConf[k.id] === 'green').length;
+
+    return {
+      farol, indTotal, emAlerta: farol.amarelo + farol.vermelho, hasInd: indTotal > 0,
+      perspRows, objTotal, objNoAlvo, hasObj: objTotal > 0,
+      okrAvg, okrRisco, okrRitmo, krCount, hasOkr: krCount > 0,
+    };
+  }, [indicatorStatuses, indicatorsList, strategyObjectives, perspectivesList, okrKrs, okrCheckins]);
+
   // Próximas reuniões programadas (futuras, ainda não concluídas) — previsão na dashboard
   const upcomingMeetings = useMemo(() => {
     const today = new Date(); today.setHours(0, 0, 0, 0);
@@ -2612,7 +2662,7 @@ const App = () => {
               {activeMenu === 'dashboard' && (
                 <div className="space-y-6 animate-in fade-in">
                   <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-                    <h1 className="text-2xl font-bold text-slate-800 tracking-tight italic">Estratégia {clientProfile?.name || activeClientId || currentUser.client_id}</h1>
+                    <h1 className="text-2xl font-bold text-slate-800 tracking-tight italic">Painel de Governança · {clientProfile?.name || activeClientId || currentUser.client_id}</h1>
                     <div className="flex items-center gap-3 bg-white px-4 py-2 rounded-lg border border-slate-200 w-full sm:w-auto shadow-sm">
                       <Filter size={16} className="text-amber-500" /><select className="text-xs font-bold uppercase outline-none bg-transparent w-full cursor-pointer text-slate-600" value={dashboardFilter} onChange={e => setDashboardFilter(e.target.value)}>
                         <option value="all">Consolidado Geral</option>
@@ -2654,61 +2704,46 @@ const App = () => {
                       <div><p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest flex items-center gap-1">Em Atraso <ChevronRight size={12} className="opacity-0 group-hover:opacity-100 transition-opacity" /></p><p className={`text-2xl font-bold mt-1 ${dashStats.atrasadas > 0 ? 'text-red-600' : 'text-slate-800'}`}>{dashStats.atrasadas}</p></div>
                     </button>
 
-                    {/* Indicadores em alerta — atalho ao painel de semáforos */}
-                    {indicatorStatuses.length > 0 && (() => {
-                      const emAlerta = indicatorStatuses.filter((s: any) => (s.breach_level || 0) > 0).length;
-                      return (
-                        <button onClick={() => setActiveMenu('indicadores')} className={`group bg-white p-6 rounded-xl border shadow-sm flex items-start gap-4 text-left transition-all hover:shadow-md ${emAlerta > 0 ? 'border-red-200 hover:border-red-300' : 'border-slate-200 hover:border-amber-300'}`}>
-                          <div className={`p-3 rounded-lg ${emAlerta > 0 ? 'bg-red-100 text-red-600' : 'bg-emerald-100 text-emerald-600'}`}><Gauge /></div>
-                          <div><p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest flex items-center gap-1">Indicadores em alerta <ChevronRight size={12} className="opacity-0 group-hover:opacity-100 transition-opacity" /></p><p className={`text-2xl font-bold mt-1 ${emAlerta > 0 ? 'text-red-600' : 'text-slate-800'}`}>{emAlerta}<span className="text-base font-bold text-slate-300">/{indicatorStatuses.length}</span></p></div>
-                        </button>
-                      );
-                    })()}
                   </div>
-                  <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-                    <div className="p-4 border-b border-slate-50 bg-slate-50/50 flex justify-between items-center">
-                      <h3 className="text-xs font-bold uppercase text-slate-500 tracking-widest italic flex items-center gap-2"><CalendarClock size={16} className="text-amber-600" /> Próximas Reuniões Programadas</h3>
-                      {canEdit && (<button onClick={openScheduleModal} className="text-[10px] font-bold uppercase tracking-widest text-amber-600 hover:text-amber-700 flex items-center gap-1 transition-colors"><CalendarPlus size={12} /> Programar Ano</button>)}
-                    </div>
-                    {upcomingMeetings.length === 0 ? (
-                      <div className="p-8 text-center"><CalendarClock size={28} className="text-slate-200 mx-auto mb-2" /><p className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Nenhuma reunião programada{canEdit ? ' — use "Programar Ano" para reservar a agenda' : ''}</p></div>
-                    ) : (
-                      <div className="p-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-                        {upcomingMeetings.slice(0, 6).map((m: any) => {
-                          const dt = new Date(m.date + 'T00:00:00');
-                          const dias = Math.ceil((dt.getTime() - new Date(new Date().setHours(0, 0, 0, 0)).getTime()) / 86400000);
-                          return (
-                            <button key={m.id} onClick={() => { setCurrentMeeting(m); setView('details'); setTab('info'); setActiveMenu('reunioes'); }} className="group flex items-center gap-4 p-4 rounded-lg border border-slate-200 hover:border-amber-400 hover:shadow-md transition-all text-left">
-                              <div className="flex flex-col items-center justify-center w-14 h-14 rounded-lg bg-slate-900 text-white shrink-0">
-                                <span className="text-xl font-bold leading-none">{String(dt.getDate()).padStart(2, '0')}</span>
-                                <span className="text-[9px] font-bold uppercase text-amber-500 tracking-wider">{dt.toLocaleDateString('pt-BR', { month: 'short' }).replace('.', '')}</span>
-                              </div>
-                              <div className="min-w-0 flex-1">
-                                <p className="text-sm font-bold text-slate-800 italic truncate group-hover:text-amber-600 transition-colors">{m.title}</p>
-                                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">{m.time ? m.time + ' • ' : ''}{m.type}</p>
-                                <span className={`inline-block mt-1.5 px-2 py-0.5 rounded-full text-[9px] font-bold uppercase ${dias <= 7 ? 'bg-amber-100 text-amber-700' : 'bg-slate-100 text-slate-500'}`}>{dias === 0 ? 'Hoje' : dias === 1 ? 'Amanhã' : `Em ${dias} dias`}</span>
-                              </div>
-                            </button>
-                          );
-                        })}
-                      </div>
-                    )}
-                  </div>
-                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 lg:h-[350px]">
-                    <div className="bg-slate-900 p-6 rounded-xl shadow-xl flex flex-col h-[320px] lg:h-full"><h3 className="text-xs font-bold uppercase text-amber-500 mb-4 tracking-widest italic">Status das Ações</h3><div className="flex-1 min-h-0">
+                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                    {/* Status das Ações */}
+                    <div className="bg-slate-900 p-6 rounded-xl shadow-xl flex flex-col h-[340px]"><h3 className="text-xs font-bold uppercase text-amber-500 mb-4 tracking-widest italic">Status das Ações</h3><div className="flex-1 min-h-0">
                       {dashStats.totalActions === 0 ? (
                         <div className="h-full flex flex-col items-center justify-center text-center gap-2"><ListChecks size={28} className="text-slate-600" /><p className="text-[10px] font-bold uppercase tracking-widest text-slate-500">Nenhuma ação registrada ainda</p></div>
                       ) : (
                         <ResponsiveContainer width="100%" height="100%"><PieChart><Pie data={dashStats.pieData} innerRadius={60} outerRadius={80} dataKey="value" paddingAngle={5}>{dashStats.pieData.map((e, i) => (<Cell key={i} fill={e.color} stroke="none" />))}</Pie><Tooltip /><Legend wrapperStyle={{ fontSize: '10px', textTransform: 'uppercase' }} /></PieChart></ResponsiveContainer>
                       )}
                     </div></div>
-                    <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm flex flex-col h-[320px] lg:h-full"><h3 className="text-xs font-bold uppercase text-slate-500 mb-4 tracking-widest italic">Produtividade Recente</h3><div className="flex-1 min-h-0">
-                      {dashStats.barData.length === 0 ? (
-                        <div className="h-full flex flex-col items-center justify-center text-center gap-2"><Calendar size={28} className="text-slate-200" /><p className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Nenhuma reunião no período</p></div>
+                    {/* Próximas reuniões */}
+                    <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden flex flex-col h-[340px]">
+                      <div className="p-4 border-b border-slate-50 bg-slate-50/50 flex justify-between items-center shrink-0">
+                        <h3 className="text-xs font-bold uppercase text-slate-500 tracking-widest italic flex items-center gap-2"><CalendarClock size={16} className="text-amber-600" /> Próximas Reuniões</h3>
+                        {canEdit && (<button onClick={openScheduleModal} className="text-[10px] font-bold uppercase tracking-widest text-amber-600 hover:text-amber-700 flex items-center gap-1 transition-colors"><CalendarPlus size={12} /> Programar Ano</button>)}
+                      </div>
+                      {upcomingMeetings.length === 0 ? (
+                        <div className="flex-1 flex flex-col items-center justify-center p-8 text-center"><CalendarClock size={28} className="text-slate-200 mb-2" /><p className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Nenhuma reunião programada{canEdit ? ' — use "Programar Ano"' : ''}</p></div>
                       ) : (
-                        <ResponsiveContainer width="100%" height="100%"><BarChart data={dashStats.barData}><CartesianGrid vertical={false} stroke="#f1f5f9" /><XAxis dataKey="name" tick={{ fontSize: 10, fontWeight: 600 }} /><YAxis hide /><Tooltip /><Legend wrapperStyle={{ fontSize: '10px', textTransform: 'uppercase' }} /><Bar dataKey="Pautas" fill="#cbd5e1" radius={[4, 4, 0, 0]} barSize={20} /><Bar dataKey="Ações" fill="#d97706" radius={[4, 4, 0, 0]} barSize={20} /></BarChart></ResponsiveContainer>
+                        <div className="p-3 flex flex-col gap-2 overflow-y-auto">
+                          {upcomingMeetings.slice(0, 4).map((m: any) => {
+                            const dt = new Date(m.date + 'T00:00:00');
+                            const dias = Math.ceil((dt.getTime() - new Date(new Date().setHours(0, 0, 0, 0)).getTime()) / 86400000);
+                            const isRae = m.type === 'RAE';
+                            return (
+                              <button key={m.id} onClick={() => { setCurrentMeeting(m); setView('details'); setTab('info'); setActiveMenu('reunioes'); }} className="group flex items-center gap-3 p-2.5 rounded-lg border border-slate-200 hover:border-amber-400 hover:shadow-sm transition-all text-left">
+                                <div className={`flex flex-col items-center justify-center w-11 h-11 rounded-lg text-white shrink-0 ${isRae ? 'bg-amber-800' : 'bg-slate-900'}`}>
+                                  <span className="text-base font-bold leading-none">{String(dt.getDate()).padStart(2, '0')}</span>
+                                  <span className="text-[8px] font-bold uppercase text-amber-400 tracking-wider">{dt.toLocaleDateString('pt-BR', { month: 'short' }).replace('.', '')}</span>
+                                </div>
+                                <div className="min-w-0 flex-1">
+                                  <p className="text-[13px] font-bold text-slate-800 italic truncate group-hover:text-amber-600 transition-colors">{m.title}{isRae && strategyEnabled && <span className="ml-1.5 text-[8px] font-bold uppercase not-italic text-amber-700 bg-amber-50 border border-amber-100 rounded px-1.5 py-0.5 align-middle">estratégica</span>}</p>
+                                  <p className="text-[10px] text-slate-400">{dias === 0 ? 'Hoje' : dias === 1 ? 'Amanhã' : `Em ${dias} dias`}{m.type ? ` · ${m.type}` : ''}</p>
+                                </div>
+                              </button>
+                            );
+                          })}
+                        </div>
                       )}
-                    </div></div>
+                    </div>
                   </div>
                   <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden animate-in fade-in slide-in-from-bottom-2">
                     <div className="p-4 border-b border-slate-50 bg-slate-50/50 flex justify-between items-center">
@@ -2746,6 +2781,102 @@ const App = () => {
                       </table>
                     </div>
                   </div>
+
+                  {/* ===================== CAMADA ESTRATÉGICA (add-on) ===================== */}
+                  {strategyEnabled && (
+                    <div className="space-y-6 pt-2 animate-in fade-in">
+                      <div className="flex items-center gap-3">
+                        <span className="text-[11px] font-bold uppercase tracking-[0.2em] text-amber-700 italic flex items-center gap-2"><Compass size={15} /> Camada Estratégica</span>
+                        <span className="flex-1 h-px bg-slate-200" />
+                        <span className="text-[9px] font-bold text-emerald-700 bg-emerald-100 border border-emerald-200 rounded px-2 py-0.5 uppercase tracking-wider">Add-on ativo</span>
+                      </div>
+
+                      {!strategyStats.hasInd && !strategyStats.hasObj && !strategyStats.hasOkr ? (
+                        <div className="bg-white p-8 rounded-xl border border-dashed border-slate-200 text-center">
+                          <Compass size={28} className="text-slate-200 mx-auto mb-2" />
+                          <p className="text-[11px] font-bold uppercase tracking-widest text-slate-400">Comece pelo módulo Estratégia — cadastre objetivos, indicadores e OKRs para ver os painéis aqui</p>
+                          {canEdit && <button onClick={() => setActiveMenu('estrategia')} className="mt-3 text-[10px] font-bold uppercase tracking-widest text-amber-600 hover:text-amber-700">Ir para Estratégia →</button>}
+                        </div>
+                      ) : (
+                        <>
+                          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                            {/* Farol dos indicadores */}
+                            {strategyStats.hasInd && (
+                              <button onClick={() => setActiveMenu('indicadores')} className="group bg-white p-6 rounded-xl border border-slate-200 shadow-sm text-left hover:shadow-md hover:border-amber-300 transition-all">
+                                <h3 className="text-xs font-bold uppercase text-slate-500 tracking-widest italic mb-4 flex items-center gap-2">Farol dos Indicadores <ChevronRight size={12} className="opacity-0 group-hover:opacity-100 transition-opacity" /></h3>
+                                <div className="flex items-center gap-5">
+                                  {(() => {
+                                    const t = strategyStats.indTotal || 1, f = strategyStats.farol;
+                                    const pv = f.verde / t * 100, pa = f.amarelo / t * 100, pr = f.vermelho / t * 100;
+                                    return (
+                                      <svg width="92" height="92" viewBox="0 0 88 88" className="shrink-0">
+                                        <g transform="rotate(-90 44 44)" fill="none" strokeWidth="12">
+                                          <circle cx="44" cy="44" r="32" stroke="#eef2f6" pathLength={100} />
+                                          {pv > 0 && <circle cx="44" cy="44" r="32" stroke="#10b981" pathLength={100} strokeDasharray={`${pv} ${100 - pv}`} strokeDashoffset={0} />}
+                                          {pa > 0 && <circle cx="44" cy="44" r="32" stroke="#f59e0b" pathLength={100} strokeDasharray={`${pa} ${100 - pa}`} strokeDashoffset={-pv} />}
+                                          {pr > 0 && <circle cx="44" cy="44" r="32" stroke="#ef4444" pathLength={100} strokeDasharray={`${pr} ${100 - pr}`} strokeDashoffset={-(pv + pa)} />}
+                                        </g>
+                                        <text x="44" y="41" textAnchor="middle" fontSize="18" fontWeight="700" fill="#0f172a">{strategyStats.indTotal}</text>
+                                        <text x="44" y="55" textAnchor="middle" fontSize="9" fill="#94a3b8">indic.</text>
+                                      </svg>
+                                    );
+                                  })()}
+                                  <div className="flex flex-col gap-2 text-[13px] flex-1">
+                                    <div className="flex items-center gap-2"><span className="w-2.5 h-2.5 rounded-full bg-emerald-500" /> No alvo <b className="ml-auto text-slate-800">{strategyStats.farol.verde}</b></div>
+                                    <div className="flex items-center gap-2"><span className="w-2.5 h-2.5 rounded-full bg-amber-500" /> Atenção <b className="ml-auto text-slate-800">{strategyStats.farol.amarelo}</b></div>
+                                    <div className="flex items-center gap-2"><span className="w-2.5 h-2.5 rounded-full bg-red-500" /> Crítico <b className="ml-auto text-slate-800">{strategyStats.farol.vermelho}</b></div>
+                                  </div>
+                                </div>
+                              </button>
+                            )}
+                            {/* OKRs do ciclo */}
+                            {strategyStats.hasOkr && (
+                              <button onClick={() => setActiveMenu('estrategia')} className="group bg-white p-6 rounded-xl border border-slate-200 shadow-sm text-left hover:shadow-md hover:border-amber-300 transition-all">
+                                <h3 className="text-xs font-bold uppercase text-slate-500 tracking-widest italic mb-3 flex items-center gap-2">OKRs do Ciclo <ChevronRight size={12} className="opacity-0 group-hover:opacity-100 transition-opacity" /></h3>
+                                <div className="flex items-baseline gap-2"><span className="text-3xl font-bold text-slate-800">{strategyStats.okrAvg}%</span><span className="text-xs text-slate-400">progresso médio · {strategyStats.krCount} KR{strategyStats.krCount !== 1 ? 's' : ''}</span></div>
+                                <div className="h-1.5 bg-slate-100 rounded-full my-3 overflow-hidden"><div className="h-full bg-amber-600 rounded-full transition-all" style={{ width: `${strategyStats.okrAvg}%` }} /></div>
+                                <div className="flex gap-2 text-[11px]">
+                                  <span className="flex-1 text-center bg-emerald-50 text-emerald-700 rounded-lg py-1.5 font-bold">{strategyStats.okrRitmo} no ritmo</span>
+                                  <span className="flex-1 text-center bg-amber-50 text-amber-700 rounded-lg py-1.5 font-bold">{strategyStats.okrRisco} em risco</span>
+                                </div>
+                              </button>
+                            )}
+                          </div>
+
+                          {/* Objetivos por perspectiva (BSC) */}
+                          {strategyStats.hasObj && strategyStats.perspRows.length > 0 && (
+                            <button onClick={() => setActiveMenu('estrategia')} className="group w-full bg-white p-6 rounded-xl border border-slate-200 shadow-sm text-left hover:shadow-md hover:border-amber-300 transition-all">
+                              <div className="flex justify-between items-center mb-4">
+                                <h3 className="text-xs font-bold uppercase text-slate-500 tracking-widest italic flex items-center gap-2">Objetivos por Perspectiva (BSC) <ChevronRight size={12} className="opacity-0 group-hover:opacity-100 transition-opacity" /></h3>
+                                <span className="text-[11px] text-slate-400 font-bold">{strategyStats.objNoAlvo}/{strategyStats.objTotal} no alvo</span>
+                              </div>
+                              <div className="flex flex-col gap-3">
+                                {strategyStats.perspRows.map((r: any) => {
+                                  const t = r.total || 1;
+                                  return (
+                                    <div key={r.id} className="grid items-center gap-3" style={{ gridTemplateColumns: '130px 1fr 44px' }}>
+                                      <span className="text-[13px] font-bold text-slate-800 italic truncate">{r.name}</span>
+                                      <span className="flex h-2.5 rounded-full overflow-hidden bg-slate-100">
+                                        {r.verde > 0 && <span style={{ width: `${r.verde / t * 100}%`, background: '#10b981' }} />}
+                                        {r.amarelo > 0 && <span style={{ width: `${r.amarelo / t * 100}%`, background: '#f59e0b' }} />}
+                                        {r.vermelho > 0 && <span style={{ width: `${r.vermelho / t * 100}%`, background: '#ef4444' }} />}
+                                      </span>
+                                      <span className="text-[11px] text-slate-400 text-right tabular-nums">{r.verde}/{r.total}</span>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                              <div className="flex gap-4 mt-4 pt-3 border-t border-slate-100 text-[10px] text-slate-400">
+                                <span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-sm bg-emerald-500" /> no alvo</span>
+                                <span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-sm bg-amber-500" /> atenção</span>
+                                <span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-sm bg-red-500" /> crítico</span>
+                              </div>
+                            </button>
+                          )}
+                        </>
+                      )}
+                    </div>
+                  )}
                 </div>
               )}
 
