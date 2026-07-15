@@ -1,4 +1,4 @@
-# CLAUDE.md — GovCorp | INEPAD Governança e Sucessão
+# CLAUDE.md — Boardplan | INEPAD Governança e Sucessão
 > Arquivo de contexto do projeto. Cole nas Project Instructions do Claude.
 > Última atualização: 08/07/2026 (v4)
 
@@ -6,7 +6,7 @@
 
 ## 1. VISÃO GERAL DO PROJETO
 
-**Nome:** GovCorp — Plataforma de Gestão de Conselhos  
+**Nome:** Boardplan — Plataforma de Gestão de Conselhos (marca adotada em 15/07/2026; antes "GovCorp")  
 **Cliente:** INEPAD Governança e Sucessão (Governança e Sucessão Empresarial)  
 **Modelo:** Multi-tenant SaaS (múltiplas empresas clientes, dados isolados por `client_id`)  
 **Status:** Segurança validada. Pronto para testes com clientes parceiros.  
@@ -71,7 +71,7 @@ Plataforma corporativa que gerencia o ciclo completo de reuniões de Conselhos D
 ```
 GESTOR-CONSELHO-INEPAD/
 ├── components/        ← existe mas não utilizada (App.tsx é monolítico — refatoração futura)
-├── public/            ← logo-login.jpg, logo-sidebar.jpg, favicon.png
+├── public/            ← favicon.svg (símbolo Boardplan), logo-login.jpg (usado só no preview de convocação)
 ├── services/
 ├── supabase/
 ├── .env               ← VITE_SUPABASE_URL e VITE_SUPABASE_ANON_KEY (não commitar)
@@ -428,7 +428,7 @@ git checkout develop
 > supabase login            # uma vez (abre o navegador)
 > supabase functions deploy <nome> --project-ref <ref>
 > ```
-> Refs: produção = `jrtrrubtjbinnddqdbta` (GovCorp-INEPAD); develop = projeto de homologação (ver memória do projeto). Funções que importam `_shared/` empacotam o compartilhado automaticamente. Não requer Docker.
+> Refs: produção = `jrtrrubtjbinnddqdbta` (nome do projeto no Supabase segue `GovCorp-INEPAD`, não renomeado); develop = projeto de homologação (ver memória do projeto). Funções que importam `_shared/` empacotam o compartilhado automaticamente. Não requer Docker.
 
 ---
 
