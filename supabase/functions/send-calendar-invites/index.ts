@@ -144,7 +144,7 @@ serve(async (req) => {
         html: `
           <div style="font-family: sans-serif; max-width: 600px; margin: auto; border: 1px solid #e2e8f0; border-radius: 12px; overflow: hidden;">
             <div style="background: #0f172a; padding: 30px; text-align: center;">
-              <img src="https://jrtrrubtjbinnddqdbta.supabase.co/storage/v1/object/public/meeting-files/logo-sidebar.jpg" style="height: 40px;" />
+              <img src="https://conselho.inepadconsulting.com/boardplan-logo-email.png" style="height: 40px;" />
             </div>
             <div style="padding: 40px; color: #1e293b;">
               <h2 style="color: #b45309; font-style: italic; margin-bottom: 5px;">Programação Anual do Conselho${orgLabel}</h2>

@@ -25,8 +25,8 @@ function buildSignEmail(name: string, meetingTitle: string, meetingDate: string,
   return `
     <div style="font-family:sans-serif;max-width:600px;margin:auto;border:1px solid #e2e8f0;border-radius:12px;overflow:hidden;">
       <div style="background:#0f172a;padding:24px 30px;text-align:center;">
-        <img src="https://jrtrrubtjbinnddqdbta.supabase.co/storage/v1/object/public/meeting-files/logo-sidebar.jpg"
-             alt="INEPAD" style="height:32px;margin-bottom:10px;" />
+        <img src="https://conselho.inepadconsulting.com/boardplan-logo-email.png"
+             alt="Boardplan" style="height:32px;margin-bottom:10px;" />
         <p style="margin:0;color:#f59e0b;font-size:10px;font-weight:bold;text-transform:uppercase;letter-spacing:2px;">
           Assinatura Digital • Ata de Reunião
         </p>

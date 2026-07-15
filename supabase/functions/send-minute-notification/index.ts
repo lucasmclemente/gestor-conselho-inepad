@@ -97,7 +97,7 @@ serve(async (req) => {
           html: `
             <div style="font-family: sans-serif; max-width: 600px; margin: auto; border: 1px solid #e2e8f0; border-radius: 12px; overflow: hidden; background: #ffffff;">
               <div style="background: #0f172a; padding: 20px; text-align: center;">
-                <img src="https://jrtrrubtjbinnddqdbta.supabase.co/storage/v1/object/public/meeting-files/logo-sidebar.jpg" style="height: 35px;" />
+                <img src="https://conselho.inepadconsulting.com/boardplan-logo-email.png" style="height: 35px;" />
               </div>
 
               <div style="padding: 30px; color: #1e293b;">
