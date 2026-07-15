@@ -1,4 +1,4 @@
-# CLAUDE.md — GovCorp | INEPAD Consultoria
+# CLAUDE.md — GovCorp | INEPAD Governança e Sucessão
 > Arquivo de contexto do projeto. Cole nas Project Instructions do Claude.
 > Última atualização: 08/07/2026 (v4)
 
@@ -7,7 +7,7 @@
 ## 1. VISÃO GERAL DO PROJETO
 
 **Nome:** GovCorp — Plataforma de Gestão de Conselhos  
-**Cliente:** INEPAD Consultoria (Governança e Sucessão Empresarial)  
+**Cliente:** INEPAD Governança e Sucessão (Governança e Sucessão Empresarial)  
 **Modelo:** Multi-tenant SaaS (múltiplas empresas clientes, dados isolados por `client_id`)  
 **Status:** Segurança validada. Pronto para testes com clientes parceiros.  
 **URL Produção:** conselho.inepadconsulting.com (Vercel → branch `main`)  
@@ -472,7 +472,7 @@ git checkout main && git merge develop && git push origin main && git checkout d
 
 ## 14. CONTEXTO DO DESENVOLVEDOR
 
-- Lucas Clemente — INEPAD Consultoria
+- Lucas Clemente — INEPAD Governança e Sucessão
 - Perfil: leigo em programação, desenvolve com apoio de IA
 - Decisões de arquitetura tomadas ao longo do desenvolvimento devem ser respeitadas
 - Sempre entregar código completo para evitar erros de edição parcial

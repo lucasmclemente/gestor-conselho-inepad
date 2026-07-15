@@ -414,7 +414,7 @@ function addFooters(
     doc.setFontSize(6.5);
     doc.setTextColor(...C.medium);
     doc.text(
-      `Boardplan — Governança de Conselhos | INEPAD Consultoria | ${dateStr} às ${timeStr}`,
+      `Boardplan — Governança de Conselhos | INEPAD Governança e Sucessão | ${dateStr} às ${timeStr}`,
       ML, H - 4.5
     );
     doc.text(`Página ${i} de ${total}`, W - ML, H - 4.5, { align: 'right' });

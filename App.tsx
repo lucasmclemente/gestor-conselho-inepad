@@ -132,7 +132,7 @@ const PublicVote: React.FC<{ token: string }> = ({ token }) => {
             <div className="text-center py-4"><div className="text-5xl mb-3">✅</div><p className="font-bold text-slate-800 text-lg">Voto registrado!</p><p className="text-sm text-slate-500 mt-2">Seu voto <b>"{chosen}"</b> foi registrado com sucesso.</p><p className="text-xs text-slate-400 mt-3">Você já pode fechar esta página.</p></div>
           )}
         </div>
-        <div className="bg-slate-50 border-t border-slate-100 text-center text-[10px] text-slate-400 py-3 font-bold uppercase tracking-widest">Boardplan • INEPAD Consultoria</div>
+        <div className="bg-slate-50 border-t border-slate-100 text-center text-[10px] text-slate-400 py-3 font-bold uppercase tracking-widest">Boardplan • INEPAD Governança e Sucessão</div>
       </div>
     </div>
   );
@@ -207,7 +207,7 @@ const PublicCollect: React.FC<{ token: string }> = ({ token }) => {
             <div className="text-center py-4"><div className="text-5xl mb-3">✅</div><p className="font-bold text-slate-800 text-lg">Dados enviados!</p><p className="text-sm text-slate-500 mt-2"><b>{savedCount}</b> indicador(es) registrado(s) para {periodLabel}.</p><p className="text-xs text-slate-400 mt-3">Obrigado. Você já pode fechar esta página.</p></div>
           )}
         </div>
-        <div className="bg-slate-50 border-t border-slate-100 text-center text-[10px] text-slate-400 py-3 font-bold uppercase tracking-widest">Boardplan • INEPAD Consultoria</div>
+        <div className="bg-slate-50 border-t border-slate-100 text-center text-[10px] text-slate-400 py-3 font-bold uppercase tracking-widest">Boardplan • INEPAD Governança e Sucessão</div>
       </div>
     </div>
   );
@@ -2486,21 +2486,21 @@ const App = () => {
 
   if (!currentUser) {
     return (
-      <div className="min-h-screen bg-slate-50 flex items-stretch md:items-center justify-center md:p-4 font-sans text-slate-900">
-        <div className="w-full max-w-4xl bg-white md:rounded-2xl md:shadow-xl overflow-hidden flex flex-col md:flex-row md:border md:border-slate-100 min-h-screen md:min-h-0">
+      <div className="min-h-screen flex flex-col md:flex-row font-sans text-slate-900">
           {/* ── Painel de marca (ardósia) ── */}
-          <div className="md:w-1/2 bg-[#0F172A] text-white p-8 md:p-10 flex flex-col justify-between gap-8">
+          <div className="md:w-1/2 bg-[#0F172A] text-white p-8 md:p-16 flex flex-col justify-between gap-10 min-h-[38vh] md:min-h-screen">
             <BoardplanLogo tone="dark" markSize={34} textSize={24} />
             <div>
               <div className="text-[11px] font-bold uppercase tracking-[0.22em] text-amber-500 mb-3">Governança de conselhos</div>
               <p className="font-voice italic text-2xl md:text-[26px] leading-snug text-white text-balance">Onde o conselho governa e planeja o futuro da empresa.</p>
               <p className="text-sm text-slate-400 mt-4 max-w-xs leading-relaxed">Convocações, deliberações, atas e plano de ação — do agendamento à decisão.</p>
             </div>
-            <div className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-[0.16em] text-slate-500"><span className="w-4 h-px bg-slate-700" /> INEPAD Consultoria</div>
+            <div className="flex items-center gap-2 text-[11px] font-bold tracking-wide text-slate-500"><span className="w-4 h-px bg-slate-700" /> INEPAD Governança e Sucessão</div>
           </div>
 
           {/* ── Painel de acesso (branco) ── */}
-          <div className="md:w-1/2 p-8 md:p-10 flex flex-col justify-center">
+          <div className="md:w-1/2 bg-white flex items-center justify-center p-8 md:p-16">
+            <div className="w-full max-w-sm">
             <div className="mb-6">
               <h1 className="font-voice italic text-2xl text-slate-800">Acesso ao portal do conselho</h1>
               <p className="text-sm text-slate-500 mt-1">Use o e-mail cadastrado pela sua empresa.</p>
@@ -2629,7 +2629,7 @@ const App = () => {
         <header className="h-16 bg-white border-b border-slate-200 flex items-center justify-between px-4 md:px-8 shrink-0 shadow-sm z-10">
           <div className="flex items-center gap-4">
             <button className="md:hidden p-2 text-slate-600" onClick={() => setIsMobileMenuOpen(true)}><Menu size={24} /></button>
-            <h2 className="text-[10px] font-bold text-slate-400 uppercase tracking-widest hidden sm:inline">INEPAD Consultoria • {isSuper ? 'GESTÃO MASTER' : (clientProfile?.name || activeClientId || currentUser.client_id)}</h2>
+            <h2 className="text-[10px] font-bold text-slate-400 uppercase tracking-widest hidden sm:inline">INEPAD Governança e Sucessão • {isSuper ? 'GESTÃO MASTER' : (clientProfile?.name || activeClientId || currentUser.client_id)}</h2>
             {clientSwitchList.length > 1 && (
               <div className="flex items-center gap-2 bg-amber-50 border border-amber-200 rounded-lg px-3 py-1.5">
                 <Building2 size={14} className="text-amber-600 shrink-0" />

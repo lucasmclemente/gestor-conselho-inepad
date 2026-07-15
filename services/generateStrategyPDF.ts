@@ -107,7 +107,7 @@ export function generateStrategyPDF(data: StrategyData) {
   const pages = (doc as any).internal.getNumberOfPages();
   for (let i = 1; i <= pages; i++) {
     doc.setPage(i); doc.setFontSize(8); doc.setTextColor(...MUT);
-    doc.text('Boardplan — INEPAD Consultoria', 14, H - 8);
+    doc.text('Boardplan — INEPAD Governança e Sucessão', 14, H - 8);
     doc.text(`${i}/${pages}`, W - 20, H - 8);
   }
 
