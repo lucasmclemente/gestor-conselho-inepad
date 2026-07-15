@@ -129,6 +129,9 @@ const App = () => {
   const [isSessionActive, setIsSessionActive] = useState(false);
   const currentMeetingRef = useRef<any>(null);
   const [noteAutoSaved, setNoteAutoSaved] = useState(false);
+  // Ata com IA: sobe a transcrição do Teams/Meet e rascunha a discussão de cada pauta
+  const transcriptRef = useRef<HTMLInputElement>(null);
+  const [draftingMinutes, setDraftingMinutes] = useState(false);
   // Secretário multi-cliente: cliente em que o usuário está atuando + lista para o seletor
   const [activeClientId, setActiveClientId] = useState<string | null>(null);
   const [clientSwitchList, setClientSwitchList] = useState<any[]>([]);
@@ -333,6 +336,59 @@ const App = () => {
     }, 2000);
     return () => clearTimeout(handle);
   }, [obsInputValue, editingObsKey, isSessionActive]);
+
+  // ----- Ata com IA: transcrição (Teams/Meet) → discussão de cada pauta -----
+  // Limpa .vtt/.srt: remove cabeçalho, numeração de cue, marcas de tempo e ids do Teams.
+  const cleanTranscript = (raw: string): string => {
+    const out: string[] = [];
+    for (const line of raw.split(/\r?\n/)) {
+      const t = line.trim();
+      if (!t) continue;
+      if (/^WEBVTT/i.test(t)) continue;
+      if (/^NOTE\b/i.test(t)) continue;
+      if (/^\d+$/.test(t)) continue;                        // numeração do cue
+      if (t.includes('-->')) continue;                      // 00:00:01.000 --> 00:00:04.000
+      if (/^[0-9a-f-]{8,}(\/\d+-\d+)?$/i.test(t)) continue; // id de cue (Teams)
+      // <v Maria Andrade>texto</v>  →  "Maria Andrade: texto"  (o Teams marca quem falou assim)
+      const falado = t.replace(/<v\s+([^>]+?)>(.*?)<\/v>/gi, '$1: $2').replace(/<\/?[^>]+>/g, '').trim();
+      if (falado) out.push(falado);
+    }
+    // Colapsa repetições consecutivas (legendas costumam repetir a linha anterior)
+    return out.filter((l, i) => l !== out[i - 1]).join('\n');
+  };
+
+  const handleTranscriptUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (e.target) e.target.value = ''; // permite reenviar o mesmo arquivo
+    if (!file || !currentMeeting?.id) return;
+    if (!(currentMeeting.pautas || []).length) return alert('Monte a ordem do dia antes de rascunhar as discussões.');
+
+    const transcript = cleanTranscript(await file.text());
+    if (transcript.length < 200) return alert('A transcrição parece vazia ou curta demais. Envie o arquivo .vtt ou .txt gerado pelo Teams/Meet.');
+
+    const jaPreenchidas = (currentMeeting.pautas || []).filter((p: any) => (p.notes || '').trim()).length;
+    if (jaPreenchidas > 0 && !window.confirm(`${jaPreenchidas} item(ns) já têm discussão escrita e serão substituídos pelo rascunho da IA.\n\nContinuar?`)) return;
+
+    setDraftingMinutes(true);
+    try {
+      const { data, error } = await supabase.functions.invoke('draft-minutes', {
+        body: { meetingId: currentMeeting.id, transcript },
+      });
+      if (error || data?.error) throw new Error(data?.error || error?.message);
+      const notas: string[] = data.notas || [];
+      // Só preenche em tela — nada é gravado até a secretária clicar em Salvar
+      setCurrentMeeting((prev: any) => ({
+        ...prev,
+        pautas: (prev.pautas || []).map((p: any, i: number) => (notas[i] ? { ...p, notes: notas[i] } : p)),
+      }));
+      addLog('Ata (IA)', `Rascunho de discussões gerado: ${data.preenchidas}/${data.total} item(ns).`);
+      alert(`✅ Rascunho pronto — ${data.preenchidas} de ${data.total} item(ns) preenchido(s).\n\nRevise e ajuste os textos e clique em SALVAR.\nNada foi gravado ainda.`);
+    } catch (err: any) {
+      alert('Erro ao rascunhar a ata: ' + (err?.message || err));
+    } finally {
+      setDraftingMinutes(false);
+    }
+  };
 
   const handleMovePauta = (index: number, direction: 'up' | 'down') => {
     if (!canEdit || isSessionActive) return;
@@ -2746,6 +2802,21 @@ const App = () => {
                             {isSessionActive ? <><Square size={16} /> Encerrar Reunião</> : <><Play size={16} /> Iniciar Reunião</>}
                           </button>
                         </div>
+                        {canEdit && (currentMeeting.pautas || []).length > 0 && (
+                          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-amber-50/60 border border-amber-200 rounded-xl px-4 py-3">
+                            <div className="min-w-0">
+                              <p className="text-[11px] font-bold text-amber-800 uppercase tracking-widest flex items-center gap-1.5"><Sparkles size={13} /> Rascunhar discussões com IA</p>
+                              <p className="text-[11px] text-amber-700/80 mt-0.5 leading-snug">Envie a transcrição gerada pelo Teams ou Meet (.vtt ou .txt). A IA preenche a discussão de cada item — você revisa e salva.</p>
+                            </div>
+                            <button
+                              onClick={() => transcriptRef.current?.click()}
+                              disabled={draftingMinutes}
+                              className="shrink-0 bg-slate-900 hover:bg-slate-800 text-amber-500 px-4 py-2.5 rounded-lg text-[10px] font-bold uppercase tracking-widest inline-flex items-center justify-center gap-2 transition-all shadow-sm disabled:opacity-50"
+                            >
+                              {draftingMinutes ? 'Analisando…' : <><Upload size={14} /> Enviar transcrição</>}
+                            </button>
+                          </div>
+                        )}
                         <div className="space-y-3">
                           {(currentMeeting.pautas || []).map((p: any, i: any) => (
                             <div key={i} className={`flex flex-col border rounded-lg transition-all group border-l-4 font-bold italic overflow-hidden ${activePautaIndex === i ? 'bg-amber-50 border-amber-500 scale-[1.01] shadow-sm' : 'bg-white border-slate-200'}`}>
@@ -4906,6 +4977,7 @@ const App = () => {
 
       <input type="file" ref={indCsvRef} accept=".csv,text/csv" className="hidden" onChange={handleCsvFile} />
       <input type="file" ref={fileRef} className="hidden" onChange={(e) => handleFileUpload(e, 'materiais')} />
+      <input type="file" ref={transcriptRef} accept=".vtt,.txt,.srt,text/plain" className="hidden" onChange={handleTranscriptUpload} />
       <input type="file" ref={ataRef} className="hidden" onChange={(e) => handleFileUpload(e, 'atas')} />
       <input type="file" ref={assistantFileRef} className="hidden" onChange={assistantUploadMaterial} />
     </div>
