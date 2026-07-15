@@ -186,12 +186,12 @@ export async function sendAlertEmail(to: string[], p: { indicatorName: string; t
         ${p.period ? `<tr><td style="padding:4px 12px 4px 0;color:#64748b">Competência</td><td style="padding:4px 0">${escapeHtml(p.period)}</td></tr>` : ''}
         <tr><td style="padding:4px 12px 4px 0;color:#64748b">Regra</td><td style="padding:4px 0">${escapeHtml(p.origem)}</td></tr>
       </table>
-      <p style="color:#64748b;font-size:12px">Uma ação foi registrada no Plano de Ação do GovCorp para tratamento.</p>
+      <p style="color:#64748b;font-size:12px">Uma ação foi registrada no Plano de Ação do Boardplan para tratamento.</p>
     </div>`
   await fetch('https://api.resend.com/emails', {
     method: 'POST',
     headers: { 'Authorization': `Bearer ${RESEND_API_KEY}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ from: RESEND_FROM, to, subject: `[GovCorp] Gatilho disparado: ${p.indicatorName}`, html }),
+    body: JSON.stringify({ from: RESEND_FROM, to, subject: `[Boardplan] Gatilho disparado: ${p.indicatorName}`, html }),
   })
 }
 
@@ -215,11 +215,11 @@ export async function sendDigestEmail(to: string[], clientName: string, alerts: 
       <h2 style="color:#b45309;margin-bottom:4px">🔔 Indicadores em alerta — ${escapeHtml(clientName)}</h2>
       <p style="color:#64748b;font-size:13px">Há <b>${alerts.length}</b> gatilho(s) ainda em aberto. Resumo:</p>
       <table style="border-collapse:collapse;font-size:14px;margin:12px 0">${linhas}</table>
-      <p style="color:#94a3b8;font-size:12px">Acompanhe e resolva no menu Indicadores do GovCorp.</p>
+      <p style="color:#94a3b8;font-size:12px">Acompanhe e resolva no menu Indicadores do Boardplan.</p>
     </div>`
   await fetch('https://api.resend.com/emails', {
     method: 'POST',
     headers: { 'Authorization': `Bearer ${RESEND_API_KEY}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ from: RESEND_FROM, to, subject: `[GovCorp] Indicadores em alerta — ${clientName} (${alerts.length})`, html }),
+    body: JSON.stringify({ from: RESEND_FROM, to, subject: `[Boardplan] Indicadores em alerta — ${clientName} (${alerts.length})`, html }),
   })
 }

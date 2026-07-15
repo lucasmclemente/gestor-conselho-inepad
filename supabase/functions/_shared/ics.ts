@@ -78,7 +78,7 @@ export function buildICS(
   const lines = [
     'BEGIN:VCALENDAR',
     'VERSION:2.0',
-    'PRODID:-//INEPAD//GovCorp//PT-BR',
+    'PRODID:-//INEPAD//Boardplan//PT-BR',
     'CALSCALE:GREGORIAN',
     `METHOD:${method}`,
     ...vevents,

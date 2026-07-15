@@ -277,7 +277,7 @@ function buildFirstPageHeader(
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(7);
   doc.setTextColor(...C.medium);
-  doc.text('GovCorp — Plataforma de Gestão de Conselhos', ML + 4, 9);
+  doc.text('Boardplan — Governança de Conselhos', ML + 4, 9);
 
   // Texto: título principal
   doc.setFont('helvetica', 'bold');
@@ -414,7 +414,7 @@ function addFooters(
     doc.setFontSize(6.5);
     doc.setTextColor(...C.medium);
     doc.text(
-      `GovCorp — Plataforma de Gestão de Conselhos | INEPAD Consultoria | ${dateStr} às ${timeStr}`,
+      `Boardplan — Governança de Conselhos | INEPAD Consultoria | ${dateStr} às ${timeStr}`,
       ML, H - 4.5
     );
     doc.text(`Página ${i} de ${total}`, W - ML, H - 4.5, { align: 'right' });

@@ -37,7 +37,7 @@ function buildVoteEmail(name: string, title: string, voteUrl: string): string {
         <div style="text-align:center;margin-bottom:24px;">
           <a href="${voteUrl}" style="background:#b45309;color:#fff;padding:14px 32px;text-decoration:none;border-radius:8px;font-weight:bold;font-size:13px;display:inline-block;">🗳️ Registrar meu voto</a>
         </div>
-        <p style="font-size:10px;color:#94a3b8;text-align:center;line-height:1.6;">Este link é de uso individual e intransferível, e expira por segurança.<br/>GovCorp • INEPAD Consultoria</p>
+        <p style="font-size:10px;color:#94a3b8;text-align:center;line-height:1.6;">Este link é de uso individual e intransferível, e expira por segurança.<br/>Boardplan • INEPAD Consultoria</p>
       </div>
     </div>
   `

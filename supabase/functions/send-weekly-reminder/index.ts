@@ -288,8 +288,8 @@ serve(async (req) => {
       const total = actions.length
 
       const subject = overdueCount > 0
-        ? `⚠️ Você tem ${overdueCount} ${overdueCount === 1 ? 'atividade atrasada' : 'atividades atrasadas'} — Plano de Ação GovCorp`
-        : `📋 Seu resumo semanal: ${total} ${total === 1 ? 'atividade pendente' : 'atividades pendentes'} — GovCorp`
+        ? `⚠️ Você tem ${overdueCount} ${overdueCount === 1 ? 'atividade atrasada' : 'atividades atrasadas'} — Plano de Ação Boardplan`
+        : `📋 Seu resumo semanal: ${total} ${total === 1 ? 'atividade pendente' : 'atividades pendentes'} — Boardplan`
 
       const res = await fetch('https://api.resend.com/emails', {
         method: 'POST',

@@ -26,7 +26,7 @@ function html(body: string, status = 200): Response {
     .msg h2{color:#1e293b;font-size:20px;margin-bottom:8px}
     .msg p{color:#64748b;font-size:14px;line-height:1.6}
     .foot{text-align:center;font-size:10px;color:#94a3b8;padding:16px;border-top:1px solid #f1f5f9}
-  </style></head><body><div class="card"><div class="top"><div class="tag">Votação de Deliberação • Conselho</div></div><div class="body">${body}</div><div class="foot">GovCorp • INEPAD Consultoria</div></div></body></html>`
+  </style></head><body><div class="card"><div class="top"><div class="tag">Votação de Deliberação • Conselho</div></div><div class="body">${body}</div><div class="foot">Boardplan • INEPAD Consultoria</div></div></body></html>`
   return new Response(page, { status, headers: { 'Content-Type': 'text/html; charset=utf-8' } })
 }
 

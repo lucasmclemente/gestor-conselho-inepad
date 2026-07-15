@@ -24,6 +24,43 @@ const PRIORITY_STYLES: Record<string, string> = {
 };
 const PRIORITY_WEIGHT: Record<string, number> = { 'Urgente': 0, 'Importante': 1, 'Média': 2, 'Baixa': 3 };
 
+// ============ MARCA BOARDPLAN ============
+// Símbolo "A Mesa Estratégica": um anel (a mesa do conselho) com assentos
+// (conselheiros ao redor) e um assento âmbar no topo — o norte estratégico.
+// Reduzido (favicon/colapsado) = anel + norte âmbar.
+function BoardplanMark({ size = 32, variant = 'full', tone = 'dark' }: { size?: number; variant?: 'full' | 'mark'; tone?: 'dark' | 'light' }) {
+  const ring = tone === 'dark' ? '#FFFFFF' : '#0F172A';
+  const seat = tone === 'dark' ? '#64748B' : '#94A3B8';
+  const north = tone === 'dark' ? '#F59E0B' : '#D97706';
+  const R = 33, c = 50;
+  const seats = [-90, -45, 0, 45, 90, 135, 180, 225].map(a => { const r = (a * Math.PI) / 180; return { x: c + R * Math.cos(r), y: c + R * Math.sin(r), north: a === -90 }; });
+  return (
+    <svg width={size} height={size} viewBox="0 0 100 100" fill="none" aria-hidden="true" style={{ flex: 'none' }}>
+      <circle cx={c} cy={c} r={R} stroke={ring} strokeWidth={7} />
+      {variant === 'full'
+        ? seats.map((s, i) => <circle key={i} cx={s.x} cy={s.y} r={7} fill={s.north ? north : seat} />)
+        : <circle cx={c} cy={17} r={9} fill={north} />}
+    </svg>
+  );
+}
+// Wordmark: "Board" (ardósia/branco) + "plan" (âmbar) — Archivo Extrabold.
+function BoardplanWordmark({ size = 22, tone = 'light' }: { size?: number; tone?: 'dark' | 'light' }) {
+  return (
+    <span style={{ fontWeight: 800, fontSize: size, letterSpacing: '-0.015em', lineHeight: 1, whiteSpace: 'nowrap' }}>
+      <span style={{ color: tone === 'dark' ? '#FFFFFF' : '#0F172A' }}>Board</span><span style={{ color: '#D97706' }}>plan</span>
+    </span>
+  );
+}
+// Lockup principal: símbolo + wordmark
+function BoardplanLogo({ markSize = 30, textSize = 22, tone = 'light', gap = 10 }: { markSize?: number; textSize?: number; tone?: 'dark' | 'light'; gap?: number }) {
+  return (
+    <span style={{ display: 'inline-flex', alignItems: 'center', gap }}>
+      <BoardplanMark size={markSize} variant="full" tone={tone} />
+      <BoardplanWordmark size={textSize} tone={tone} />
+    </span>
+  );
+}
+
 // Calcula o resultado de uma deliberação a partir dos votos (mesma regra da aba da reunião)
 function deliberationResult(d: any) {
   const voters: string[] = d.voters || [];
@@ -95,7 +132,7 @@ const PublicVote: React.FC<{ token: string }> = ({ token }) => {
             <div className="text-center py-4"><div className="text-5xl mb-3">✅</div><p className="font-bold text-slate-800 text-lg">Voto registrado!</p><p className="text-sm text-slate-500 mt-2">Seu voto <b>"{chosen}"</b> foi registrado com sucesso.</p><p className="text-xs text-slate-400 mt-3">Você já pode fechar esta página.</p></div>
           )}
         </div>
-        <div className="bg-slate-50 border-t border-slate-100 text-center text-[10px] text-slate-400 py-3 font-bold uppercase tracking-widest">GovCorp • INEPAD Consultoria</div>
+        <div className="bg-slate-50 border-t border-slate-100 text-center text-[10px] text-slate-400 py-3 font-bold uppercase tracking-widest">Boardplan • INEPAD Consultoria</div>
       </div>
     </div>
   );
@@ -170,7 +207,7 @@ const PublicCollect: React.FC<{ token: string }> = ({ token }) => {
             <div className="text-center py-4"><div className="text-5xl mb-3">✅</div><p className="font-bold text-slate-800 text-lg">Dados enviados!</p><p className="text-sm text-slate-500 mt-2"><b>{savedCount}</b> indicador(es) registrado(s) para {periodLabel}.</p><p className="text-xs text-slate-400 mt-3">Obrigado. Você já pode fechar esta página.</p></div>
           )}
         </div>
-        <div className="bg-slate-50 border-t border-slate-100 text-center text-[10px] text-slate-400 py-3 font-bold uppercase tracking-widest">GovCorp • INEPAD Consultoria</div>
+        <div className="bg-slate-50 border-t border-slate-100 text-center text-[10px] text-slate-400 py-3 font-bold uppercase tracking-widest">Boardplan • INEPAD Consultoria</div>
       </div>
     </div>
   );
@@ -2394,10 +2431,10 @@ const App = () => {
     return (
       <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4 font-sans text-slate-900">
         <div className="w-full max-w-md bg-white rounded-2xl shadow-xl p-8 border border-slate-100">
-          <div className="text-center mb-8">
-            <img src="/logo-login.jpg" alt="INEPAD" className="h-20 mx-auto mb-4 object-contain" />
-            <h1 className="text-xl font-bold text-slate-800 uppercase tracking-wide">Nova Senha</h1>
-            <p className="text-xs text-slate-500 mt-2 font-bold">Defina sua nova senha de acesso</p>
+          <div className="flex flex-col items-center text-center mb-8">
+            <BoardplanLogo tone="light" markSize={32} textSize={22} />
+            <h1 className="text-xl font-bold text-slate-800 mt-6">Nova senha</h1>
+            <p className="text-xs text-slate-500 mt-1 font-bold">Defina sua nova senha de acesso</p>
           </div>
           <form className="space-y-4" onSubmit={async (e) => {
             e.preventDefault();
@@ -2449,65 +2486,84 @@ const App = () => {
 
   if (!currentUser) {
     return (
-      <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4 font-sans text-slate-900">
-        <div className="w-full max-w-md bg-white rounded-2xl shadow-xl p-8 border border-slate-100">
-          <div className="text-center mb-8">
-            <img src="/logo-login.jpg" alt="INEPAD" className="h-20 mx-auto mb-4 object-contain" />
-            <h1 className="text-xl font-bold text-slate-800 uppercase tracking-wide">Acesso GovCorp</h1>
-            <p className="text-xs text-slate-500 mt-2 font-bold">25 ANOS DE GOVERNANÇA</p>
+      <div className="min-h-screen bg-slate-50 flex items-stretch md:items-center justify-center md:p-4 font-sans text-slate-900">
+        <div className="w-full max-w-4xl bg-white md:rounded-2xl md:shadow-xl overflow-hidden flex flex-col md:flex-row md:border md:border-slate-100 min-h-screen md:min-h-0">
+          {/* ── Painel de marca (ardósia) ── */}
+          <div className="md:w-1/2 bg-[#0F172A] text-white p-8 md:p-10 flex flex-col justify-between gap-8">
+            <BoardplanLogo tone="dark" markSize={34} textSize={24} />
+            <div>
+              <div className="text-[11px] font-bold uppercase tracking-[0.22em] text-amber-500 mb-3">Governança de conselhos</div>
+              <p className="font-voice italic text-2xl md:text-[26px] leading-snug text-white text-balance">Onde o conselho governa e planeja o futuro da empresa.</p>
+              <p className="text-sm text-slate-400 mt-4 max-w-xs leading-relaxed">Convocações, deliberações, atas e plano de ação — do agendamento à decisão.</p>
+            </div>
+            <div className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-[0.16em] text-slate-500"><span className="w-4 h-px bg-slate-700" /> INEPAD Consultoria</div>
           </div>
 
-          {!forgotMode ? (
-            /* ── Formulário de Login ── */
-            <form className="space-y-4" onSubmit={async (e) => {
-              e.preventDefault();
-              setLoading(true);
-              const { error } = await supabase.auth.signInWithPassword({ email: authForm.email, password: authForm.password });
-              if (error) alert('Erro de Acesso: ' + error.message);
-              setLoading(false);
-            }}>
-              <input type="email" placeholder="E-mail Corporativo" className="w-full p-4 bg-slate-50 border border-slate-200 rounded-lg outline-none font-bold" value={authForm.email} onChange={e => setAuthForm({ ...authForm, email: e.target.value })} required />
-              <input type="password" placeholder="Senha" className="w-full p-4 bg-slate-50 border border-slate-200 rounded-lg outline-none font-bold" value={authForm.password} onChange={e => setAuthForm({ ...authForm, password: e.target.value })} required />
-              <button disabled={loading} className="w-full bg-amber-600 hover:bg-amber-700 text-white py-4 rounded-lg font-bold uppercase shadow-md transition-all">Entrar na Plataforma</button>
-              <button type="button" onClick={() => { setForgotMode(true); setForgotEmail(authForm.email); }} className="w-full text-center text-xs text-slate-400 hover:text-amber-600 transition-colors font-bold pt-1">
-                Esqueci minha senha
-              </button>
-            </form>
-          ) : (
-            /* ── Formulário de Recuperação de Senha ── */
-            <form className="space-y-4" onSubmit={async (e) => {
-              e.preventDefault();
-              if (!forgotEmail) return alert('Digite seu e-mail.');
-              setSendingReset(true);
-              const { error } = await supabase.auth.resetPasswordForEmail(forgotEmail, {
-                redirectTo: window.location.origin,
-              });
-              setSendingReset(false);
-              if (error) { alert('Erro: ' + error.message); return; }
-              alert(`✅ E-mail de recuperação enviado para ${forgotEmail}.\n\nVerifique sua caixa de entrada e clique no link para definir uma nova senha.`);
-              setForgotMode(false);
-              setForgotEmail('');
-            }}>
-              <div className="p-4 bg-amber-50 border border-amber-200 rounded-lg text-xs text-amber-700 font-bold">
-                Informe o e-mail da sua conta. Enviaremos um link para redefinir sua senha.
-              </div>
-              <input
-                type="email"
-                placeholder="Seu e-mail corporativo"
-                className="w-full p-4 bg-slate-50 border border-slate-200 rounded-lg outline-none font-bold focus:border-amber-400 transition-colors"
-                value={forgotEmail}
-                onChange={e => setForgotEmail(e.target.value)}
-                required
-                autoFocus
-              />
-              <button disabled={sendingReset} className="w-full bg-amber-600 hover:bg-amber-700 text-white py-4 rounded-lg font-bold uppercase shadow-md transition-all disabled:opacity-50">
-                {sendingReset ? 'Enviando...' : 'Enviar Link de Recuperação'}
-              </button>
-              <button type="button" onClick={() => setForgotMode(false)} className="w-full text-center text-xs text-slate-400 hover:text-slate-600 transition-colors font-bold pt-1">
-                ← Voltar para o login
-              </button>
-            </form>
-          )}
+          {/* ── Painel de acesso (branco) ── */}
+          <div className="md:w-1/2 p-8 md:p-10 flex flex-col justify-center">
+            <div className="mb-6">
+              <h1 className="font-voice italic text-2xl text-slate-800">Acesso ao portal do conselho</h1>
+              <p className="text-sm text-slate-500 mt-1">Use o e-mail cadastrado pela sua empresa.</p>
+            </div>
+
+            {!forgotMode ? (
+              /* ── Formulário de Login ── */
+              <form className="space-y-4" onSubmit={async (e) => {
+                e.preventDefault();
+                setLoading(true);
+                const { error } = await supabase.auth.signInWithPassword({ email: authForm.email, password: authForm.password });
+                if (error) alert('Erro de Acesso: ' + error.message);
+                setLoading(false);
+              }}>
+                <div>
+                  <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">E-mail</label>
+                  <input type="email" placeholder="conselheiro@empresa.com.br" className="w-full mt-1.5 p-3.5 bg-white border border-slate-200 rounded-lg outline-none font-semibold focus:border-amber-400 transition-colors" value={authForm.email} onChange={e => setAuthForm({ ...authForm, email: e.target.value })} required />
+                </div>
+                <div>
+                  <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Senha</label>
+                  <input type="password" placeholder="••••••••" className="w-full mt-1.5 p-3.5 bg-white border border-slate-200 rounded-lg outline-none font-semibold focus:border-amber-400 transition-colors" value={authForm.password} onChange={e => setAuthForm({ ...authForm, password: e.target.value })} required />
+                </div>
+                <button disabled={loading} className="w-full bg-amber-600 hover:bg-amber-700 text-white py-3.5 rounded-lg font-bold uppercase tracking-widest text-xs shadow-md transition-all disabled:opacity-50 flex items-center justify-center gap-2">{loading ? 'Entrando...' : <>Entrar <ChevronRight size={16} /></>}</button>
+                <button type="button" onClick={() => { setForgotMode(true); setForgotEmail(authForm.email); }} className="w-full text-center text-xs text-slate-400 hover:text-amber-600 transition-colors font-bold pt-1">
+                  Esqueci minha senha
+                </button>
+              </form>
+            ) : (
+              /* ── Formulário de Recuperação de Senha ── */
+              <form className="space-y-4" onSubmit={async (e) => {
+                e.preventDefault();
+                if (!forgotEmail) return alert('Digite seu e-mail.');
+                setSendingReset(true);
+                const { error } = await supabase.auth.resetPasswordForEmail(forgotEmail, {
+                  redirectTo: window.location.origin,
+                });
+                setSendingReset(false);
+                if (error) { alert('Erro: ' + error.message); return; }
+                alert(`✅ E-mail de recuperação enviado para ${forgotEmail}.\n\nVerifique sua caixa de entrada e clique no link para definir uma nova senha.`);
+                setForgotMode(false);
+                setForgotEmail('');
+              }}>
+                <div className="p-4 bg-amber-50 border border-amber-200 rounded-lg text-xs text-amber-700 font-bold">
+                  Informe o e-mail da sua conta. Enviaremos um link para redefinir sua senha.
+                </div>
+                <input
+                  type="email"
+                  placeholder="Seu e-mail corporativo"
+                  className="w-full p-3.5 bg-white border border-slate-200 rounded-lg outline-none font-semibold focus:border-amber-400 transition-colors"
+                  value={forgotEmail}
+                  onChange={e => setForgotEmail(e.target.value)}
+                  required
+                  autoFocus
+                />
+                <button disabled={sendingReset} className="w-full bg-amber-600 hover:bg-amber-700 text-white py-3.5 rounded-lg font-bold uppercase tracking-widest text-xs shadow-md transition-all disabled:opacity-50">
+                  {sendingReset ? 'Enviando...' : 'Enviar Link de Recuperação'}
+                </button>
+                <button type="button" onClick={() => setForgotMode(false)} className="w-full text-center text-xs text-slate-400 hover:text-slate-600 transition-colors font-bold pt-1">
+                  ← Voltar para o login
+                </button>
+              </form>
+            )}
+          </div>
         </div>
       </div>
     );
@@ -2521,13 +2577,20 @@ const App = () => {
         <button onClick={() => setIsSidebarCollapsed(!isSidebarCollapsed)} className="absolute -right-3 top-20 bg-amber-600 text-white rounded-full p-1 shadow-md hidden md:block z-[60] hover:bg-amber-700 transition-colors">
           {isSidebarCollapsed ? <ChevronRight size={16} /> : <ChevronLeft size={16} />}
         </button>
-        <div className={`flex flex-col items-center justify-center border-b border-white/5 bg-slate-900/30 transition-all duration-300 ${isSidebarCollapsed ? 'p-4' : 'p-10'}`}>
-          {clientProfile?.logo_url ? (
-            <img src={clientProfile.logo_url} alt={clientProfile.name || 'Logo'} className={`w-auto object-contain transition-all ${isSidebarCollapsed ? 'h-8' : 'h-14'}`} style={{ mixBlendMode: 'lighten' }} />
+        <div className={`flex flex-col border-b border-white/5 bg-slate-900/40 transition-all duration-300 ${isSidebarCollapsed ? 'items-center py-5 px-2' : 'p-6 gap-3'}`}>
+          {isSidebarCollapsed ? (
+            <BoardplanMark size={34} variant="full" tone="dark" />
           ) : (
-            isSidebarCollapsed
-              ? <div className="w-8 h-8 rounded-lg bg-amber-600 text-white flex items-center justify-center text-xs font-black">{(currentUser?.client_id || 'C')[0]}</div>
-              : <img src="/logo-sidebar.jpg" alt="Logo" className="w-auto h-12 object-contain" style={{ mixBlendMode: 'lighten' }} />
+            <>
+              <BoardplanLogo tone="dark" markSize={30} textSize={22} />
+              {(clientProfile?.logo_url || clientProfile?.name || activeClientId || currentUser?.client_id) && (
+                <div className="flex items-center pt-3 border-t border-white/5">
+                  {clientProfile?.logo_url
+                    ? <img src={clientProfile.logo_url} alt={clientProfile.name || 'Logo'} className="w-auto h-7 object-contain opacity-90" style={{ mixBlendMode: 'lighten' }} />
+                    : <span className="text-[10px] font-bold uppercase tracking-widest text-slate-500 truncate">{clientProfile?.name || activeClientId || currentUser?.client_id}</span>}
+                </div>
+              )}
+            </>
           )}
         </div>
         <nav className="flex-1 px-3 py-4 space-y-1 text-[10px] font-bold uppercase tracking-widest">
