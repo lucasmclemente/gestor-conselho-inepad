@@ -4,6 +4,7 @@ import { buildICS, icsToBase64, ICSAttendee } from "../_shared/ics.ts"
 
 const ALLOWED_ORIGINS = [
   'https://conselho.inepadconsulting.com',
+  'https://app.boardplan.com.br',
   'http://localhost:3000',
 ]
 
