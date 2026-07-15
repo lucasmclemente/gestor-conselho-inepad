@@ -1592,7 +1592,9 @@ const App = () => {
     const { error: upError } = await supabase.storage.from('client-logos').upload(fileName, file, { upsert: true });
     if (upError) { alert('Erro no upload: ' + upError.message); return; }
     const { data: urlData } = supabase.storage.from('client-logos').getPublicUrl(fileName);
-    setClientProfileForm(prev => ({ ...prev, logo_url: urlData.publicUrl }));
+    // ?v=timestamp fura o cache do navegador — sem isso, reenviar com a mesma extensão
+    // mantém a URL igual e a imagem antiga continua aparecendo.
+    setClientProfileForm(prev => ({ ...prev, logo_url: `${urlData.publicUrl}?v=${Date.now()}` }));
   };
 
   const saveClientProfile = async () => {
@@ -1803,7 +1805,8 @@ const App = () => {
     const { error: upError } = await supabase.storage.from('client-logos').upload(fileName, file, { upsert: true });
     if (upError) { alert('Erro no upload: ' + upError.message); return; }
     const { data: urlData } = supabase.storage.from('client-logos').getPublicUrl(fileName);
-    setManagedClientForm(prev => ({ ...prev, logo_url: urlData.publicUrl }));
+    // ?v=timestamp fura o cache (reenvio com a mesma extensão manteria a URL igual)
+    setManagedClientForm(prev => ({ ...prev, logo_url: `${urlData.publicUrl}?v=${Date.now()}` }));
   };
 
   // Retorna o nome do votante que corresponde ao usuário atual (por nome ou por email)
@@ -2560,8 +2563,8 @@ const App = () => {
               {(clientProfile?.logo_url || clientProfile?.name || activeClientId || currentUser?.client_id) && (
                 <div className="flex items-center pt-3 border-t border-white/5">
                   {clientProfile?.logo_url
-                    ? <img src={clientProfile.logo_url} alt={clientProfile.name || 'Logo'} className="w-auto h-7 object-contain opacity-90" style={{ mixBlendMode: 'lighten' }} />
-                    : <span className="text-[10px] font-bold uppercase tracking-widest text-slate-500 truncate">{clientProfile?.name || activeClientId || currentUser?.client_id}</span>}
+                    ? <img src={clientProfile.logo_url} alt={clientProfile.name || 'Logo'} className="w-auto h-12 max-w-[180px] object-contain object-left opacity-90" style={{ mixBlendMode: 'lighten' }} />
+                    : <span className="text-[11px] font-bold uppercase tracking-widest text-slate-400 truncate">{clientProfile?.name || activeClientId || currentUser?.client_id}</span>}
                 </div>
               )}
             </>
@@ -4281,6 +4284,7 @@ const App = () => {
                           <button onClick={() => logoRef.current?.click()} className="mt-2 w-28 py-1.5 text-[9px] font-bold uppercase tracking-wider text-slate-500 border border-slate-200 rounded-lg hover:border-amber-400 hover:text-amber-600 transition-colors flex items-center justify-center gap-1">
                             <Upload size={11} /> Carregar logo
                           </button>
+                          <p className="mt-2 w-28 text-[9px] text-slate-400 font-normal leading-tight">PNG horizontal, fundo transparente e cor clara (a barra lateral tem fundo escuro). Exibida em altura padrão.</p>
                         </div>
                         {/* Campos */}
                         <div className="flex-1 space-y-4">
@@ -4383,6 +4387,7 @@ const App = () => {
                               <button onClick={() => managedLogoRef.current?.click()} className="mt-2 w-28 py-1.5 text-[9px] font-bold uppercase tracking-wider text-slate-500 border border-slate-200 rounded-lg hover:border-amber-400 hover:text-amber-600 transition-colors flex items-center justify-center gap-1">
                                 <Upload size={11} /> Carregar logo
                               </button>
+                              <p className="mt-2 w-28 text-[9px] text-slate-400 font-normal leading-tight">PNG horizontal, fundo transparente e cor clara. Exibida em altura padrão.</p>
                             </div>
                             <div className="flex-1 space-y-4">
                               <div className="space-y-1">
