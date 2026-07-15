@@ -2463,7 +2463,7 @@ const App = () => {
       <div className="min-h-screen flex flex-col md:flex-row font-sans text-slate-900">
           {/* ── Painel de marca (ardósia) ── */}
           <div className="md:w-1/2 bg-[#0F172A] text-white p-8 md:p-16 flex flex-col justify-between gap-10 min-h-[38vh] md:min-h-screen">
-            <BoardplanLogo tone="dark" height={44} />
+            <div><BoardplanLogo tone="dark" height={76} /></div>
             <div>
               <div className="text-[11px] font-bold uppercase tracking-[0.22em] text-amber-500 mb-3">Governança de conselhos</div>
               <p className="font-voice italic text-2xl md:text-[26px] leading-snug text-white text-balance">Onde o conselho governa e planeja o futuro da empresa.</p>
