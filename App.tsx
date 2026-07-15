@@ -25,40 +25,14 @@ const PRIORITY_STYLES: Record<string, string> = {
 const PRIORITY_WEIGHT: Record<string, number> = { 'Urgente': 0, 'Importante': 1, 'Média': 2, 'Baixa': 3 };
 
 // ============ MARCA BOARDPLAN ============
-// Símbolo "A Mesa Estratégica": um anel (a mesa do conselho) com assentos
-// (conselheiros ao redor) e um assento âmbar no topo — o norte estratégico.
-// Reduzido (favicon/colapsado) = anel + norte âmbar.
-function BoardplanMark({ size = 32, variant = 'full', tone = 'dark' }: { size?: number; variant?: 'full' | 'mark'; tone?: 'dark' | 'light' }) {
-  const ring = tone === 'dark' ? '#FFFFFF' : '#0F172A';
-  const seat = tone === 'dark' ? '#64748B' : '#94A3B8';
-  const north = tone === 'dark' ? '#F59E0B' : '#D97706';
-  const R = 33, c = 50;
-  const seats = [-90, -45, 0, 45, 90, 135, 180, 225].map(a => { const r = (a * Math.PI) / 180; return { x: c + R * Math.cos(r), y: c + R * Math.sin(r), north: a === -90 }; });
-  return (
-    <svg width={size} height={size} viewBox="0 0 100 100" fill="none" aria-hidden="true" style={{ flex: 'none' }}>
-      <circle cx={c} cy={c} r={R} stroke={ring} strokeWidth={7} />
-      {variant === 'full'
-        ? seats.map((s, i) => <circle key={i} cx={s.x} cy={s.y} r={7} fill={s.north ? north : seat} />)
-        : <circle cx={c} cy={17} r={9} fill={north} />}
-    </svg>
-  );
+// Logos oficiais (PNG em /public). tone 'dark' = sobre fundo ardósia; 'light' = sobre branco.
+// Símbolo isolado (ícone) — usado no cabeçalho colapsado da sidebar.
+function BoardplanMark({ size = 32, tone = 'dark' }: { size?: number; tone?: 'dark' | 'light'; variant?: 'full' | 'mark' }) {
+  return <img src={tone === 'dark' ? '/boardplan-symbol-dark.png' : '/boardplan-symbol-light.png'} alt="Boardplan" style={{ height: size, width: size, objectFit: 'contain', display: 'block', flex: 'none' }} />;
 }
-// Wordmark: "Board" (ardósia/branco) + "plan" (âmbar) — Archivo Extrabold.
-function BoardplanWordmark({ size = 22, tone = 'light' }: { size?: number; tone?: 'dark' | 'light' }) {
-  return (
-    <span style={{ fontWeight: 800, fontSize: size, letterSpacing: '-0.015em', lineHeight: 1, whiteSpace: 'nowrap' }}>
-      <span style={{ color: tone === 'dark' ? '#FFFFFF' : '#0F172A' }}>Board</span><span style={{ color: '#D97706' }}>plan</span>
-    </span>
-  );
-}
-// Lockup principal: símbolo + wordmark
-function BoardplanLogo({ markSize = 30, textSize = 22, tone = 'light', gap = 10 }: { markSize?: number; textSize?: number; tone?: 'dark' | 'light'; gap?: number }) {
-  return (
-    <span style={{ display: 'inline-flex', alignItems: 'center', gap }}>
-      <BoardplanMark size={markSize} variant="full" tone={tone} />
-      <BoardplanWordmark size={textSize} tone={tone} />
-    </span>
-  );
+// Lockup principal: símbolo + wordmark "Boardplan".
+function BoardplanLogo({ height = 32, tone = 'light' }: { height?: number; tone?: 'dark' | 'light' }) {
+  return <img src={tone === 'dark' ? '/boardplan-logo-dark.png' : '/boardplan-logo-light.png'} alt="Boardplan" style={{ height, width: 'auto', objectFit: 'contain', display: 'block' }} />;
 }
 
 // Calcula o resultado de uma deliberação a partir dos votos (mesma regra da aba da reunião)
@@ -2432,7 +2406,7 @@ const App = () => {
       <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4 font-sans text-slate-900">
         <div className="w-full max-w-md bg-white rounded-2xl shadow-xl p-8 border border-slate-100">
           <div className="flex flex-col items-center text-center mb-8">
-            <BoardplanLogo tone="light" markSize={32} textSize={22} />
+            <BoardplanLogo tone="light" height={38} />
             <h1 className="text-xl font-bold text-slate-800 mt-6">Nova senha</h1>
             <p className="text-xs text-slate-500 mt-1 font-bold">Defina sua nova senha de acesso</p>
           </div>
@@ -2489,7 +2463,7 @@ const App = () => {
       <div className="min-h-screen flex flex-col md:flex-row font-sans text-slate-900">
           {/* ── Painel de marca (ardósia) ── */}
           <div className="md:w-1/2 bg-[#0F172A] text-white p-8 md:p-16 flex flex-col justify-between gap-10 min-h-[38vh] md:min-h-screen">
-            <BoardplanLogo tone="dark" markSize={34} textSize={24} />
+            <BoardplanLogo tone="dark" height={44} />
             <div>
               <div className="text-[11px] font-bold uppercase tracking-[0.22em] text-amber-500 mb-3">Governança de conselhos</div>
               <p className="font-voice italic text-2xl md:text-[26px] leading-snug text-white text-balance">Onde o conselho governa e planeja o futuro da empresa.</p>
@@ -2582,7 +2556,7 @@ const App = () => {
             <BoardplanMark size={34} variant="full" tone="dark" />
           ) : (
             <>
-              <BoardplanLogo tone="dark" markSize={30} textSize={22} />
+              <BoardplanLogo tone="dark" height={34} />
               {(clientProfile?.logo_url || clientProfile?.name || activeClientId || currentUser?.client_id) && (
                 <div className="flex items-center pt-3 border-t border-white/5">
                   {clientProfile?.logo_url
