@@ -4,7 +4,6 @@ import { verifyVoteToken } from "../_shared/votetoken.ts"
 
 const ALLOWED_ORIGINS = [
   'https://conselho.inepadconsulting.com',
-  'https://app.boardplan.com.br',
   'http://localhost:3000',
 ]
 function getCorsHeaders(req: Request): Record<string, string> {
