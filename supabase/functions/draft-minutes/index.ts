@@ -25,15 +25,24 @@ const SYSTEM_PROMPT = `Você é secretário(a) de governança corporativa, espec
 
 Sua tarefa: a partir da transcrição de uma reunião, redigir o RESUMO DA DISCUSSÃO de cada item da ordem do dia.
 
+COMO A CONVERSA REALMENTE ACONTECE (leia com atenção):
+Uma reunião de conselho é orgânica. Quase NUNCA alguém anuncia "agora vamos ao item 3 da pauta". Os assuntos simplesmente surgem, se misturam, voltam depois e são tratados fora de ordem. NÃO procure marcadores explícitos de pauta — eles não existem.
+
+Seu trabalho é RECONHECER O ASSUNTO. Leia a transcrição inteira e pergunte-se, para cada item da ordem do dia: "de que trecho desta conversa este item está falando?". Faça a correspondência pelo TEMA, pelo vocabulário e pelo contexto — não por anúncio.
+- Exemplo: o item "Aprovação do orçamento 2026" corresponde a qualquer trecho em que se fale de orçamento, números, cortes, investimento ou aprovação de valores — mesmo que a palavra "orçamento" apareça pouco e ninguém cite o item.
+- Um assunto pode estar espalhado em vários momentos da reunião: junte tudo num resumo só.
+- Se dois itens forem parecidos, use o mais específico; não repita o mesmo texto em ambos.
+
 REGRAS OBRIGATÓRIAS:
 1. Escreva em português do Brasil, no registro formal e impessoal de ata ("Discutiu-se...", "Ponderou-se...", "Foi apresentado...", "O conselho avaliou..."). Nunca em primeira pessoa.
 2. NÃO atribua falas a pessoas nominalmente. O que exige atribuição (votos, responsáveis, presença) já está registrado no sistema e não deve ser repetido por você. Se for indispensável, refira-se ao papel ("a diretoria apresentou..."), nunca ao nome.
-3. Baseie-se EXCLUSIVAMENTE na transcrição. Se um item da pauta não foi discutido, devolva string vazia para ele. NUNCA invente conteúdo — uma ata é documento legal.
-4. Sintetize o que foi efetivamente debatido: pontos levantados, dúvidas, argumentos e encaminhamentos. Não transcreva; resuma.
-5. Seja conciso: 2 a 5 frases por item.
-6. Não repita o título do item nem o resultado da votação — ambos já constam da ata.
-7. Se um trecho estiver ininteligível ou a transcrição for ruim, prefira omitir a especular.
-8. Devolva um resumo para CADA item recebido, na mesma ordem, usando o índice informado.`
+3. Baseie-se no que foi efetivamente dito. NÃO invente fatos, números ou decisões que não estão na transcrição — uma ata é documento legal. Mas atenção: relacionar um trecho ao item da pauta a que ele pertence NÃO é inventar — é o seu trabalho. Na dúvida entre resumir um trecho pertinente ou deixar o item vazio, RESUMA.
+4. Devolva string vazia SOMENTE se o assunto daquele item realmente não aparecer em nenhum momento da transcrição. Devolver vazio para um item que foi discutido é um ERRO GRAVE — obriga o secretário a escrever tudo à mão.
+5. Sintetize o que foi debatido: pontos levantados, dúvidas, argumentos e encaminhamentos. Não transcreva; resuma.
+6. Seja conciso: 2 a 5 frases por item.
+7. Não repita o título do item nem o resultado da votação — ambos já constam da ata.
+8. Se a transcrição tiver trechos ininteligíveis, resuma o que deu para entender em vez de descartar o item inteiro.
+9. Devolva um resumo para CADA item recebido, na mesma ordem, usando o índice informado.`
 
 const SCHEMA = {
   type: 'object',
@@ -93,6 +102,16 @@ serve(async (req) => {
     }
     if (transcript.length > MAX_TRANSCRIPT_CHARS) {
       return json({ error: `Transcrição muito longa (${Math.round(transcript.length / 1000)}k caracteres). O limite é ${MAX_TRANSCRIPT_CHARS / 1000}k.` }, 400)
+    }
+    // Arquivo binário (ex.: .docx do Teams) chega como lixo — barra antes de gastar tokens
+    const amostra = transcript.slice(0, 4000)
+    let ilegiveis = 0
+    for (const ch of amostra) {
+      const c = ch.codePointAt(0) ?? 0
+      if (c === 0xFFFD || c < 9 || (c > 13 && c < 32)) ilegiveis++
+    }
+    if (ilegiveis / Math.max(amostra.length, 1) > 0.05) {
+      return json({ error: 'O arquivo não parece ser texto (formatos como .docx e .pdf não são lidos). No Teams/Meet, baixe a transcrição como .vtt ou .txt.' }, 400)
     }
 
     const ANTHROPIC_API_KEY = Deno.env.get('ANTHROPIC_API_KEY')
@@ -178,6 +197,13 @@ ${transcript}
         input_tokens: message.usage?.input_tokens ?? 0,
         output_tokens: message.usage?.output_tokens ?? 0,
       },
+      // Diagnóstico: só quando nada foi preenchido, para saber se o texto chegou de fato
+      ...(preenchidas === 0 ? {
+        debug: {
+          chars_transcricao: transcript.length,
+          inicio_transcricao: transcript.slice(0, 300),
+        },
+      } : {}),
     })
   } catch (e: any) {
     return json({ error: String(e?.message || e) }, 500)

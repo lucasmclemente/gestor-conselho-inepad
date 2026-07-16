@@ -362,6 +362,9 @@ const App = () => {
     if (e.target) e.target.value = ''; // permite reenviar o mesmo arquivo
     if (!file || !currentMeeting?.id) return;
     if (!(currentMeeting.pautas || []).length) return alert('Monte a ordem do dia antes de rascunhar as discussões.');
+    if (/\.(docx?|pdf|zip)$/i.test(file.name)) {
+      return alert('Este formato não é lido (o texto vem compactado).\n\nNo Teams ou no Meet, baixe a transcrição como .vtt ou .txt e envie esse arquivo.');
+    }
 
     const transcript = cleanTranscript(await file.text());
     if (transcript.length < 200) return alert('A transcrição parece vazia ou curta demais. Envie o arquivo .vtt ou .txt gerado pelo Teams/Meet.');
@@ -382,6 +385,11 @@ const App = () => {
         pautas: (prev.pautas || []).map((p: any, i: number) => (notas[i] ? { ...p, notes: notas[i] } : p)),
       }));
       addLog('Ata (IA)', `Rascunho de discussões gerado: ${data.preenchidas}/${data.total} item(ns).`);
+      if (data.preenchidas === 0) {
+        if (data.debug) console.warn('draft-minutes — diagnóstico:', data.debug);
+        alert(`⚠️ A IA não encontrou, na transcrição, discussão sobre nenhum dos ${data.total} itens da ordem do dia.\n\nCausas prováveis:\n• O arquivo não é a transcrição desta reunião\n• A transcrição saiu vazia ou ilegível (use o .vtt ou .txt do Teams/Meet — .docx não funciona)\n\nNada foi alterado.`);
+        return;
+      }
       alert(`✅ Rascunho pronto — ${data.preenchidas} de ${data.total} item(ns) preenchido(s).\n\nRevise e ajuste os textos e clique em SALVAR.\nNada foi gravado ainda.`);
     } catch (err: any) {
       alert('Erro ao rascunhar a ata: ' + (err?.message || err));
