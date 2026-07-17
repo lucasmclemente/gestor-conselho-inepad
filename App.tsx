@@ -456,7 +456,9 @@ const App = () => {
         ? supabase.from('members').select(memberCols).order('name')
         : Promise.all([
             supabase.from('members').select(memberCols).eq('client_id', cid),
-            supabase.from('members').select(memberCols).contains('secretary_clients', [cid]),
+            // secretary_clients é jsonb: o filtro precisa ser JSON (cs.["INEPAD"]),
+            // não literal de array Postgres (cs.{INEPAD}) — este dava 400.
+            supabase.from('members').select(memberCols).contains('secretary_clients', JSON.stringify([cid])),
           ]).then(([a, b]: any) => {
             const map = new Map<string, any>();
             [...(a.data || []), ...(b.data || [])].forEach((m: any) => map.set(m.id, m));
