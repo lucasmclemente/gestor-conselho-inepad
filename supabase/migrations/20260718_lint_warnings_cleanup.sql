@@ -1,46 +1,58 @@
 -- ============================================================
--- FAXINA DE WARNINGS DO LINTER (pós-migração app_metadata)
+-- FAXINA DE WARNINGS DO LINTER + hygiene de funções legado
 --
--- (A) Remove as funções legado is_super_admin()/get_my_client_id():
---     - Estão ÓRFÃS (nenhuma policy nem o app as usa).
---     - Leem user_metadata (mesma falha que acabamos de corrigir) — bomba
---       relógio se alguém as usasse numa policy no futuro.
---     - Disparam os warnings: function_search_path_mutable (0011) e
---       anon/authenticated_security_definer_function_executable (0028/0029).
---     Removê-las mata todos esses warnings de uma vez. Guard: se alguma
---     policy as referenciar, ABORTA para revisão manual (não usa CASCADE).
+-- DESCOBERTA (prod diverge da develop): existem DUAS versões dessas funções.
 --
--- (B) Endurece o INSERT de audit_logs (warning rls_policy_always_true / 0024):
---     WITH CHECK (true) deixava qualquer autenticado inserir log com QUALQUER
---     client_id (forjar log de outra empresa). Passa a exigir que o client_id
---     seja o do próprio usuário (ou de um cliente que ele administra, ou Super).
---     A escrita da própria app (addLog) já usa activeClientId/client_id do
---     usuário, então não quebra. Inserts por Edge Function usam service_role,
---     que ignora RLS — também não são afetados.
---     Dinâmico (por polcmd), à prova da divergência de nomes entre ambientes.
+--   internal.is_super_admin() / internal.get_my_client_id()
+--     - SECURITY DEFINER, search_path fixo, no schema `internal` (fora da API).
+--     - Leem a TABELA public.members (role/client_id do próprio usuário).
+--     - SÃO SEGURAS: usuário comum não altera o próprio registro em members
+--       (escrita só Admin/SuperAdmin). São as que as políticas de prod usam.
+--     >>> NÃO TOCAR <<<
+--
+--   public.is_super_admin() / public.get_my_client_id()
+--     - Duplicatas que leem user_metadata (editável pelo usuário).
+--     - Órfãs (as políticas usam as internal.*). Código morto + risco latente.
+--     Esta migração: (1) blinda-as para ler app_metadata (caso algo ainda
+--     dependa delas); (2) tenta removê-las sem CASCADE — se houver dependente,
+--     mantém já blindada e NÃO aborta.
+--
+-- Também (idempotente) endurece INSERT de audit_logs que esteja com
+-- WITH CHECK (true). No prod já está endurecido (internal.get_my_client_id),
+-- então é no-op lá; na develop já foi aplicado.
 -- Aditivo e idempotente.
 -- ============================================================
 
--- (A) Remover funções legado, com trava de segurança
+-- 1) Blindar as duplicatas public.* — passam a ler app_metadata (fonte segura)
+create or replace function public.get_my_client_id() returns text
+  language sql stable set search_path = '' as $f$
+  select auth.jwt() -> 'app_metadata' ->> 'client_id'
+$f$;
+
+create or replace function public.is_super_admin() returns boolean
+  language sql stable set search_path = '' as $f$
+  select (auth.jwt() -> 'app_metadata' ->> 'role') = 'SuperAdmin'
+$f$;
+
+-- 2) Remover as duplicatas public.* se ninguém depender delas (sem CASCADE, sem abortar)
 do $$
-declare
-  used int;
 begin
-  select count(*) into used
-  from pg_policy pol
-  where pg_get_expr(pol.polqual, pol.polrelid)      ~ '(is_super_admin|get_my_client_id)'
-     or pg_get_expr(pol.polwithcheck, pol.polrelid) ~ '(is_super_admin|get_my_client_id)';
+  begin
+    drop function public.get_my_client_id();
+    raise notice 'public.get_my_client_id removida (orfa).';
+  exception when dependent_objects_still_exist then
+    raise notice 'public.get_my_client_id mantida (em uso) — agora le app_metadata.';
+  end;
 
-  if used > 0 then
-    raise exception 'Abortado: % policy(ies) ainda usam is_super_admin/get_my_client_id — migrar essas policies para jwt_role()/jwt_client_id() antes de remover.', used;
-  end if;
-
-  drop function if exists public.is_super_admin();
-  drop function if exists public.get_my_client_id();
-  raise notice 'Funcoes legado is_super_admin/get_my_client_id removidas.';
+  begin
+    drop function public.is_super_admin();
+    raise notice 'public.is_super_admin removida (orfa).';
+  exception when dependent_objects_still_exist then
+    raise notice 'public.is_super_admin mantida (em uso) — agora le app_metadata.';
+  end;
 end $$;
 
--- (B) Endurecer o(s) policy(ies) de INSERT de audit_logs com WITH CHECK (true)
+-- 3) Endurecer INSERT de audit_logs com WITH CHECK (true) (idempotente)
 do $$
 declare
   r record;
