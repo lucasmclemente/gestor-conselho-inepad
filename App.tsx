@@ -135,6 +135,8 @@ const App = () => {
   // Secretário multi-cliente: cliente em que o usuário está atuando + lista para o seletor
   const [activeClientId, setActiveClientId] = useState<string | null>(null);
   const [clientSwitchList, setClientSwitchList] = useState<any[]>([]);
+  // SuperAdmin: "Consolidado Geral" (agrega todos os clientes) vs. um cliente específico
+  const [superViewAll, setSuperViewAll] = useState(true);
   const [secModalUser, setSecModalUser] = useState<any>(null);
   const [secModalSelected, setSecModalSelected] = useState<string[]>([]);
   const [secModalSaving, setSecModalSaving] = useState(false);
@@ -201,6 +203,16 @@ const App = () => {
   const isController = currentUser?.role === 'Controller';
   // Controller: só lança o realizado dos indicadores (não altera metas nem cadastra indicadores)
   const canLancar = canEdit || isController;
+  // Valor sentinela do seletor para o SuperAdmin ver tudo consolidado
+  const SUPER_ALL = '__ALL__';
+  // Verdadeiro quando o SuperAdmin está na visão consolidada (agrega todos os clientes)
+  const superAll = isSuper && superViewAll;
+  // Troca de cliente pelo seletor do topo (secretário multi-empresa ou SuperAdmin)
+  const handleClientSwitch = (val: string) => {
+    if (isSuper && val === SUPER_ALL) { setSuperViewAll(true); return; }
+    if (isSuper) setSuperViewAll(false);
+    setActiveClientId(val);
+  };
   // Add-on "Planejamento Estratégico": libera os menus Estratégia + Indicadores (por cliente)
   const strategyEnabled = !!clientProfile?.strategy_enabled;
   const SCENARIOS = ['Otimista', 'Base', 'Conservador', 'Trágico'];
@@ -279,22 +291,31 @@ const App = () => {
   // Define o cliente ativo no login (cliente "casa"); mantém a escolha durante a sessão
   useEffect(() => { if (currentUser && !activeClientId) setActiveClientId(currentUser.client_id); }, [currentUser, activeClientId]);
   // (Re)carrega os dados sempre que o cliente ativo muda (login ou troca de cliente)
-  useEffect(() => { if (currentUser && activeClientId) { setDetailInd(null); fetchInitialData(); } /* eslint-disable-next-line */ }, [activeClientId]);
+  useEffect(() => { if (currentUser && activeClientId) { setDetailInd(null); fetchInitialData(); } /* eslint-disable-next-line */ }, [activeClientId, superViewAll]);
   // Add-on desligado: não permite ficar em Estratégia/Indicadores (ex.: ao trocar de cliente)
   useEffect(() => {
     if (!strategyEnabled && !isController && (activeMenu === 'estrategia' || activeMenu === 'indicadores')) setActiveMenu('dashboard');
     if (!strategyEnabled && filterObjective !== 'all') setFilterObjective('all');
     /* eslint-disable-next-line */
   }, [strategyEnabled, activeMenu]);
-  // Carrega os nomes dos clientes que o secretário pode atender (para o seletor)
+  // Monta as opções do seletor de cliente do topo
   useEffect(() => {
+    if (!currentUser) { setClientSwitchList([]); return; }
+    // SuperAdmin: "Consolidado Geral" + todos os clientes conhecidos
+    if (isSuper) {
+      const opts = [{ client_id: SUPER_ALL, name: 'Consolidado Geral' },
+        ...allClientsList.map((c: any) => ({ client_id: c.client_id, name: c.name || c.client_id }))];
+      setClientSwitchList(opts);
+      return;
+    }
+    // Secretário/Admin/Conselheiro multi-empresa: cliente casa + secretary_clients
     const sec = currentUser?.secretary_clients || [];
-    if (!currentUser || sec.length === 0) { setClientSwitchList([]); return; }
+    if (sec.length === 0) { setClientSwitchList([]); return; }
     const ids = [...new Set([currentUser.client_id, ...sec])];
     supabase.from('clients').select('client_id, name').in('client_id', ids).then(({ data }) => {
       setClientSwitchList(ids.map((id: string) => (data || []).find((c: any) => c.client_id === id) || { client_id: id, name: id }));
     });
-  }, [currentUser]);
+  }, [currentUser, isSuper, allClientsList]);
 
   // --- LOGICA DO CRONÔMETRO ---
   useEffect(() => {
@@ -446,13 +467,14 @@ const App = () => {
       const memberCols = 'id, name, email, role, client_id, created_at, secretary_clients';
       let mQuery = supabase.from('meetings').select('*');
       let lQuery = supabase.from('audit_logs').select('*');
-      if (!isSuper) {
+      // Filtra por cliente exceto quando o SuperAdmin está na visão "Consolidado Geral"
+      if (!superAll) {
         mQuery = mQuery.eq('client_id', cid);
         lQuery = lQuery.eq('client_id', cid);
       }
-      // Membros: SuperAdmin vê todos; demais veem os do cliente ativo + conselheiros
+      // Membros: consolidado (Super) vê todos; demais veem os do cliente ativo + conselheiros
       // vinculados a ele (secretary_clients contém o cliente) — para inclusão como votantes
-      const usersPromise = isSuper
+      const usersPromise = superAll
         ? supabase.from('members').select(memberCols).order('name')
         : Promise.all([
             supabase.from('members').select(memberCols).eq('client_id', cid),
@@ -2367,11 +2389,11 @@ const App = () => {
         <header className="h-16 bg-white border-b border-slate-200 flex items-center justify-between px-4 md:px-8 shrink-0 shadow-sm z-10">
           <div className="flex items-center gap-4">
             <button className="md:hidden p-2 text-slate-600" onClick={() => setIsMobileMenuOpen(true)}><Menu size={24} /></button>
-            <h2 className="text-[10px] font-bold text-slate-400 uppercase tracking-widest hidden sm:inline">INEPAD Governança e Sucessão • {isSuper ? 'GESTÃO MASTER' : (clientProfile?.name || activeClientId || currentUser.client_id)}</h2>
+            <h2 className="text-[10px] font-bold text-slate-400 uppercase tracking-widest hidden sm:inline">INEPAD Governança e Sucessão • {isSuper ? (superViewAll ? 'GESTÃO MASTER' : `GESTÃO MASTER · ${clientProfile?.name || activeClientId}`) : (clientProfile?.name || activeClientId || currentUser.client_id)}</h2>
             {clientSwitchList.length > 1 && (
               <div className="flex items-center gap-2 bg-amber-50 border border-amber-200 rounded-lg px-3 py-1.5">
                 <Building2 size={14} className="text-amber-600 shrink-0" />
-                <select value={activeClientId || ''} onChange={e => setActiveClientId(e.target.value)} className="text-[10px] font-bold uppercase tracking-widest bg-transparent outline-none cursor-pointer text-amber-700 max-w-[160px]">
+                <select value={isSuper && superViewAll ? SUPER_ALL : (activeClientId || '')} onChange={e => handleClientSwitch(e.target.value)} className="text-[10px] font-bold uppercase tracking-widest bg-transparent outline-none cursor-pointer text-amber-700 max-w-[180px]">
                   {clientSwitchList.map((c: any) => <option key={c.client_id} value={c.client_id}>{c.name || c.client_id}</option>)}
                 </select>
               </div>
@@ -2463,7 +2485,7 @@ const App = () => {
               {activeMenu === 'dashboard' && (
                 <div className="space-y-6 animate-in fade-in">
                   <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-                    <h1 className="text-2xl font-bold text-slate-800 tracking-tight italic">Painel de Governança · {clientProfile?.name || activeClientId || currentUser.client_id}</h1>
+                    <h1 className="text-2xl font-bold text-slate-800 tracking-tight italic">Painel de Governança · {superAll ? 'Consolidado Geral' : (clientProfile?.name || activeClientId || currentUser.client_id)}</h1>
                     <div className="flex items-center gap-3 bg-white px-4 py-2 rounded-lg border border-slate-200 w-full sm:w-auto shadow-sm">
                       <Filter size={16} className="text-amber-500" /><select className="text-xs font-bold uppercase outline-none bg-transparent w-full cursor-pointer text-slate-600" value={dashboardFilter} onChange={e => setDashboardFilter(e.target.value)}>
                         <option value="all">Consolidado Geral</option>
