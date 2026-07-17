@@ -171,7 +171,8 @@ GESTOR-CONSELHO-INEPAD/
 - **OKR:** progresso do KR = (atual−início)/(meta−início); KR "medido por indicador" puxa o atual da última leitura; farol do KR pela confiança do último check-in; objetivo = média dos KRs.
 - **RAE:** reunião `type='RAE'` com **pauta automática** (objetivos em alerta, indicadores fora da meta, ações atrasadas, OKRs em risco) — reusa o módulo de Reuniões.
 - **Plano de Ação 5W2H:** ações (jsonb `meetings.acoes`) ganham `why/where/how/how_much/objective_id`; visão **Kanban** por status (Tabela | Kanban).
-- **suggest-action** (Edge Function, Gemini): sugere ação corretiva — **desativada no front por ora** (função existe; botão removido; requer `GEMINI_API_KEY`).
+- **suggest-action** (Edge Function, Gemini): sugere ação corretiva — **desativada no front por ora** (função existe; botão removido; requer `GEMINI_API_KEY`). Pode ser migrada para Claude e reativada (já há `ANTHROPIC_API_KEY` configurada).
+- **Ata por IA** (Edge Function `draft-minutes`, **Claude `claude-opus-4-8`**): a secretária sobe a transcrição do Teams/Meet (`.vtt`/`.txt`) na aba Ordem do Dia → a IA rascunha a discussão de cada pauta (campo `pautas[].notes`, que já ia para a ata em PDF) → secretária revisa e salva. Prompt reconhece a pauta **por assunto** (reunião de conselho é orgânica, ninguém anuncia "item 3"); resumo impessoal (atribuição vem dos dados estruturados); barra arquivo binário (`.docx`/`.pdf`). Validado: com transcrição de reunião online a ata sai ótima; o gargalo é a captação **presencial** (orientar a conectar a sala ao Teams/Meet ou usar microfone de mesa). Em produção desde 17/07/2026. Removidos os antigos `analyze-minutes` + `services/geminiService.ts` (código morto Gemini).
 - **Exportar PDF:** `generateStrategyPDF` (jsPDF) gera o plano (identidade + objetivos por perspectiva + indicadores realizado×meta + OKRs).
 
 ---
@@ -260,6 +261,7 @@ GESTOR-CONSELHO-INEPAD/
 | `collect-readings` | Link de coleta: SuperAdmin/Adm/Sec gera token HMAC (cliente+competência, 45d); controller preenche leituras sem login → upsert + avaliação | OFF (mint valida JWT; info/submit validam token) |
 | `send-materials-notification` | Avisa participantes internos que os materiais (subsídios) da reunião estão disponíveis | ON |
 | `suggest-action` | (Gemini) sugere ação corretiva p/ indicador fora da meta — **desativada no front por ora** | ON |
+| `draft-minutes` | **Ata por IA (Claude).** Recebe a transcrição do Teams/Meet + pautas/participantes/deliberações e devolve o resumo da discussão de cada item da ordem do dia (preenche `pautas[].notes`). Saída estruturada (`json_schema`); resumo impessoal; não inventa; nada é gravado sem a secretária salvar. Requer secret `ANTHROPIC_API_KEY` (por ambiente) | OFF (valida JWT + papel Adm/Sec/Super + tenant em código) |
 
 > **Código compartilhado:** `supabase/functions/_shared/ics.ts` — gerador de `.ics` (iCalendar/RFC 5545) com RSVP, usado por `send-invitation` e `send-calendar-invites`. Converte horário de Brasília (UTC−3) para UTC. Empacotado automaticamente no deploy de cada função que o importa.
 
