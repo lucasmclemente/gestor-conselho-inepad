@@ -33,9 +33,9 @@ serve(async (req) => {
   const { data: { user }, error: authError } = await supabaseClient.auth.getUser()
   if (authError || !user) return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
 
-  const role = (user.user_metadata as any)?.role
-  const clientId = (user.user_metadata as any)?.client_id
-  const secClients = Array.isArray((user.user_metadata as any)?.secretary_clients) ? (user.user_metadata as any).secretary_clients : []
+  const role = (user.app_metadata as any)?.role
+  const clientId = (user.app_metadata as any)?.client_id
+  const secClients = Array.isArray((user.app_metadata as any)?.secretary_clients) ? (user.app_metadata as any).secretary_clients : []
   const isSuper = role === 'SuperAdmin'
   if (!['Administrador', 'SuperAdmin'].includes(role)) {
     return new Response(JSON.stringify({ error: 'Apenas Administrador/SuperAdmin podem remover membros.' }), { status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' } })

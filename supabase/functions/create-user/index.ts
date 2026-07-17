@@ -47,9 +47,9 @@ serve(async (req) => {
   }
 
   // Verifica autorização — apenas Administrador e SuperAdmin podem criar usuários
-  const callerRole = callerUser.user_metadata?.role
-  const callerClientId = callerUser.user_metadata?.client_id
-  const callerSecClients = Array.isArray(callerUser.user_metadata?.secretary_clients) ? callerUser.user_metadata.secretary_clients : []
+  const callerRole = callerUser.app_metadata?.role
+  const callerClientId = callerUser.app_metadata?.client_id
+  const callerSecClients = Array.isArray(callerUser.app_metadata?.secretary_clients) ? callerUser.app_metadata.secretary_clients : []
 
   if (!['Administrador', 'SuperAdmin'].includes(callerRole)) {
     return new Response(JSON.stringify({ error: 'Forbidden' }), {
@@ -93,7 +93,8 @@ serve(async (req) => {
       email,
       password,
       email_confirm: true,
-      user_metadata: { name, role, client_id },
+      user_metadata: { name },              // exibição (editável pelo usuário)
+      app_metadata: { role, client_id },    // segurança (só service_role grava)
     });
 
     if (authCreateError) {

@@ -41,8 +41,8 @@ serve(async (req) => {
   if (authError || !user) {
     return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
   }
-  const role = (user.user_metadata as any)?.role
-  const clientId = (user.user_metadata as any)?.client_id
+  const role = (user.app_metadata as any)?.role
+  const clientId = (user.app_metadata as any)?.client_id
   const callerName = (user.user_metadata as any)?.name || user.email
   if (!ALLOWED_ROLES.includes(role)) {
     return new Response(JSON.stringify({ error: 'Forbidden' }), { status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' } })

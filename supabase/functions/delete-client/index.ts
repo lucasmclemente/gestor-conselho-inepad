@@ -47,8 +47,8 @@ serve(async (req) => {
   }
 
   // Somente SuperAdmin pode excluir empresas
-  const role = (user.user_metadata as any)?.role
-  const callerClientId = (user.user_metadata as any)?.client_id
+  const role = (user.app_metadata as any)?.role
+  const callerClientId = (user.app_metadata as any)?.client_id
   if (role !== 'SuperAdmin') {
     return new Response(JSON.stringify({ error: 'Apenas SuperAdmin pode excluir empresas.' }), {
       status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' },

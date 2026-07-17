@@ -29,7 +29,7 @@ serve(async (req) => {
   if (authError || !caller) return json({ error: 'Unauthorized' }, 401)
 
   // Apenas SuperAdmin decide acesso entre clientes
-  if ((caller.user_metadata as any)?.role !== 'SuperAdmin') return json({ error: 'Apenas SuperAdmin pode atribuir clientes.' }, 403)
+  if ((caller.app_metadata as any)?.role !== 'SuperAdmin') return json({ error: 'Apenas SuperAdmin pode atribuir clientes.' }, 403)
 
   try {
     const { userId, clientIds } = await req.json()
@@ -40,8 +40,8 @@ serve(async (req) => {
 
     const { data: au } = await admin.auth.admin.getUserById(userId)
     if (!au?.user) return json({ error: 'Usuário não encontrado.' }, 404)
-    const existingMeta = (au.user.user_metadata as any) || {}
-    const { error: authUpdErr } = await admin.auth.admin.updateUserById(userId, { user_metadata: { ...existingMeta, secretary_clients: clean } })
+    const existingApp = (au.user.app_metadata as any) || {}
+    const { error: authUpdErr } = await admin.auth.admin.updateUserById(userId, { app_metadata: { ...existingApp, secretary_clients: clean } })
     if (authUpdErr) return json({ error: 'Erro ao atualizar login: ' + authUpdErr.message }, 400)
 
     const { error: memErr } = await admin.from('members').update({ secretary_clients: clean }).eq('id', userId)

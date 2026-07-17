@@ -40,9 +40,9 @@ serve(async (req) => {
       const authClient = createClient(Deno.env.get('SUPABASE_URL') ?? '', Deno.env.get('SUPABASE_ANON_KEY') ?? '', { global: { headers: { Authorization: authHeader } } })
       const { data: { user } } = await authClient.auth.getUser()
       if (!user) return json({ error: 'Unauthorized' }, 401)
-      const role = (user.user_metadata as any)?.role ?? ''
-      const home = (user.user_metadata as any)?.client_id ?? null
-      const sec: string[] = Array.isArray((user.user_metadata as any)?.secretary_clients) ? (user.user_metadata as any).secretary_clients : []
+      const role = (user.app_metadata as any)?.role ?? ''
+      const home = (user.app_metadata as any)?.client_id ?? null
+      const sec: string[] = Array.isArray((user.app_metadata as any)?.secretary_clients) ? (user.app_metadata as any).secretary_clients : []
       if (!['Administrador', 'Secretário', 'SuperAdmin'].includes(role)) return json({ error: 'forbidden' }, 403)
       const { client_id, period } = body
       if (!client_id || !period) return json({ error: 'missing client_id/period' }, 400)

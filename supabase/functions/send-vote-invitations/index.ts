@@ -59,8 +59,8 @@ serve(async (req) => {
   const { data: { user }, error: authError } = await supabaseClient.auth.getUser()
   if (authError || !user) return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
 
-  const role = (user.user_metadata as any)?.role
-  const clientId = (user.user_metadata as any)?.client_id
+  const role = (user.app_metadata as any)?.role
+  const clientId = (user.app_metadata as any)?.client_id
   const isSuper = role === 'SuperAdmin'
   if (!['Administrador', 'Secretário', 'SuperAdmin'].includes(role)) {
     return new Response(JSON.stringify({ error: 'Apenas Administrador/Secretário podem enviar convites de voto.' }), { status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' } })

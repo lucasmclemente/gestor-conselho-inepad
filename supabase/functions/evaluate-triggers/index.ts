@@ -30,9 +30,9 @@ serve(async (req) => {
   const { data: { user }, error: authErr } = await authClient.auth.getUser()
   if (authErr || !user) return json({ error: 'Unauthorized' }, 401)
 
-  const role = (user.user_metadata as any)?.role ?? ''
-  const clientId = (user.user_metadata as any)?.client_id ?? null
-  const secClients: string[] = Array.isArray((user.user_metadata as any)?.secretary_clients) ? (user.user_metadata as any).secretary_clients : []
+  const role = (user.app_metadata as any)?.role ?? ''
+  const clientId = (user.app_metadata as any)?.client_id ?? null
+  const secClients: string[] = Array.isArray((user.app_metadata as any)?.secretary_clients) ? (user.app_metadata as any).secretary_clients : []
   if (!['Administrador', 'Secretário', 'SuperAdmin', 'Controller'].includes(role)) return json({ error: 'forbidden' }, 403)
 
   try {

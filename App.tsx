@@ -240,19 +240,22 @@ const App = () => {
   }, []);
 
   const fetchMemberProfile = async (userId: string) => {
-    // Tenta ler role e client_id do user_metadata do Auth (mais seguro)
+    // Lê os claims de segurança (role/client_id/secretary_clients) do app_metadata,
+    // que só o service_role grava — impede autopromoção via updateUser.
+    // O nome (exibição) continua no user_metadata, editável pelo próprio usuário.
     const { data: authData } = await supabase.auth.getUser();
     const user = authData?.user;
-    const meta = user?.user_metadata;
+    const appMeta = (user as any)?.app_metadata;
+    const userMeta = user?.user_metadata;
     let profile: any = null;
-    if (meta?.role && meta?.client_id) {
+    if (appMeta?.role && appMeta?.client_id) {
       profile = {
         id: userId,
-        name: meta.name || user?.email || '',
+        name: userMeta?.name || user?.email || '',
         email: user?.email ?? '',
-        role: meta.role,
-        client_id: meta.client_id,
-        secretary_clients: Array.isArray(meta.secretary_clients) ? meta.secretary_clients : []
+        role: appMeta.role,
+        client_id: appMeta.client_id,
+        secretary_clients: Array.isArray(appMeta.secretary_clients) ? appMeta.secretary_clients : []
       };
     } else {
       // Fallback para tabela members (compatibilidade com usuários sem metadata)

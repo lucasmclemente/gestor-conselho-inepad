@@ -47,8 +47,8 @@ serve(async (req) => {
   const { data: { user }, error: authError } = await supabaseClient.auth.getUser()
   if (authError || !user) return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
 
-  const role = (user.user_metadata as any)?.role
-  const clientId = (user.user_metadata as any)?.client_id
+  const role = (user.app_metadata as any)?.role
+  const clientId = (user.app_metadata as any)?.client_id
   const callerName = (user.user_metadata as any)?.name
   const callerEmail = user.email
   const isSuper = role === 'SuperAdmin'

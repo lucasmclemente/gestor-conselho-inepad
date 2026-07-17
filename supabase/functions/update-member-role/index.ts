@@ -35,9 +35,9 @@ serve(async (req) => {
   const { data: { user: caller }, error: authError } = await supabaseClient.auth.getUser()
   if (authError || !caller) return json({ error: 'Unauthorized' }, 401)
 
-  const callerRole = (caller.user_metadata as any)?.role
-  const callerClient = (caller.user_metadata as any)?.client_id
-  const callerSec = Array.isArray((caller.user_metadata as any)?.secretary_clients) ? (caller.user_metadata as any).secretary_clients : []
+  const callerRole = (caller.app_metadata as any)?.role
+  const callerClient = (caller.app_metadata as any)?.client_id
+  const callerSec = Array.isArray((caller.app_metadata as any)?.secretary_clients) ? (caller.app_metadata as any).secretary_clients : []
   const isSuper = callerRole === 'SuperAdmin'
   if (!['Administrador', 'SuperAdmin'].includes(callerRole)) return json({ error: 'Apenas Administrador/SuperAdmin podem alterar perfis.' }, 403)
 
@@ -59,10 +59,10 @@ serve(async (req) => {
       if (newRole === 'SuperAdmin') return json({ error: 'Administrador não pode promover a SuperAdmin.' }, 403)
     }
 
-    // Atualiza o papel no Auth (user_metadata) preservando o restante do metadata
+    // Atualiza o papel no Auth (app_metadata — segurança) preservando o restante
     const { data: au } = await admin.auth.admin.getUserById(userId)
-    const existingMeta = (au?.user?.user_metadata as any) || {}
-    const { error: authUpdErr } = await admin.auth.admin.updateUserById(userId, { user_metadata: { ...existingMeta, role: newRole } })
+    const existingApp = (au?.user?.app_metadata as any) || {}
+    const { error: authUpdErr } = await admin.auth.admin.updateUserById(userId, { app_metadata: { ...existingApp, role: newRole } })
     if (authUpdErr) return json({ error: 'Erro ao atualizar login: ' + authUpdErr.message }, 400)
 
     // Atualiza a tabela members

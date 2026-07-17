@@ -88,9 +88,9 @@ serve(async (req) => {
   const { data: { user }, error: aerr } = await authClient.auth.getUser()
   if (aerr || !user) return json({ error: 'Unauthorized' }, 401)
 
-  const role = (user.user_metadata as any)?.role ?? ''
-  const homeClient = (user.user_metadata as any)?.client_id ?? null
-  const secClients: string[] = Array.isArray((user.user_metadata as any)?.secretary_clients) ? (user.user_metadata as any).secretary_clients : []
+  const role = (user.app_metadata as any)?.role ?? ''
+  const homeClient = (user.app_metadata as any)?.client_id ?? null
+  const secClients: string[] = Array.isArray((user.app_metadata as any)?.secretary_clients) ? (user.app_metadata as any).secretary_clients : []
   if (!['Administrador', 'Secretário', 'SuperAdmin'].includes(role)) {
     return json({ error: 'Apenas Administrador e Secretário podem rascunhar a ata.' }, 403)
   }
