@@ -96,6 +96,8 @@ const App = () => {
   const [suggestOpen, setSuggestOpen] = useState(false);
   const [suggestGroups, setSuggestGroups] = useState<any[]>([]);
   const [suggestSel, setSuggestSel] = useState<Record<string, boolean>>({});
+  const [agendaDrafting, setAgendaDrafting] = useState(false);
+  const [agendaIsAI, setAgendaIsAI] = useState(false);
   const [tmpAcao, setTmpAcao] = useState({ title: '', resps: [] as string[], resp: '', date: '', status: 'Pendente', obs: '', priority: 'Média' });
   const [tmpGlobalAcao, setTmpGlobalAcao] = useState({ title: '', resps: [] as string[], date: '', meetingId: '', obs: '', priority: 'Média' });
   const [tmpDelib, setTmpDelib] = useState({ title: '', voters: [] as string[], votes: {} as any });
@@ -784,7 +786,31 @@ const App = () => {
     const groups = buildPautaSuggestions();
     const sel: Record<string, boolean> = {};
     groups.forEach((g, gi) => g.items.forEach((_: any, ii: number) => { sel[`${gi}-${ii}`] = true; }));
-    setSuggestGroups(groups); setSuggestSel(sel); setSuggestOpen(true);
+    setSuggestGroups(groups); setSuggestSel(sel); setAgendaIsAI(false); setSuggestOpen(true);
+  };
+
+  // Eleva a sugestão mecânica para uma pauta REDIGIDA pela IA (Claude): consolida
+  // temas, sequencia e propõe encaminhamentos. As pendências vão como contexto.
+  const draftAgendaWithAI = async () => {
+    setAgendaDrafting(true);
+    try {
+      const cid = currentMeeting?.client_id || activeClientId || currentUser?.client_id;
+      const grupos = buildPautaSuggestions().map((g: any) => ({ label: g.label, itens: g.items.map((i: any) => i.title) }));
+      const context = { title: currentMeeting?.title, date: currentMeeting?.date, type: currentMeeting?.type };
+      const { data, error } = await supabase.functions.invoke('draft-agenda', { body: { clientId: cid, context, grupos } });
+      if (error || data?.error) throw new Error(data?.error || error?.message);
+      const items = (data.pauta || []).map((x: any) => ({ title: x.titulo, dur: x.duracao_min || 10, objetivo: x.objetivo || '' }));
+      if (items.length === 0) throw new Error('A IA não retornou itens.');
+      const group = { key: 'ia', label: 'Pauta redigida pela IA', items };
+      const sel: Record<string, boolean> = {};
+      items.forEach((_: any, ii: number) => { sel[`0-${ii}`] = true; });
+      setSuggestGroups([group]); setSuggestSel(sel); setAgendaIsAI(true);
+      addLog('Pauta (IA)', `Pauta redigida pela IA (${items.length} itens) para ${currentMeeting?.title || 'reunião'}.`);
+    } catch (err: any) {
+      alert('Erro ao redigir a pauta com IA: ' + (err?.message || err));
+    } finally {
+      setAgendaDrafting(false);
+    }
   };
 
   const applySuggestedPautas = () => {
@@ -4469,13 +4495,23 @@ const App = () => {
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[85vh] flex flex-col" onClick={e => e.stopPropagation()}>
             <div className="p-6 border-b border-slate-100 flex items-center gap-3">
               <div className="p-2.5 bg-amber-100 text-amber-600 rounded-lg"><Sparkles size={20} /></div>
-              <div>
-                <h3 className="text-lg font-bold text-slate-800 italic">Pauta sugerida</h3>
-                <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Itens gerados a partir das pendências reais do conselho</p>
+              <div className="flex-1">
+                <div className="flex items-center gap-2">
+                  <h3 className="text-lg font-bold text-slate-800 italic">Pauta sugerida</h3>
+                  {agendaIsAI && <span className="text-[8px] bg-slate-900 text-amber-400 px-2 py-0.5 rounded-full uppercase font-bold tracking-widest">✨ Redigida pela IA</span>}
+                </div>
+                <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400">{agendaIsAI ? 'Consolidada e sequenciada pela IA — revise antes de adicionar' : 'Itens gerados a partir das pendências reais do conselho'}</p>
               </div>
+              {canEdit && !agendaIsAI && suggestGroups.length > 0 && (
+                <button onClick={draftAgendaWithAI} disabled={agendaDrafting} className="shrink-0 px-4 py-2.5 rounded-lg bg-slate-900 text-amber-400 font-bold text-[10px] uppercase tracking-widest flex items-center gap-2 hover:bg-slate-800 disabled:opacity-50 transition-all">
+                  <Sparkles size={14} /> {agendaDrafting ? 'Redigindo…' : 'Redigir com IA'}
+                </button>
+              )}
             </div>
             <div className="p-6 overflow-y-auto space-y-5">
-              {suggestGroups.length === 0 ? (
+              {agendaDrafting ? (
+                <div className="text-center py-12 text-amber-600"><p className="font-bold uppercase tracking-widest text-xs animate-pulse">A IA está redigindo a ordem do dia…</p><p className="text-[11px] text-slate-400 mt-2">Consolidando temas, sequenciando e propondo encaminhamentos.</p></div>
+              ) : suggestGroups.length === 0 ? (
                 <div className="text-center py-10 text-slate-400">
                   <p className="text-4xl mb-3">🎉</p>
                   <p className="font-bold text-slate-600">Nenhuma pendência encontrada</p>
@@ -4494,8 +4530,14 @@ const App = () => {
                         const k = `${gi}-${ii}`;
                         return (
                           <label key={ii} className={`flex items-start gap-3 p-3 rounded-lg border cursor-pointer transition-all ${suggestSel[k] ? 'bg-amber-50/60 border-amber-200' : 'bg-slate-50 border-slate-100 hover:border-slate-200'}`}>
-                            <input type="checkbox" checked={!!suggestSel[k]} onChange={() => setSuggestSel({ ...suggestSel, [k]: !suggestSel[k] })} className="mt-0.5 accent-amber-600 w-4 h-4" />
-                            <span className="text-sm text-slate-700 font-medium">{it.title}</span>
+                            <input type="checkbox" checked={!!suggestSel[k]} onChange={() => setSuggestSel({ ...suggestSel, [k]: !suggestSel[k] })} className="mt-1 accent-amber-600 w-4 h-4" />
+                            <div className="flex-1">
+                              <div className="flex items-baseline justify-between gap-2">
+                                <span className="text-sm text-slate-700 font-medium">{it.title}</span>
+                                {it.dur ? <span className="shrink-0 text-[9px] font-bold uppercase text-slate-400 tracking-wider">{it.dur} min</span> : null}
+                              </div>
+                              {it.objetivo ? <p className="text-[11px] text-slate-500 italic mt-0.5">🎯 {it.objetivo}</p> : null}
+                            </div>
                           </label>
                         );
                       })}
