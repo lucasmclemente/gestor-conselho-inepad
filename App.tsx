@@ -824,6 +824,67 @@ const App = () => {
     setSuggestOpen(false);
   };
 
+  // Índice de Maturidade de Governança — placar 0–100 do cliente, calculado a
+  // partir do que o sistema já registra (reuniões, plano, atas, deliberações,
+  // indicadores, estratégia). Cada dimensão 0–100 e uma média ponderada.
+  const maturityBand = (s: number) => {
+    if (s >= 80) return { label: 'Avançado', color: '#059669', bg: '#ecfdf5', ring: '#10b981' };
+    if (s >= 60) return { label: 'Estruturado', color: '#65a30d', bg: '#f7fee7', ring: '#84cc16' };
+    if (s >= 40) return { label: 'Em desenvolvimento', color: '#d97706', bg: '#fffbeb', ring: '#f59e0b' };
+    if (s >= 20) return { label: 'Em estruturação', color: '#ea580c', bg: '#fff7ed', ring: '#f97316' };
+    return { label: 'Inicial', color: '#dc2626', bg: '#fef2f2', ring: '#ef4444' };
+  };
+  const computeMaturity = () => {
+    const cid = activeClientId || currentUser?.client_id;
+    const now = new Date();
+    const pad = (n: number) => String(n).padStart(2, '0');
+    const todayStr = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
+    const ya = new Date(now); ya.setFullYear(ya.getFullYear() - 1);
+    const yaStr = `${ya.getFullYear()}-${pad(ya.getMonth() + 1)}-${pad(ya.getDate())}`;
+    const cm = (meetings || []).filter((m: any) => m.client_id === cid);
+    const concluded = cm.filter((m: any) => m.status === 'Concluída');
+    const R = (n: number) => Math.max(0, Math.min(100, Math.round(n)));
+
+    // 1) Cadência — reuniões concluídas nos últimos 12 meses (6+/ano = 100)
+    const conc12 = concluded.filter((m: any) => m.date && m.date >= yaStr).length;
+    const cadencia = { key: 'cadencia', label: 'Cadência de reuniões', weight: 20, applicable: true, score: R(conc12 / 6 * 100), detail: `${conc12} reunião(ões) concluída(s) nos últimos 12 meses`, tip: 'Mantenha reuniões regulares (ideal: mensal ou bimestral) e registre-as como concluídas.' };
+
+    // 2) Execução do plano de ação
+    const acoes = cm.flatMap((m: any) => m.acoes || []);
+    const totA = acoes.length;
+    const doneA = acoes.filter((a: any) => a.status === 'Concluída').length;
+    const lateA = acoes.filter((a: any) => a.status !== 'Concluída' && a.date && a.date < todayStr).length;
+    const execucao = { key: 'execucao', label: 'Execução do plano de ação', weight: 25, applicable: true, score: totA === 0 ? 0 : R(doneA / totA * 100), detail: totA === 0 ? 'Sem ações registradas' : `${doneA}/${totA} ações concluídas${lateA ? ` · ${lateA} atrasada(s)` : ''}`, tip: 'Feche as ações dentro do prazo e revise as atrasadas na próxima reunião.' };
+
+    // 3) Disciplina de atas
+    const withAta = concluded.filter((m: any) => (m.atas || []).length > 0).length;
+    const atas = { key: 'atas', label: 'Disciplina de atas', weight: 15, applicable: true, score: concluded.length === 0 ? 0 : R(withAta / concluded.length * 100), detail: `${withAta}/${concluded.length} reunião(ões) concluída(s) com ata`, tip: 'Publique a ata de toda reunião — use a Ata por IA para acelerar.' };
+
+    // 4) Deliberações formais
+    const withDelib = concluded.filter((m: any) => (m.deliberacoes || []).length > 0).length;
+    const delib = { key: 'delib', label: 'Deliberações formais', weight: 15, applicable: true, score: concluded.length === 0 ? 0 : R(withDelib / concluded.length * 100), detail: `${withDelib}/${concluded.length} reunião(ões) com deliberação registrada`, tip: 'Formalize as decisões como deliberações com votação registrada.' };
+
+    // 5) Gestão de indicadores (add-on Estratégia)
+    const withTarget = new Set((targetsList || []).map((t: any) => t.indicator_id));
+    const withReading = new Set((readingsList || []).map((r: any) => r.indicator_id));
+    const tracked = (indicatorsList || []).filter((i: any) => withTarget.has(i.id) && withReading.has(i.id)).length;
+    const green = (indicatorStatuses || []).filter((s: any) => (s.breach_level || 0) === 0).length;
+    const cov = (indicatorsList || []).length ? tracked / indicatorsList.length : 0;
+    const perf = (indicatorStatuses || []).length ? green / indicatorStatuses.length : 0;
+    const indic = { key: 'indic', label: 'Gestão de indicadores', weight: 15, applicable: strategyEnabled, score: (indicatorsList || []).length === 0 ? 0 : R((cov * 0.6 + perf * 0.4) * 100), detail: (indicatorsList || []).length === 0 ? 'Sem indicadores cadastrados' : `${tracked}/${indicatorsList.length} com meta e leitura · ${R(perf * 100)}% no alvo`, tip: 'Cadastre metas e registre leituras; aja sobre os indicadores fora da meta.' };
+
+    // 6) Planejamento estratégico (add-on)
+    let estPts = 0;
+    if ((strategyObjectives || []).length > 0) estPts += 60;
+    if ((okrKrs || []).length > 0) estPts += 40;
+    const estrat = { key: 'estrat', label: 'Planejamento estratégico', weight: 10, applicable: strategyEnabled, score: estPts, detail: `${(strategyObjectives || []).length} objetivo(s) no mapa · ${(okrKrs || []).length} resultado(s)-chave (OKR)`, tip: 'Defina objetivos no mapa estratégico e acompanhe OKRs por ciclo.' };
+
+    const dims = [cadencia, execucao, atas, delib, indic, estrat].filter(d => d.applicable);
+    const wsum = dims.reduce((a, d) => a + d.weight, 0) || 1;
+    const overall = R(dims.reduce((a, d) => a + d.score * d.weight, 0) / wsum);
+    return { overall, band: maturityBand(overall), dims, hasData: concluded.length > 0 || totA > 0 };
+  };
+
   const saveMeeting = async () => {
     if (!canEdit) return;
     if (!currentMeeting.title) return alert("O título é obrigatório.");
@@ -2465,6 +2526,7 @@ const App = () => {
             { id: 'reunioes', icon: <Calendar size={18} />, label: 'Conselho', action: () => setView('list') },
             { id: 'plano-acao', icon: <ListChecks size={18} />, label: 'Plano de Ação' },
             { id: 'deliberacoes', icon: <Scale size={18} />, label: 'Deliberações' },
+            { id: 'maturidade', icon: <TrendingUp size={18} />, label: 'Maturidade' },
             { id: 'indicadores', icon: <Gauge size={18} />, label: 'Indicadores', addon: true },
             { id: 'estrategia', icon: <Compass size={18} />, label: 'Estratégia', addon: true },
             { id: 'repositorio-atas', icon: <Archive size={18} />, label: 'Repositório de Atas' },
@@ -4159,6 +4221,79 @@ const App = () => {
               {/* ==================== ESTRATÉGIA (módulo componentizado) ==================== */}
               {activeMenu === 'estrategia' && (
                 <Estrategia currentUser={currentUser} activeClientId={activeClientId} canEdit={canEdit} addLog={addLog} />
+              )}
+
+              {activeMenu === 'maturidade' && (
+                <div className="space-y-6 animate-in fade-in">
+                  <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm">
+                    <h1 className="text-2xl font-bold text-slate-800 tracking-tight italic">Maturidade de Governança</h1>
+                    <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400 mt-1">{superAll ? 'Selecione um cliente' : (clientProfile?.name || activeClientId || currentUser.client_id)}</p>
+                  </div>
+                  {superAll ? (
+                    <div className="bg-white p-12 rounded-xl border border-slate-200 shadow-sm text-center text-slate-400">
+                      <TrendingUp size={40} className="mx-auto mb-3 text-slate-300" />
+                      <p className="font-bold text-slate-600">Escolha um cliente no seletor do topo</p>
+                      <p className="text-sm">A maturidade é calculada por empresa. Selecione um cliente para ver o placar.</p>
+                    </div>
+                  ) : (() => {
+                    const m = computeMaturity();
+                    const size = 150, stroke = 13, r = (size - stroke) / 2, circ = 2 * Math.PI * r, off = circ * (1 - m.overall / 100);
+                    const lows = [...m.dims].filter((d: any) => d.score < 70).sort((a: any, b: any) => a.score - b.score).slice(0, 3);
+                    return (
+                      <>
+                        <div className="bg-white p-8 rounded-xl border border-slate-200 shadow-sm flex flex-col sm:flex-row items-center gap-8">
+                          <div className="relative shrink-0" style={{ width: size, height: size }}>
+                            <svg width={size} height={size} className="-rotate-90">
+                              <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke="#e2e8f0" strokeWidth={stroke} />
+                              <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke={m.band.ring} strokeWidth={stroke} strokeLinecap="round" strokeDasharray={circ} strokeDashoffset={off} style={{ transition: 'stroke-dashoffset .6s ease' }} />
+                            </svg>
+                            <div className="absolute inset-0 flex flex-col items-center justify-center">
+                              <span className="text-4xl font-black text-slate-800">{m.overall}</span>
+                              <span className="text-[9px] font-bold uppercase tracking-widest text-slate-400">de 100</span>
+                            </div>
+                          </div>
+                          <div className="flex-1 text-center sm:text-left">
+                            <span className="inline-block px-3 py-1 rounded-full text-xs font-bold uppercase tracking-widest" style={{ background: m.band.bg, color: m.band.color }}>{m.band.label}</span>
+                            <p className="text-sm text-slate-500 mt-3 leading-relaxed">Índice consolidado da qualidade da governança deste conselho, calculado a partir da cadência de reuniões, execução do plano de ação, disciplina de atas e deliberações{strategyEnabled ? ', e da gestão de indicadores e do planejamento estratégico' : ''}.</p>
+                            {!m.hasData && <p className="text-[11px] text-amber-600 font-bold mt-2 uppercase tracking-wider">Ainda há poucos dados — o índice evolui conforme o conselho registra sua rotina.</p>}
+                          </div>
+                        </div>
+
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                          {m.dims.map((d: any) => { const b = maturityBand(d.score); return (
+                            <div key={d.key} className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm">
+                              <div className="flex items-center justify-between gap-2 mb-2">
+                                <p className="text-sm font-bold text-slate-700">{d.label}</p>
+                                <span className="text-lg font-black" style={{ color: b.color }}>{d.score}</span>
+                              </div>
+                              <div className="h-2 rounded-full bg-slate-100 overflow-hidden">
+                                <div className="h-full rounded-full" style={{ width: `${d.score}%`, background: b.ring, transition: 'width .6s ease' }} />
+                              </div>
+                              <div className="flex items-center justify-between mt-2 gap-2">
+                                <p className="text-[11px] text-slate-500">{d.detail}</p>
+                                <span className="text-[9px] font-bold uppercase tracking-widest text-slate-300 shrink-0">peso {d.weight}%</span>
+                              </div>
+                            </div>
+                          ); })}
+                        </div>
+
+                        {lows.length > 0 && (
+                          <div className="bg-slate-900 p-6 rounded-xl border border-white/10 shadow-lg">
+                            <p className="text-[10px] font-bold uppercase tracking-widest text-amber-500 mb-3 flex items-center gap-2"><Sparkles size={14} /> Como evoluir a maturidade</p>
+                            <div className="space-y-2.5">
+                              {lows.map((d: any) => (
+                                <div key={d.key} className="flex items-start gap-3">
+                                  <span className="shrink-0 mt-0.5 text-[9px] font-black px-1.5 py-0.5 rounded bg-amber-600 text-white">{d.score}</span>
+                                  <p className="text-[13px] text-slate-300"><span className="font-bold text-white">{d.label}:</span> {d.tip}</p>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                      </>
+                    );
+                  })()}
+                </div>
               )}
 
               {/* ==================== SEÇÃO DE USUÁRIOS ==================== */}
