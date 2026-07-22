@@ -92,6 +92,10 @@ const App = () => {
   const [editingPauta, setEditingPauta] = useState<number | null>(null);
   const [tmpPart, setTmpPart] = useState({ name: '', email: '', isExternal: false });
   const [tmpPauta, setTmpPauta] = useState({ title: '', resp: '', dur: '' });
+  // Pauta automática: sugestões de itens a partir das pendências reais do conselho
+  const [suggestOpen, setSuggestOpen] = useState(false);
+  const [suggestGroups, setSuggestGroups] = useState<any[]>([]);
+  const [suggestSel, setSuggestSel] = useState<Record<string, boolean>>({});
   const [tmpAcao, setTmpAcao] = useState({ title: '', resps: [] as string[], resp: '', date: '', status: 'Pendente', obs: '', priority: 'Média' });
   const [tmpGlobalAcao, setTmpGlobalAcao] = useState({ title: '', resps: [] as string[], date: '', meetingId: '', obs: '', priority: 'Média' });
   const [tmpDelib, setTmpDelib] = useState({ title: '', voters: [] as string[], votes: {} as any });
@@ -720,6 +724,78 @@ const App = () => {
     setMeetings((prev: any) => [data, ...prev]);
     addLog('RAE', `Reunião de Análise Estratégica gerada (${mesAno}).`);
     setCurrentMeeting(data); setView('details'); setTab('pauta'); setActiveMenu('reunioes');
+  };
+
+  // Monta sugestões de pauta para a reunião atual a partir das pendências reais do
+  // conselho (última reunião, plano de ação, indicadores, deliberações) — puro front,
+  // sobre dados já carregados. A secretária escolhe o que entra e cura depois.
+  const buildPautaSuggestions = () => {
+    const cid = currentMeeting?.client_id || activeClientId || currentUser?.client_id;
+    const now = new Date();
+    const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+    const fmt = (d: string) => new Date(d + 'T00:00:00').toLocaleDateString('pt-BR');
+    const isHeader = (t: string) => /^[—-]/.test((t || '').trim()) || (t || '').startsWith('✅');
+    const existing = new Set((currentMeeting?.pautas || []).map((p: any) => (p.title || '').trim().toLowerCase()));
+    const clientMeetings = (meetings || []).filter((m: any) => m.client_id === cid && m.id !== currentMeeting?.id);
+    const groups: any[] = [];
+    const pushGroup = (key: string, label: string, items: any[]) => {
+      const seen = new Set<string>(); const uniq: any[] = [];
+      for (const it of items) { const k = it.title.trim().toLowerCase(); if (!k || seen.has(k) || existing.has(k)) continue; seen.add(k); uniq.push(it); }
+      if (uniq.length) groups.push({ key, label, items: uniq });
+    };
+
+    // 1) Pendências da última reunião concluída
+    const concluded = clientMeetings.filter((m: any) => m.status === 'Concluída').sort((a: any, b: any) => (b.date || '').localeCompare(a.date || ''));
+    const last = concluded[0];
+    if (last) {
+      const pend = (last.pautas || []).filter((p: any) => !p.completed && !isHeader(p.title));
+      pushGroup('pend', `Pendências da última reunião (${last.title})`, pend.map((p: any) => ({ title: `Retomar: ${p.title}`, dur: 10 })));
+    }
+
+    // 2) Plano de Ação — atrasadas destacadas + resumo das demais em aberto
+    const openActions = clientMeetings.flatMap((m: any) => (m.acoes || [])).filter((a: any) => a.status && a.status !== 'Concluída');
+    const overdue = openActions.filter((a: any) => a.date && a.date < today);
+    const acItems = overdue.map((a: any) => ({ title: `Ação atrasada: ${a.title} (venceu ${fmt(a.date)})`, dur: 10 }));
+    const nOpen = openActions.length - overdue.length;
+    if (nOpen > 0) acItems.push({ title: `Revisar ${nOpen} ${nOpen === 1 ? 'ação em andamento' : 'ações em andamento'} do plano`, dur: 10 });
+    pushGroup('acoes', 'Plano de Ação', acItems);
+
+    // 3) Indicadores fora da meta (quando o add-on de Estratégia está ativo)
+    if (strategyEnabled) {
+      const off = (indicatorStatuses || []).filter((s: any) => (s.breach_level || 0) > 0);
+      pushGroup('ind', 'Indicadores fora da meta', off.map((s: any) => ({ title: `${s.breach_level === 2 ? '🔴' : '🟡'} Analisar indicador: ${s.name} (realizado ${s.current_value ?? '—'})`, dur: 10 })));
+    }
+
+    // 4) Deliberações com votação incompleta
+    const pendDelibs: any[] = [];
+    for (const m of clientMeetings) {
+      for (const d of (m.deliberacoes || [])) {
+        const voters: string[] = d.voters || []; const votes: any = d.votes || {};
+        const voted = voters.filter((v) => votes[v]).length;
+        if (voters.length > 0 && voted < voters.length) pendDelibs.push({ title: `Concluir deliberação: ${d.title} (${voted}/${voters.length} votos)`, dur: 10 });
+      }
+    }
+    pushGroup('delib', 'Deliberações pendentes', pendDelibs);
+
+    return groups;
+  };
+
+  const openSuggestPauta = () => {
+    const groups = buildPautaSuggestions();
+    const sel: Record<string, boolean> = {};
+    groups.forEach((g, gi) => g.items.forEach((_: any, ii: number) => { sel[`${gi}-${ii}`] = true; }));
+    setSuggestGroups(groups); setSuggestSel(sel); setSuggestOpen(true);
+  };
+
+  const applySuggestedPautas = () => {
+    const P = (title: string, dur: number) => ({ title, resp: '', dur: dur || 10, realDur: 0, completed: false });
+    const toAdd: any[] = [];
+    suggestGroups.forEach((g, gi) => g.items.forEach((it: any, ii: number) => { if (suggestSel[`${gi}-${ii}`]) toAdd.push(P(it.title, it.dur)); }));
+    if (toAdd.length) {
+      setCurrentMeeting({ ...currentMeeting, pautas: [...(currentMeeting.pautas || []), ...toAdd] });
+      addLog('Pauta sugerida', `${toAdd.length} item(ns) adicionado(s) à pauta de ${currentMeeting.title || 'reunião'}.`);
+    }
+    setSuggestOpen(false);
   };
 
   const saveMeeting = async () => {
@@ -2837,6 +2913,11 @@ const App = () => {
                             {isSessionActive ? <><Square size={16} /> Encerrar Reunião</> : <><Play size={16} /> Iniciar Reunião</>}
                           </button>
                         </div>
+                        {canEdit && !isSessionActive && (
+                          <button onClick={openSuggestPauta} className="w-full py-4 bg-amber-50 border-2 border-amber-200 rounded-xl text-amber-700 font-bold uppercase text-[10px] tracking-widest flex items-center justify-center gap-3 hover:bg-amber-100 transition-all shadow-sm">
+                            <Sparkles size={18} /> Sugerir Pauta com Base nas Pendências
+                          </button>
+                        )}
                         {canEdit && (currentMeeting.pautas || []).length > 0 && (
                           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-amber-50/60 border border-amber-200 rounded-xl px-4 py-3">
                             <div className="min-w-0">
@@ -4383,6 +4464,56 @@ const App = () => {
         </div>
       </main>
       {isConvocationOpen && <ConvocationModal />}
+      {suggestOpen && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4" onClick={() => setSuggestOpen(false)}>
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[85vh] flex flex-col" onClick={e => e.stopPropagation()}>
+            <div className="p-6 border-b border-slate-100 flex items-center gap-3">
+              <div className="p-2.5 bg-amber-100 text-amber-600 rounded-lg"><Sparkles size={20} /></div>
+              <div>
+                <h3 className="text-lg font-bold text-slate-800 italic">Pauta sugerida</h3>
+                <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Itens gerados a partir das pendências reais do conselho</p>
+              </div>
+            </div>
+            <div className="p-6 overflow-y-auto space-y-5">
+              {suggestGroups.length === 0 ? (
+                <div className="text-center py-10 text-slate-400">
+                  <p className="text-4xl mb-3">🎉</p>
+                  <p className="font-bold text-slate-600">Nenhuma pendência encontrada</p>
+                  <p className="text-sm">Não há ações atrasadas, indicadores fora da meta ou deliberações pendentes para trazer à pauta.</p>
+                </div>
+              ) : suggestGroups.map((g: any, gi: number) => {
+                const allOn = g.items.every((_: any, ii: number) => suggestSel[`${gi}-${ii}`]);
+                return (
+                  <div key={gi}>
+                    <div className="flex items-center justify-between mb-2">
+                      <p className="text-[10px] font-bold uppercase tracking-widest text-amber-600">{g.label}</p>
+                      <button className="text-[9px] font-bold uppercase text-slate-400 hover:text-slate-700" onClick={() => { const next = { ...suggestSel }; g.items.forEach((_: any, ii: number) => next[`${gi}-${ii}`] = !allOn); setSuggestSel(next); }}>{allOn ? 'Desmarcar' : 'Marcar'} todos</button>
+                    </div>
+                    <div className="space-y-1.5">
+                      {g.items.map((it: any, ii: number) => {
+                        const k = `${gi}-${ii}`;
+                        return (
+                          <label key={ii} className={`flex items-start gap-3 p-3 rounded-lg border cursor-pointer transition-all ${suggestSel[k] ? 'bg-amber-50/60 border-amber-200' : 'bg-slate-50 border-slate-100 hover:border-slate-200'}`}>
+                            <input type="checkbox" checked={!!suggestSel[k]} onChange={() => setSuggestSel({ ...suggestSel, [k]: !suggestSel[k] })} className="mt-0.5 accent-amber-600 w-4 h-4" />
+                            <span className="text-sm text-slate-700 font-medium">{it.title}</span>
+                          </label>
+                        );
+                      })}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+            <div className="p-5 border-t border-slate-100 flex items-center justify-between gap-3">
+              <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">{Object.values(suggestSel).filter(Boolean).length} selecionado(s)</span>
+              <div className="flex gap-2">
+                <button onClick={() => setSuggestOpen(false)} className="px-5 py-2.5 rounded-lg text-slate-500 font-bold text-xs uppercase hover:bg-slate-100 transition-all">Cancelar</button>
+                <button onClick={applySuggestedPautas} disabled={Object.values(suggestSel).filter(Boolean).length === 0} className="px-5 py-2.5 rounded-lg bg-amber-600 text-white font-bold text-xs uppercase hover:bg-amber-700 disabled:opacity-40 flex items-center gap-2 transition-all"><Plus size={16} /> Adicionar à pauta</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
       {isScheduleOpen && (
         <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-md z-[100] flex items-center justify-center p-4">
           <div className="bg-white w-full max-w-3xl rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[92vh] animate-in zoom-in-95">
