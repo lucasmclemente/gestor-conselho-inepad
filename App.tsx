@@ -32,8 +32,9 @@ const App = () => {
   const [currentUser, setCurrentUser] = useState<any>(null);
   // Detecta link de recuperação SINCRONAMENTE via URL hash — evita race condition com getSession()
   const [isRecovering, setIsRecovering] = useState(() => {
-    const params = new URLSearchParams(window.location.hash.slice(1));
-    return params.get('type') === 'recovery';
+    const h = new URLSearchParams(window.location.hash.slice(1));
+    const q = new URLSearchParams(window.location.search);
+    return h.get('type') === 'recovery' || q.get('type') === 'recovery';
   });
   const [activeMenu, setActiveMenu] = useState('dashboard');
   const [view, setView] = useState('list');
@@ -231,10 +232,11 @@ const App = () => {
 
   // --- LOGICA DE SESSÃO ---
   useEffect(() => {
-    const params = new URLSearchParams(window.location.hash.slice(1));
-    const isRecoveryLink = params.get('type') === 'recovery';
+    const h = new URLSearchParams(window.location.hash.slice(1));
+    const q = new URLSearchParams(window.location.search);
+    const isRecoveryLink = h.get('type') === 'recovery' || q.get('type') === 'recovery';
 
-    // Limpa o hash para não reprocessar em refresh
+    // Limpa hash e query para não reprocessar em refresh
     if (isRecoveryLink) {
       window.history.replaceState(null, '', window.location.pathname);
     }

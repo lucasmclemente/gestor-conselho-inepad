@@ -4,4 +4,14 @@ import { createClient } from '@supabase/supabase-js';
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
 const supabaseKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
 
-export const supabase = createClient(supabaseUrl, supabaseKey);
+// flowType 'implicit': o link de recuperação/confirmação chega com os tokens no
+// hash (#...type=recovery), sem depender de um "code verifier" salvo no mesmo
+// navegador — funciona entre dispositivos e casa com a detecção do app.
+export const supabase = createClient(supabaseUrl, supabaseKey, {
+  auth: {
+    flowType: 'implicit',
+    detectSessionInUrl: true,
+    persistSession: true,
+    autoRefreshToken: true,
+  },
+});
