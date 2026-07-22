@@ -179,13 +179,23 @@ ${transcript}
     })
     const preenchidas = notas.filter(Boolean).length
 
-    // Auditoria (silenciosa se falhar)
+    const inTok = message.usage?.input_tokens ?? 0
+    const outTok = message.usage?.output_tokens ?? 0
+    const costUsd = Number((inTok * 5 / 1_000_000 + outTok * 25 / 1_000_000).toFixed(4)) // opus-4-8: $5/$25 por 1M
+
+    // Auditoria + registro de consumo de IA (silenciosos se falharem)
     try {
       await admin.from('audit_logs').insert([{
         username: (user.user_metadata as any)?.name || user.email || 'Sistema',
         action: 'Ata (IA)',
         details: `Rascunho de discussões gerado para "${meeting.title}": ${preenchidas} de ${pautas.length} item(ns).`,
         client_id: cid,
+      }])
+    } catch (_) { /* silencioso */ }
+    try {
+      await admin.from('ai_usage').insert([{
+        client_id: cid, feature: 'ata', model: 'claude-opus-4-8',
+        input_tokens: inTok, output_tokens: outTok, cost_usd: costUsd,
       }])
     } catch (_) { /* silencioso */ }
 

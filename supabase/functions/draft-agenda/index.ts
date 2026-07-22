@@ -124,7 +124,11 @@ ${pend}`
 
     if (pauta.length === 0) return json({ error: 'A IA não conseguiu redigir a pauta.' }, 502)
 
-    // Auditoria (silenciosa se falhar)
+    const inTok = message.usage?.input_tokens ?? 0
+    const outTok = message.usage?.output_tokens ?? 0
+    const costUsd = Number((inTok * 5 / 1_000_000 + outTok * 25 / 1_000_000).toFixed(4)) // opus-4-8: $5/$25 por 1M
+
+    // Auditoria + registro de consumo de IA (silenciosos se falharem)
     const admin = createClient(Deno.env.get('SUPABASE_URL') ?? '', Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '', { auth: { autoRefreshToken: false, persistSession: false } })
     try {
       await admin.from('audit_logs').insert([{
@@ -134,14 +138,14 @@ ${pend}`
         client_id: cid,
       }])
     } catch (_) { /* silencioso */ }
+    try {
+      await admin.from('ai_usage').insert([{
+        client_id: cid, feature: 'pauta', model: 'claude-opus-4-8',
+        input_tokens: inTok, output_tokens: outTok, cost_usd: costUsd,
+      }])
+    } catch (_) { /* silencioso */ }
 
-    return json({
-      pauta,
-      usage: {
-        input_tokens: message.usage?.input_tokens ?? 0,
-        output_tokens: message.usage?.output_tokens ?? 0,
-      },
-    })
+    return json({ pauta, usage: { input_tokens: inTok, output_tokens: outTok } })
   } catch (e: any) {
     return json({ error: String(e?.message || e) }, 500)
   }
