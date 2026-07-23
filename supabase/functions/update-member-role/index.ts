@@ -16,7 +16,7 @@ function getCorsHeaders(req: Request): Record<string, string> {
   }
 }
 
-const VALID_ROLES = ['Conselheiro', 'Assistente', 'Controller', 'Secretário', 'Administrador', 'SuperAdmin']
+const VALID_ROLES = ['Conselheiro', 'Assistente', 'Controller', 'Secretário', 'Administrador', 'Certificador', 'SuperAdmin']
 
 serve(async (req) => {
   const cors = getCorsHeaders(req)
@@ -57,6 +57,9 @@ serve(async (req) => {
       if (target.client_id !== callerClient && !callerSec.includes(target.client_id)) return json({ error: 'Sem permissão para este membro.' }, 403)
       if (target.role === 'SuperAdmin') return json({ error: 'Administrador não pode alterar um SuperAdmin.' }, 403)
       if (newRole === 'SuperAdmin') return json({ error: 'Administrador não pode promover a SuperAdmin.' }, 403)
+      // Certificador é papel INEPAD (emite selos): criação/remoção só pelo SuperAdmin
+      if (target.role === 'Certificador') return json({ error: 'Administrador não pode alterar um Certificador.' }, 403)
+      if (newRole === 'Certificador') return json({ error: 'Apenas o SuperAdmin pode designar Certificadores.' }, 403)
     }
 
     // Atualiza o papel no Auth (app_metadata — segurança) preservando o restante

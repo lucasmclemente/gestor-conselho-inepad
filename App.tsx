@@ -3,6 +3,7 @@ import { generateMeetingPDF } from './services/generateMeetingPDF';
 import { generateAtaPDF } from './services/generateAtaPDF';
 import { supabase } from './services/supabaseClient';
 import { Estrategia } from './components/Estrategia';
+import { Certificacao } from './components/Certificacao';
 import {
   LayoutDashboard, Calendar, CalendarPlus, CalendarClock, ChevronRight, UserPlus,
   Clock, CheckCircle2, AlertCircle, FileText, Send, X, Trash2,
@@ -226,6 +227,7 @@ const App = () => {
   const canEdit = isAdm || isSec;
   const isAssistant = currentUser?.role === 'Assistente';
   const isController = currentUser?.role === 'Controller';
+  const isCertifier = currentUser?.role === 'Certificador';
   // Controller: só lança o realizado dos indicadores (não altera metas nem cadastra indicadores)
   const canLancar = canEdit || isController;
   // Valor sentinela do seletor para o SuperAdmin ver tudo consolidado
@@ -509,6 +511,7 @@ const App = () => {
         return;
       }
       if (isController) setActiveMenu('indicadores');
+      if (isCertifier) setActiveMenu('certificacao');
       const memberCols = 'id, name, email, role, client_id, created_at, secretary_clients';
       let mQuery = supabase.from('meetings').select('*');
       let lQuery = supabase.from('audit_logs').select('*');
@@ -2788,12 +2791,15 @@ const App = () => {
             { id: 'materiais-assistente', icon: <Upload size={18} />, label: 'Materiais' },
           ] : isController ? (strategyEnabled ? [
             { id: 'indicadores', icon: <Gauge size={18} />, label: 'Indicadores' },
-          ] : []) : [
+          ] : []) : isCertifier ? [
+            { id: 'certificacao', icon: <ShieldCheck size={18} />, label: 'Certificação' },
+          ] : [
             { id: 'dashboard', icon: <LayoutDashboard size={18} />, label: 'Dashboard' },
             { id: 'reunioes', icon: <Calendar size={18} />, label: 'Conselho', action: () => setView('list') },
             { id: 'plano-acao', icon: <ListChecks size={18} />, label: 'Plano de Ação' },
             { id: 'deliberacoes', icon: <Scale size={18} />, label: 'Deliberações' },
             { id: 'maturidade', icon: <TrendingUp size={18} />, label: 'Maturidade' },
+            { id: 'certificacao', icon: <ShieldCheck size={18} />, label: 'Certificação', super: true },
             { id: 'indicadores', icon: <Gauge size={18} />, label: 'Indicadores', addon: true },
             { id: 'estrategia', icon: <Compass size={18} />, label: 'Estratégia', addon: true },
             { id: 'repositorio-atas', icon: <Archive size={18} />, label: 'Repositório de Atas' },
@@ -4491,6 +4497,10 @@ const App = () => {
                 <Estrategia currentUser={currentUser} activeClientId={activeClientId} canEdit={canEdit} addLog={addLog} />
               )}
 
+              {activeMenu === 'certificacao' && (isCertifier || isSuper) && (
+                <Certificacao currentUser={currentUser} criteria={matCriteria} sealTiers={SEAL_TIERS} maturityBand={maturityBand} matLevels={MAT_LEVELS} pillarLabels={PILLAR_LABELS} />
+              )}
+
               {activeMenu === 'maturidade' && (
                 <div className="space-y-6 animate-in fade-in">
                   <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm">
@@ -5135,6 +5145,7 @@ const App = () => {
                             <option value="Controller">Controller (só lançar indicadores)</option>
                             <option value="Secretário">Secretário</option>
                             <option value="Administrador">Administrador</option>
+                            {isSuper && <option value="Certificador">Certificador (INEPAD — emite selos)</option>}
                             {isSuper && <option value="SuperAdmin">SuperAdmin</option>}
                           </select>
                         </div>
@@ -5179,6 +5190,7 @@ const App = () => {
                                   <option value="Controller">Controller</option>
                                   <option value="Secretário">Secretário</option>
                                   <option value="Administrador">Administrador</option>
+                                  {isSuper && <option value="Certificador">Certificador</option>}
                                   {isSuper && <option value="SuperAdmin">SuperAdmin</option>}
                                 </select>
                               )}
