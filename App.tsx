@@ -8,7 +8,7 @@ import {
   Clock, CheckCircle2, AlertCircle, FileText, Send, X, Trash2,
   Upload, Save, Lock, Target, FileCheck, BarChart3,
   PieChart as PieIcon, LogIn, User, Key, LogOut, UserCheck,
-  Mail, UserCog, Settings, Camera, UserCircle, History, Filter, MessageSquare, Download, ExternalLink, ListChecks, Plus, Edit2, Check, Menu, ChevronUp, ChevronDown, Play, Square, Timer, SkipForward, Building2, ChevronLeft, UserMinus, ThumbsUp, ThumbsDown, CircleSlash, MinusCircle, Archive, Search, PenLine, ShieldCheck, Scale, Monitor, MapPin, Gauge, TrendingUp, TrendingDown, Bell, Compass, Sparkles
+  Mail, UserCog, Settings, Camera, UserCircle, History, Filter, MessageSquare, Download, ExternalLink, ListChecks, Plus, Edit2, Check, Menu, ChevronUp, ChevronDown, Play, Square, Timer, SkipForward, Building2, ChevronLeft, UserMinus, ThumbsUp, ThumbsDown, CircleSlash, MinusCircle, Archive, Search, PenLine, ShieldCheck, Scale, Monitor, MapPin, Gauge, TrendingUp, TrendingDown, Bell, Compass, Sparkles, Users
 } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend, LineChart, Line, ReferenceLine } from 'recharts';
 import { PRIORITIES, PRIORITY_STYLES, PRIORITY_WEIGHT } from './constants';
@@ -165,6 +165,7 @@ const App = () => {
   const [matTab, setMatTab] = useState('propriedade');
   const [seals, setSeals] = useState<any[]>([]);
   const [matHistory, setMatHistory] = useState<any[]>([]);
+  const [benchmark, setBenchmark] = useState<any>(null);
   const [assessing, setAssessing] = useState<Record<string, boolean>>({});
   // Editor de rubrica (SuperAdmin)
   const [rubricAll, setRubricAll] = useState<any[]>([]);
@@ -329,8 +330,13 @@ const App = () => {
   useEffect(() => { if (currentUser && activeClientId) { setDetailInd(null); fetchInitialData(); } /* eslint-disable-next-line */ }, [activeClientId, superViewAll]);
   // Carrega a rubrica completa ao abrir o editor (SuperAdmin)
   useEffect(() => { if (activeMenu === 'rubrica' && isSuper) loadRubric(); /* eslint-disable-next-line */ }, [activeMenu]);
-  // Registra um snapshot do histórico ao abrir a Maturidade (após os dados carregarem)
-  useEffect(() => { if (activeMenu === 'maturidade' && !loading && !superAll && canEdit) snapshotMaturity('auto'); /* eslint-disable-next-line */ }, [activeMenu, loading, activeClientId, matCriteria.length, matAnswers.length]);
+  // Registra um snapshot do histórico ao abrir a Maturidade e carrega o benchmark anônimo
+  useEffect(() => {
+    if (activeMenu !== 'maturidade' || loading || superAll) return;
+    if (canEdit) snapshotMaturity('auto');
+    loadBenchmark();
+    /* eslint-disable-next-line */
+  }, [activeMenu, loading, activeClientId, matCriteria.length, matAnswers.length]);
   // Add-on desligado: não permite ficar em Estratégia/Indicadores (ex.: ao trocar de cliente)
   useEffect(() => {
     if (!strategyEnabled && !isController && (activeMenu === 'estrategia' || activeMenu === 'indicadores')) setActiveMenu('dashboard');
@@ -979,6 +985,16 @@ const App = () => {
       const rest = (prev || []).filter((h: any) => !(h.client_id === cid && h.snapshot_date === today));
       return [...rest, data].sort((a: any, b: any) => (a.snapshot_date || '').localeCompare(b.snapshot_date || ''));
     });
+  };
+
+  // Benchmark anônimo: pede ao banco só agregados (média/mediana/quartis/pilares) +
+  // o percentil desta empresa. Nenhuma nota individual de terceiros trafega.
+  const loadBenchmark = async () => {
+    if (superAll) { setBenchmark(null); return; }
+    const g = computeGovernance();
+    const { data, error } = await supabase.rpc('benchmark_maturity', { my_overall: g.overall });
+    if (error || !data || (data as any).error) { setBenchmark(null); return; }
+    setBenchmark({ ...(data as any), my_overall: g.overall });
   };
 
   // --- Selo de Governança (Camada 5) ---
@@ -4638,6 +4654,85 @@ const App = () => {
                                 })}
                               </div>
                               <p className="text-[10px] text-slate-400 mt-3">O selo considera o <b>elo mais fraco</b> (todo pilar precisa atingir o mínimo) e, nos níveis Prata e Ouro, <b>documentos anexados e validados</b> — por isso pode ficar abaixo da média do índice.</p>
+                            </div>
+                          );
+                        })()}
+
+                        {/* Benchmark anônimo entre clientes */}
+                        {(() => {
+                          const bm: any = benchmark;
+                          if (!bm) return null;
+                          if (bm.insufficient) {
+                            return (
+                              <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm flex items-center gap-3">
+                                <Users size={18} className="text-slate-300 shrink-0" />
+                                <p className="text-xs text-slate-500">O <b>comparativo anônimo</b> fica disponível a partir de {bm.min_n} conselhos com nota registrada na plataforma (hoje: {bm.n}). Ninguém vê a nota individual de outra empresa.</p>
+                              </div>
+                            );
+                          }
+                          const clamp = (n: number) => Math.max(0, Math.min(100, n));
+                          const me = clamp(bm.my_overall ?? g.overall);
+                          const pctText = bm.my_percentile != null
+                            ? (bm.my_percentile >= 50
+                                ? `Este conselho está à frente de ${bm.my_percentile}% dos participantes`
+                                : `Este conselho está no ${bm.my_percentile}º percentil da base`)
+                            : null;
+                          const pilBase: any = Object.fromEntries((bm.pillars || []).map((p: any) => [p.key, p.avg]));
+                          return (
+                            <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm">
+                              <div className="flex items-start justify-between gap-4 mb-4">
+                                <div>
+                                  <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Comparativo anônimo</p>
+                                  <p className="text-sm text-slate-500">Sua posição frente aos demais conselhos da plataforma</p>
+                                </div>
+                                <span className="text-[10px] font-bold uppercase tracking-widest text-slate-400 bg-slate-50 border border-slate-200 px-2.5 py-1 rounded-full shrink-0">{bm.n} conselhos</span>
+                              </div>
+
+                              {/* Régua 0–100: faixa interquartil (p25–p75), mediana, média e "Você" */}
+                              <div className="pt-6 pb-2">
+                                <div className="relative h-3 rounded-full bg-slate-100">
+                                  <div className="absolute top-0 bottom-0 rounded-full bg-amber-100" style={{ left: `${clamp(bm.p25)}%`, width: `${clamp(bm.p75) - clamp(bm.p25)}%` }} title={`Faixa intermediária (25%–75%): ${bm.p25}–${bm.p75}`} />
+                                  <div className="absolute -top-1 -bottom-1 w-0.5 bg-slate-400" style={{ left: `${clamp(bm.median)}%` }} title={`Mediana: ${bm.median}`} />
+                                  <div className="absolute -top-6 flex flex-col items-center -translate-x-1/2" style={{ left: `${me}%` }}>
+                                    <span className="text-[9px] font-black uppercase tracking-widest text-amber-700 whitespace-nowrap">Você · {me}</span>
+                                    <span className="w-3 h-3 rounded-full bg-amber-600 ring-2 ring-white shadow" />
+                                  </div>
+                                </div>
+                                <div className="flex justify-between text-[9px] font-bold uppercase tracking-widest text-slate-300 mt-2"><span>0</span><span>50</span><span>100</span></div>
+                              </div>
+
+                              <div className="flex flex-wrap items-center gap-x-6 gap-y-1 mt-2 text-xs">
+                                <span className="text-slate-500">Média da base <b className="text-slate-700">{bm.avg}</b></span>
+                                <span className="text-slate-500">Mediana <b className="text-slate-700">{bm.median}</b></span>
+                                <span className="text-slate-500">Faixa 25–75% <b className="text-slate-700">{bm.p25}–{bm.p75}</b></span>
+                              </div>
+                              {pctText && <p className="text-sm font-bold text-amber-700 mt-3">{pctText}.</p>}
+
+                              {/* Comparativo por pilar */}
+                              {(bm.pillars || []).length > 0 && (
+                                <div className="mt-5 pt-4 border-t border-slate-100">
+                                  <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400 mb-2">Por pilar — você × média da base</p>
+                                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
+                                    {PILLAR_ORDER.map((pk: string) => {
+                                      const mine = (g.pillars.find((p: any) => p.key === pk) as any)?.score;
+                                      const base = pilBase[pk];
+                                      if (mine == null || base == null) return null;
+                                      const d = mine - base;
+                                      return (
+                                        <div key={pk} className="rounded-lg border border-slate-200 p-3">
+                                          <p className="text-[10px] font-bold uppercase tracking-wider text-slate-500 truncate">{PILLAR_LABELS[pk]}</p>
+                                          <div className="flex items-baseline gap-2 mt-1">
+                                            <span className="text-lg font-black text-slate-800">{mine}</span>
+                                            <span className="text-[11px] text-slate-400">base {base}</span>
+                                          </div>
+                                          <span className={`text-[10px] font-bold ${d >= 0 ? 'text-emerald-600' : 'text-red-500'}`}>{d >= 0 ? '+' : ''}{d} vs base</span>
+                                        </div>
+                                      );
+                                    })}
+                                  </div>
+                                </div>
+                              )}
+                              <p className="text-[10px] text-slate-400 mt-4">Comparação anônima entre todos os conselhos da plataforma. Nenhuma nota individual de outra empresa é exibida; os números aparecem só com massa suficiente para preservar o anonimato.</p>
                             </div>
                           );
                         })()}
