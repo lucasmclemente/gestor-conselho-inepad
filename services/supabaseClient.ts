@@ -10,7 +10,10 @@ const supabaseKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
 export const supabase = createClient(supabaseUrl, supabaseKey, {
   auth: {
     flowType: 'implicit',
-    detectSessionInUrl: true,
+    // Desligado de propósito: o supabase-js processava e LIMPAVA o hash de
+    // recuperação (#access_token...type=recovery) antes do app conseguir lê-lo,
+    // caindo no login. O App.tsx passa a tratar esse hash manualmente.
+    detectSessionInUrl: false,
     persistSession: true,
     autoRefreshToken: true,
   },

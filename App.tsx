@@ -251,8 +251,18 @@ const App = () => {
     const q = new URLSearchParams(window.location.search);
     const isRecoveryLink = h.get('type') === 'recovery' || q.get('type') === 'recovery';
 
-    // Limpa hash e query para não reprocessar em refresh
     if (isRecoveryLink) {
+      setIsRecovering(true);
+      // detectSessionInUrl está DESLIGADO no cliente: processamos o hash de
+      // recuperação manualmente aqui, sem corrida com o supabase-js (que antes
+      // limpava o hash antes do app detectar). Estabelece a sessão de recuperação
+      // a partir dos tokens do link, para o updateUser da nova senha funcionar.
+      const access_token = h.get('access_token');
+      const refresh_token = h.get('refresh_token');
+      if (access_token && refresh_token) {
+        supabase.auth.setSession({ access_token, refresh_token });
+      }
+      // Limpa hash/query para não reprocessar em refresh
       window.history.replaceState(null, '', window.location.pathname);
     }
 
