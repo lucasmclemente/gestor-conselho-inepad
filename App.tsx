@@ -1040,6 +1040,19 @@ const App = () => {
     if (error) { alert('Erro ao excluir: ' + error.message); return; }
     await loadRubric(); await reloadActiveCriteria();
   };
+  // Reordena um critério dentro da mesma dimensão (troca a posição com o vizinho)
+  const moveCriterion = async (crit: any, dir: 'up' | 'down') => {
+    const sibs = rubricAll.filter((c: any) => c.pillar === crit.pillar && c.dimension === crit.dimension).sort((a: any, b: any) => (a.position || 0) - (b.position || 0));
+    const idx = sibs.findIndex((c: any) => c.id === crit.id);
+    const j = dir === 'up' ? idx - 1 : idx + 1;
+    if (j < 0 || j >= sibs.length) return;
+    const other = sibs[j];
+    let pA = other.position, pB = crit.position;
+    if (pA === pB) { pA = (idx > j ? idx : j) * 10 + 10; pB = (idx > j ? j : idx) * 10 + 10; } // desempate raro
+    await supabase.from('maturity_criteria').update({ position: pA }).eq('id', crit.id);
+    await supabase.from('maturity_criteria').update({ position: pB }).eq('id', other.id);
+    await loadRubric(); await reloadActiveCriteria();
+  };
 
   const saveMeeting = async () => {
     if (!canEdit) return;
@@ -4542,15 +4555,19 @@ const App = () => {
                             <div key={dn}>
                               <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400 mb-2">{dn}</p>
                               <div className="space-y-1.5">
-                                {byDim[dn].map((c: any) => (
+                                {byDim[dn].map((c: any, ci: number) => (
                                   <div key={c.id} className={`flex items-start justify-between gap-3 p-3 rounded-lg border border-slate-100 ${c.active ? 'bg-slate-50/60' : 'bg-slate-50 opacity-60'}`}>
+                                    <div className="flex flex-col shrink-0 -my-1">
+                                      <button onClick={() => moveCriterion(c, 'up')} disabled={ci === 0} className="p-0.5 text-slate-300 hover:text-amber-600 disabled:opacity-20 disabled:hover:text-slate-300 transition-colors"><ChevronUp size={16} /></button>
+                                      <button onClick={() => moveCriterion(c, 'down')} disabled={ci === byDim[dn].length - 1} className="p-0.5 text-slate-300 hover:text-amber-600 disabled:opacity-20 disabled:hover:text-slate-300 transition-colors"><ChevronDown size={16} /></button>
+                                    </div>
                                     <div className="flex-1">
                                       <p className="text-sm text-slate-700 font-medium">{c.item}
                                         {c.requires_evidence && <span className="ml-2 text-[8px] font-bold uppercase tracking-widest text-violet-500 whitespace-nowrap">exige evidência</span>}
                                         {!c.active && <span className="ml-2 text-[8px] font-bold uppercase tracking-widest text-slate-400">inativo</span>}
                                       </p>
                                       {c.requires_evidence && (c.requirements || []).length > 0 && <p className="text-[10px] text-slate-400 mt-1">{(c.requirements || []).length} requisito(s): {(c.requirements || []).join(' · ')}</p>}
-                                      <p className="text-[9px] uppercase tracking-widest text-slate-300 mt-1">peso {Number(c.weight)} · posição {c.position}</p>
+                                      <p className="text-[9px] uppercase tracking-widest text-slate-300 mt-1">peso {Number(c.weight)}</p>
                                     </div>
                                     <div className="flex items-center gap-1 shrink-0">
                                       <button onClick={() => openCritModal(c)} className="p-2 text-slate-400 hover:text-amber-600 transition-colors"><Edit2 size={16} /></button>
@@ -4920,14 +4937,10 @@ const App = () => {
                 <label className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Critério / pergunta</label>
                 <textarea value={critForm.item} onChange={e => setCritForm({ ...critForm, item: e.target.value })} rows={2} placeholder="Ex.: Existe acordo de sócios formalizado" className="w-full p-3 border border-slate-200 rounded-lg text-sm mt-1 resize-none" />
               </div>
-              <div className="grid grid-cols-3 gap-3">
+              <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Peso</label>
                   <input type="number" min={1} value={critForm.weight} onChange={e => setCritForm({ ...critForm, weight: e.target.value })} className="w-full p-3 border border-slate-200 rounded-lg text-sm font-bold mt-1" />
-                </div>
-                <div>
-                  <label className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Posição</label>
-                  <input type="number" value={critForm.position} onChange={e => setCritForm({ ...critForm, position: e.target.value })} className="w-full p-3 border border-slate-200 rounded-lg text-sm font-bold mt-1" />
                 </div>
                 <div className="flex items-end pb-2">
                   <label className="flex items-center gap-2 text-sm font-bold text-slate-600 cursor-pointer"><input type="checkbox" checked={critForm.active} onChange={e => setCritForm({ ...critForm, active: e.target.checked })} className="accent-amber-600 w-4 h-4" /> Ativo</label>
