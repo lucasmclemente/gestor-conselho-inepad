@@ -4625,6 +4625,132 @@ const App = () => {
                           );
                         })()}
 
+                        {/* Trilha para o próximo selo */}
+                        {(() => {
+                          const ASC = [...SEAL_TIERS].slice().reverse(); // bronze, prata, ouro
+                          const activeSeal = seals.find((s: any) => s.status === 'valido' && new Date(s.valid_until) > new Date());
+                          const allScored = g.pillars.every((p: any) => p.score != null);
+                          const minPillar = allScored ? Math.min(...g.pillars.map((p: any) => p.score)) : null;
+                          const ansMap = new Map((matAnswers || []).map((a: any) => [a.criterion_id, a]));
+                          const docItems = (matCriteria || []).filter((c: any) => c.requires_evidence);
+                          const docValidated = docItems.length > 0 && !docItems.some((c: any) => { const a: any = ansMap.get(c.id); return !a || (!a.na && a.status !== 'validado'); });
+                          const isEligible = (t: any) => allScored && g.overall >= t.minOverall && (minPillar != null && minPillar >= t.minPillar) && (!t.needDocValidated || docValidated);
+                          const bestEligible = [...ASC].reverse().find((t: any) => isEligible(t));
+                          const nextGap = ASC.find((t: any) => !isEligible(t));
+
+                          let target: any, mode: string;
+                          if (!nextGap) { target = ASC[ASC.length - 1]; mode = activeSeal?.level === 'ouro' ? 'maintain' : 'topready'; }
+                          else { target = nextGap; mode = 'gap'; }
+
+                          const reqIdxOk = g.overall >= target.minOverall;
+                          const pillarsBelow = allScored ? g.pillars.filter((p: any) => p.score < target.minPillar) : [];
+                          const pillarsUnscored = g.pillars.filter((p: any) => p.score == null);
+                          const reqPillarOk = allScored && pillarsBelow.length === 0;
+                          const docsPending = target.needDocValidated ? docItems.filter((c: any) => { const a: any = ansMap.get(c.id); return !a || (!a.na && a.status !== 'validado'); }) : [];
+                          const reqDoc = target.needDocValidated;
+                          const reqDocOk = !reqDoc || docsPending.length === 0;
+                          const totalReqs = 2 + (reqDoc ? 1 : 0);
+                          const metReqs = (reqIdxOk ? 1 : 0) + (reqPillarOk ? 1 : 0) + (reqDoc ? (reqDocOk ? 1 : 0) : 0);
+
+                          const Dot = ({ ok }: any) => ok
+                            ? <Check size={16} className="text-emerald-600 shrink-0 mt-0.5" />
+                            : <span className="w-3.5 h-3.5 rounded-full border-2 border-slate-300 inline-block shrink-0 mt-1" />;
+
+                          if (mode !== 'gap') {
+                            return (
+                              <div className="rounded-xl border shadow-sm overflow-hidden" style={{ borderColor: target.ring }}>
+                                <div className="p-6 flex items-center gap-4" style={{ background: target.bg }}>
+                                  <div className="w-14 h-14 rounded-full flex items-center justify-center text-white shrink-0 shadow" style={{ background: target.color }}><TrendingUp size={24} /></div>
+                                  <div>
+                                    <p className="text-[10px] font-bold uppercase tracking-widest" style={{ color: target.color }}>Trilha do selo</p>
+                                    <p className="text-lg font-black text-slate-800 italic">{mode === 'maintain' ? 'Nível máximo — Selo Ouro' : 'Pronto para o Selo Ouro'}</p>
+                                    <p className="text-sm text-slate-600">{mode === 'maintain' ? 'Mantenha o índice ≥ 80 e as evidências validadas para renovar a certificação.' : 'Este conselho cumpre todos os requisitos do Ouro. A INEPAD fará a emissão.'}</p>
+                                  </div>
+                                </div>
+                              </div>
+                            );
+                          }
+
+                          const gaps: string[] = [];
+                          if (!reqIdxOk) gaps.push(`${target.minOverall - g.overall} ponto(s) no índice`);
+                          if (!reqPillarOk) gaps.push(`${pillarsBelow.length + pillarsUnscored.length} pilar(es)`);
+                          if (reqDoc && !reqDocOk) gaps.push(`${docsPending.length} evidência(s)`);
+
+                          return (
+                            <div className="rounded-xl border shadow-sm overflow-hidden bg-white" style={{ borderColor: target.ring }}>
+                              <div className="p-6 border-b border-slate-100" style={{ background: target.bg }}>
+                                <div className="flex items-start justify-between gap-4">
+                                  <div className="flex items-center gap-3">
+                                    <div className="w-12 h-12 rounded-full flex items-center justify-center text-white shrink-0 shadow" style={{ background: target.color }}><TrendingUp size={22} /></div>
+                                    <div>
+                                      <p className="text-[10px] font-bold uppercase tracking-widest" style={{ color: target.color }}>Trilha do selo</p>
+                                      <p className="text-lg font-black text-slate-800 italic">Rumo ao Selo {target.label}</p>
+                                    </div>
+                                  </div>
+                                  <div className="text-right shrink-0">
+                                    <span className="text-2xl font-black" style={{ color: target.color }}>{metReqs}/{totalReqs}</span>
+                                    <p className="text-[9px] font-bold uppercase tracking-widest text-slate-400">requisitos</p>
+                                  </div>
+                                </div>
+                                <p className="text-xs text-slate-600 mt-3">
+                                  {activeSeal ? `Selo atual: ${sealTier(activeSeal.level).label}. ` : (bestEligible ? `Já elegível ao ${bestEligible.label}. ` : 'Seu primeiro selo é o Bronze. ')}
+                                  {gaps.length ? <>Falta: <b>{gaps.join(' · ')}</b>.</> : 'Quase lá.'}
+                                </p>
+                                <div className="mt-2 h-1.5 rounded-full bg-white/70 overflow-hidden">
+                                  <div className="h-full rounded-full transition-all" style={{ width: `${Math.round(metReqs / totalReqs * 100)}%`, background: target.color }} />
+                                </div>
+                              </div>
+                              <div className="p-6 space-y-4">
+                                {/* Índice */}
+                                <div className="flex items-start gap-2.5">
+                                  <Dot ok={reqIdxOk} />
+                                  <div>
+                                    <p className="text-sm font-bold text-slate-700">Índice geral ≥ {target.minOverall}</p>
+                                    <p className="text-xs text-slate-500">{reqIdxOk ? `Cumprido — o índice está em ${g.overall}.` : `Faltam ${target.minOverall - g.overall} pontos (atual ${g.overall}). Elevar os pilares abaixo também eleva o índice.`}</p>
+                                  </div>
+                                </div>
+                                {/* Pilares */}
+                                <div className="flex items-start gap-2.5">
+                                  <Dot ok={reqPillarOk} />
+                                  <div className="flex-1">
+                                    <p className="text-sm font-bold text-slate-700">Todos os pilares ≥ {target.minPillar} <span className="text-slate-400 font-normal">(elo mais fraco)</span></p>
+                                    {reqPillarOk ? (
+                                      <p className="text-xs text-slate-500">Cumprido — o pilar mais fraco está em {minPillar}.</p>
+                                    ) : (
+                                      <div className="text-xs text-slate-500 space-y-1 mt-1">
+                                        {pillarsUnscored.map((p: any) => (
+                                          <p key={p.key} className="flex items-center gap-1.5">• <b>{p.label}</b> ainda não diagnosticado {p.hasDiag && <button onClick={() => setMatTab(p.key)} className="text-amber-600 font-bold hover:text-amber-700">responder →</button>}</p>
+                                        ))}
+                                        {pillarsBelow.map((p: any) => (
+                                          <p key={p.key} className="flex items-center gap-1.5">• <b>{p.label}</b> {p.score} → meta {target.minPillar} <span className="text-red-500 font-bold">(+{target.minPillar - p.score})</span> {p.hasDiag && <button onClick={() => setMatTab(p.key)} className="text-amber-600 font-bold hover:text-amber-700">melhorar →</button>}</p>
+                                        ))}
+                                      </div>
+                                    )}
+                                  </div>
+                                </div>
+                                {/* Evidências */}
+                                {reqDoc && (
+                                  <div className="flex items-start gap-2.5">
+                                    <Dot ok={reqDocOk} />
+                                    <div className="flex-1">
+                                      <p className="text-sm font-bold text-slate-700">Evidências validadas pela INEPAD</p>
+                                      {reqDocOk ? (
+                                        <p className="text-xs text-slate-500">Cumprido — todos os documentos foram validados.</p>
+                                      ) : (
+                                        <div className="text-xs text-slate-500 space-y-1 mt-1">
+                                          {docsPending.map((c: any) => { const a: any = ansMap.get(c.id); const uploaded = a && a.evidence_url; return (
+                                            <p key={c.id}>• <b>{c.instrument || c.dimension}</b> — <span className={uploaded ? 'text-amber-600 font-bold' : 'text-slate-500'}>{uploaded ? 'aguardando validação da INEPAD' : 'anexar documento no diagnóstico'}</span></p>
+                                          ); })}
+                                        </div>
+                                      )}
+                                    </div>
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                          );
+                        })()}
+
                         {/* Critérios dos níveis do selo */}
                         {(() => {
                           const allScored = g.pillars.every((p: any) => p.score != null);
