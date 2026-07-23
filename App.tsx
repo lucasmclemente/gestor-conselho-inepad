@@ -17,6 +17,7 @@ import { BoardplanMark, BoardplanLogo } from './components/Brand';
 import { PublicVote } from './components/PublicVote';
 import { PublicCollect } from './components/PublicCollect';
 import { SealVerify } from './components/SealVerify';
+import { generateSealCertificate } from './services/generateSealCertificate';
 import { Login, RecoverPassword } from './components/Login';
 
 const App = () => {
@@ -4499,7 +4500,8 @@ const App = () => {
                                     <p className="text-[10px] font-bold uppercase tracking-widest" style={{ color: t.color }}>Selo de Governança INEPAD</p>
                                     <p className="text-2xl font-black text-slate-800 italic">Nível {t.label}</p>
                                     <p className="text-xs text-slate-500 mt-1">Válido até {new Date(currentSeal.valid_until).toLocaleDateString('pt-BR')} · código <b className="text-slate-700">{currentSeal.verification_code}</b></p>
-                                    <div className="flex items-center justify-center sm:justify-start gap-3 mt-2">
+                                    <div className="flex flex-wrap items-center justify-center sm:justify-start gap-3 mt-2">
+                                      <button onClick={() => generateSealCertificate({ client_name: clientProfile?.name || activeClientId || currentSeal.client_id, level: currentSeal.level, issued_at: currentSeal.issued_at, valid_until: currentSeal.valid_until, verification_code: currentSeal.verification_code, issued_by: currentSeal.issued_by }, `${window.location.origin}/?selo=${currentSeal.verification_code}`)} className="text-[9px] font-bold uppercase tracking-widest text-slate-700 hover:text-slate-900 transition-colors flex items-center gap-1"><Download size={11} /> Baixar certificado (PDF)</button>
                                       <button onClick={() => { const url = `${window.location.origin}/?selo=${currentSeal.verification_code}`; navigator.clipboard?.writeText(url); alert('Link de verificação copiado:\n' + url); }} className="text-[9px] font-bold uppercase tracking-widest text-amber-700 hover:text-amber-800 transition-colors flex items-center gap-1"><ExternalLink size={11} /> Copiar link de verificação</button>
                                       {isSuper && <button onClick={() => revokeSeal(currentSeal)} className="text-[9px] font-bold uppercase tracking-widest text-red-400 hover:text-red-600 transition-colors">Revogar selo</button>}
                                     </div>
