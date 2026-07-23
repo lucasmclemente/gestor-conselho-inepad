@@ -158,6 +158,7 @@ const App = () => {
   const [matAnswers, setMatAnswers] = useState<any[]>([]);
   const [matSaving, setMatSaving] = useState(false);
   const [matTab, setMatTab] = useState('propriedade');
+  const [assessing, setAssessing] = useState<Record<string, boolean>>({});
   const [indicatorSeries, setIndicatorSeries] = useState<Record<string, any[]>>({});
   const [readingsList, setReadingsList] = useState<any[]>([]);
   const [targetsList, setTargetsList] = useState<any[]>([]);
@@ -962,6 +963,36 @@ const App = () => {
     setMatSaving(false);
     if (error) { alert('Erro ao salvar o diagnóstico: ' + error.message); return; }
     setMatAnswers((prev: any) => [...prev.filter((a: any) => a.criterion_id !== criterion.id), data]);
+  };
+
+  // Upload da evidência (PDF) + avaliação por IA (Edge Function assess-evidence)
+  const uploadEvidence = async (criterion: any, file: File | undefined) => {
+    if (!file) return;
+    if (file.type !== 'application/pdf') { alert('Envie o documento em PDF.'); return; }
+    const cid = activeClientId || currentUser?.client_id;
+    setAssessing((p: any) => ({ ...p, [criterion.id]: true }));
+    try {
+      const path = `maturidade/${cid}/${criterion.id}/${Date.now()}.pdf`;
+      const { error: upErr } = await supabase.storage.from('meeting-files').upload(path, file, { upsert: true });
+      if (upErr) throw upErr;
+      const { data: signed } = await supabase.storage.from('meeting-files').createSignedUrl(path, 60 * 60 * 24 * 7);
+      // Registra a evidência na resposta (a IA preenche o resultado em seguida)
+      await supabase.from('maturity_answers').upsert([{
+        client_id: cid, criterion_id: criterion.id, evidence_url: signed?.signedUrl, evidence_name: file.name,
+        na: false, updated_by: currentUser?.name || currentUser?.email, updated_at: new Date().toISOString(),
+      }], { onConflict: 'client_id,criterion_id' });
+      // Avalia com IA
+      const { data, error } = await supabase.functions.invoke('assess-evidence', { body: { clientId: cid, criterionId: criterion.id, path } });
+      if (error || data?.error) throw new Error(data?.error || error?.message);
+      // Recarrega a resposta consolidada (evidência + resultado da IA)
+      const { data: fresh } = await supabase.from('maturity_answers').select('*').eq('client_id', cid).eq('criterion_id', criterion.id).maybeSingle();
+      if (fresh) setMatAnswers((prev: any) => [...prev.filter((a: any) => a.criterion_id !== criterion.id), fresh]);
+      addLog('Maturidade', `Evidência avaliada por IA: ${criterion.instrument || criterion.item} (nível ${data.level}).`);
+    } catch (err: any) {
+      alert('Erro ao avaliar a evidência: ' + (err?.message || err));
+    } finally {
+      setAssessing((p: any) => ({ ...p, [criterion.id]: false }));
+    }
   };
 
   const saveMeeting = async () => {
@@ -4375,22 +4406,56 @@ const App = () => {
                                 <div className="space-y-2">
                                   {dim.items.map((it: any) => {
                                     const a = it.answer; const answered = a && !a.na && a.level != null; const validated = a?.status === 'validado';
+                                    const isDoc = it.crit.requires_evidence; const busy = !!assessing[it.crit.id];
                                     const selVal = a?.na ? 'na' : (a && a.level != null ? String(a.level) : '');
+                                    const badge = validated ? { t: '✓ Validado', c: 'bg-emerald-100 text-emerald-700' } : a?.ai_assessed_at ? { t: '🤖 Avaliado por IA', c: 'bg-violet-100 text-violet-700' } : answered ? { t: 'Declarado', c: 'bg-amber-100 text-amber-700' } : null;
+                                    const dot = (s: string) => s === 'presente' ? '#10b981' : s === 'parcial' ? '#f59e0b' : '#ef4444';
                                     return (
                                       <div key={it.crit.id} className="p-3 rounded-lg border border-slate-100 bg-slate-50/60">
                                         <div className="flex items-start justify-between gap-3">
-                                          <p className="text-sm text-slate-700 font-medium flex-1">{it.crit.item}</p>
-                                          {answered && <span className={`shrink-0 text-[8px] font-bold uppercase tracking-widest px-2 py-0.5 rounded-full ${validated ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>{validated ? '✓ Validado' : 'Declarado'}</span>}
-                                          {a?.na && <span className="shrink-0 text-[8px] font-bold uppercase tracking-widest px-2 py-0.5 rounded-full bg-slate-200 text-slate-500">N/A</span>}
+                                          <p className="text-sm text-slate-700 font-medium flex-1">{it.crit.item}{isDoc && <span className="ml-2 text-[8px] font-bold uppercase tracking-widest text-violet-500 whitespace-nowrap">exige evidência</span>}</p>
+                                          {badge && <span className={`shrink-0 text-[8px] font-bold uppercase tracking-widest px-2 py-0.5 rounded-full ${badge.c}`}>{badge.t}</span>}
+                                          {a?.na && !badge && <span className="shrink-0 text-[8px] font-bold uppercase tracking-widest px-2 py-0.5 rounded-full bg-slate-200 text-slate-500">N/A</span>}
                                         </div>
-                                        <div className="flex flex-wrap items-center gap-2 mt-2">
-                                          <select disabled={matSaving} value={selVal} onChange={e => { const v = e.target.value; if (v === '') saveMatAnswer(it.crit, { level: null, na: false }); else if (v === 'na') saveMatAnswer(it.crit, { na: true, level: null }); else saveMatAnswer(it.crit, { level: Number(v), na: false }); }} className="text-xs font-bold bg-white border border-slate-200 rounded-lg px-3 py-2 outline-none">
-                                            <option value="">— não avaliado —</option>
-                                            {MAT_LEVELS.map((lbl, i) => <option key={i} value={String(i)}>{i}. {lbl}</option>)}
-                                            <option value="na">Não se aplica</option>
-                                          </select>
-                                          {isSuper && answered && !validated && <button onClick={() => saveMatAnswer(it.crit, { status: 'validado' })} className="text-[9px] font-bold uppercase tracking-widest px-3 py-2 rounded-lg bg-emerald-600 text-white hover:bg-emerald-700 transition-all">Validar</button>}
-                                        </div>
+                                        {isDoc ? (
+                                          <div className="mt-2">
+                                            {busy ? (
+                                              <p className="text-[11px] font-bold text-violet-600 animate-pulse">🤖 A IA está lendo o documento e conferindo os requisitos mínimos…</p>
+                                            ) : a?.ai_assessed_at ? (
+                                              <div className="space-y-2">
+                                                <div className="flex items-center justify-between gap-2">
+                                                  <span className="text-[11px] font-bold text-slate-600">Nível sugerido pela IA: <span className="text-violet-700">{a.ai_level} — {MAT_LEVELS[a.ai_level]}</span></span>
+                                                  <label className="text-[9px] font-bold uppercase tracking-widest text-slate-400 hover:text-amber-600 cursor-pointer">reenviar<input type="file" accept="application/pdf" className="hidden" onChange={e => uploadEvidence(it.crit, e.target.files?.[0])} /></label>
+                                                </div>
+                                                <ul className="space-y-1">
+                                                  {(a.ai_findings || []).map((f: any, fi: number) => (
+                                                    <li key={fi} className="flex items-start gap-2 text-[11px]">
+                                                      <span className="mt-1 w-2 h-2 rounded-full shrink-0" style={{ background: dot(f.status) }} />
+                                                      <span className="text-slate-600"><b className="text-slate-700">{f.requisito}</b> — {f.evidencia}</span>
+                                                    </li>
+                                                  ))}
+                                                </ul>
+                                                {a.ai_justification && <p className="text-[11px] text-slate-500 italic bg-white border border-slate-100 rounded p-2">{a.ai_justification}</p>}
+                                                {isSuper && !validated && <button onClick={() => saveMatAnswer(it.crit, { status: 'validado' })} className="text-[9px] font-bold uppercase tracking-widest px-3 py-2 rounded-lg bg-emerald-600 text-white hover:bg-emerald-700 transition-all">Validar avaliação</button>}
+                                              </div>
+                                            ) : (
+                                              <div className="flex flex-wrap items-center gap-2">
+                                                <label className="inline-flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest px-4 py-2.5 rounded-lg bg-violet-600 text-white hover:bg-violet-700 cursor-pointer transition-all"><Upload size={14} /> Anexar documento (PDF)<input type="file" accept="application/pdf" className="hidden" onChange={e => uploadEvidence(it.crit, e.target.files?.[0])} /></label>
+                                                <button onClick={() => saveMatAnswer(it.crit, { na: true, level: null })} className="text-[10px] font-bold uppercase tracking-widest px-3 py-2.5 rounded-lg text-slate-500 hover:bg-slate-100 transition-all">Não possui</button>
+                                                <p className="w-full text-[10px] text-slate-400 mt-1">A IA lê o documento apenas para conferir os requisitos mínimos. Arquivo confidencial, armazenado com segurança e isolado por empresa.</p>
+                                              </div>
+                                            )}
+                                          </div>
+                                        ) : (
+                                          <div className="flex flex-wrap items-center gap-2 mt-2">
+                                            <select disabled={matSaving} value={selVal} onChange={e => { const v = e.target.value; if (v === '') saveMatAnswer(it.crit, { level: null, na: false }); else if (v === 'na') saveMatAnswer(it.crit, { na: true, level: null }); else saveMatAnswer(it.crit, { level: Number(v), na: false }); }} className="text-xs font-bold bg-white border border-slate-200 rounded-lg px-3 py-2 outline-none">
+                                              <option value="">— não avaliado —</option>
+                                              {MAT_LEVELS.map((lbl, i) => <option key={i} value={String(i)}>{i}. {lbl}</option>)}
+                                              <option value="na">Não se aplica</option>
+                                            </select>
+                                            {isSuper && answered && !validated && <button onClick={() => saveMatAnswer(it.crit, { status: 'validado' })} className="text-[9px] font-bold uppercase tracking-widest px-3 py-2 rounded-lg bg-emerald-600 text-white hover:bg-emerald-700 transition-all">Validar</button>}
+                                          </div>
+                                        )}
                                       </div>
                                     );
                                   })}
