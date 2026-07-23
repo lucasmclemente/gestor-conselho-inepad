@@ -16,6 +16,7 @@ import { deliberationResult } from './utils';
 import { BoardplanMark, BoardplanLogo } from './components/Brand';
 import { PublicVote } from './components/PublicVote';
 import { PublicCollect } from './components/PublicCollect';
+import { SealVerify } from './components/SealVerify';
 import { Login, RecoverPassword } from './components/Login';
 
 const App = () => {
@@ -24,6 +25,9 @@ const App = () => {
   });
   const [collectToken] = useState<string | null>(() => {
     try { return new URLSearchParams(window.location.search).get('coleta'); } catch { return null; }
+  });
+  const [sealCode] = useState<string | null>(() => {
+    try { return new URLSearchParams(window.location.search).get('selo'); } catch { return null; }
   });
   const [users, setUsers] = useState<any[]>([]);
   const [meetings, setMeetings] = useState<any[]>([]);
@@ -2699,6 +2703,11 @@ const App = () => {
     return <PublicCollect token={collectToken} />;
   }
 
+  // ── Verificação pública de selo de governança (sem login) ──
+  if (sealCode) {
+    return <SealVerify code={sealCode} />;
+  }
+
   // ── Tela de definição de nova senha (após clicar no link do e-mail de recuperação) ──
   if (isRecovering) {
     return <RecoverPassword onDone={() => setIsRecovering(false)} />;
@@ -4495,7 +4504,10 @@ const App = () => {
                                     <p className="text-[10px] font-bold uppercase tracking-widest" style={{ color: t.color }}>Selo de Governança INEPAD</p>
                                     <p className="text-2xl font-black text-slate-800 italic">Nível {t.label}</p>
                                     <p className="text-xs text-slate-500 mt-1">Válido até {new Date(currentSeal.valid_until).toLocaleDateString('pt-BR')} · código <b className="text-slate-700">{currentSeal.verification_code}</b></p>
-                                    {isSuper && <button onClick={() => revokeSeal(currentSeal)} className="mt-2 text-[9px] font-bold uppercase tracking-widest text-red-400 hover:text-red-600 transition-colors">Revogar selo</button>}
+                                    <div className="flex items-center justify-center sm:justify-start gap-3 mt-2">
+                                      <button onClick={() => { const url = `${window.location.origin}/?selo=${currentSeal.verification_code}`; navigator.clipboard?.writeText(url); alert('Link de verificação copiado:\n' + url); }} className="text-[9px] font-bold uppercase tracking-widest text-amber-700 hover:text-amber-800 transition-colors flex items-center gap-1"><ExternalLink size={11} /> Copiar link de verificação</button>
+                                      {isSuper && <button onClick={() => revokeSeal(currentSeal)} className="text-[9px] font-bold uppercase tracking-widest text-red-400 hover:text-red-600 transition-colors">Revogar selo</button>}
+                                    </div>
                                   </div>
                                 </div>
                               </div>
