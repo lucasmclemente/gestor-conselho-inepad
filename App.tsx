@@ -153,6 +153,11 @@ const App = () => {
   const [openTriggerEvents, setOpenTriggerEvents] = useState<any[]>([]);
   const [indicatorsList, setIndicatorsList] = useState<any[]>([]);
   const [triggersList, setTriggersList] = useState<any[]>([]);
+  // Maturidade — diagnóstico dos pilares estruturais
+  const [matCriteria, setMatCriteria] = useState<any[]>([]);
+  const [matAnswers, setMatAnswers] = useState<any[]>([]);
+  const [matSaving, setMatSaving] = useState(false);
+  const [matTab, setMatTab] = useState('propriedade');
   const [indicatorSeries, setIndicatorSeries] = useState<Record<string, any[]>>({});
   const [readingsList, setReadingsList] = useState<any[]>([]);
   const [targetsList, setTargetsList] = useState<any[]>([]);
@@ -526,7 +531,7 @@ const App = () => {
         setAllClientsList(fullList);
       }
       // Indicadores & Gatilhos do cliente ativo (semáforos + alertas + cadastros + séries)
-      const [indStatusRes, indEventsRes, indListRes, trigListRes, readingsRes, govRes, targetsRes, fcaRes, objsRes, perspRes, krRes, ckRes] = await Promise.all([
+      const [indStatusRes, indEventsRes, indListRes, trigListRes, readingsRes, govRes, targetsRes, fcaRes, objsRes, perspRes, krRes, ckRes, matCritRes, matAnsRes] = await Promise.all([
         supabase.from('indicator_current_status').select('*').eq('client_id', cid).order('breach_level', { ascending: false }),
         supabase.from('trigger_events').select('*, indicators(name, unit), triggers(name, indicators(name, unit))').eq('client_id', cid).eq('status', 'open').order('fired_at', { ascending: false }),
         supabase.from('indicators').select('*').eq('client_id', cid).order('name'),
@@ -539,7 +544,11 @@ const App = () => {
         supabase.from('perspectives').select('id, name, position').eq('client_id', cid).order('position'),
         supabase.from('key_results').select('id, okr_objective_id, indicator_id, start_value, target_value, current_value').eq('client_id', cid),
         supabase.from('key_result_checkins').select('key_result_id, confidence, created_at').eq('client_id', cid).order('created_at', { ascending: false }),
+        supabase.from('maturity_criteria').select('*').eq('active', true).order('position'),
+        supabase.from('maturity_answers').select('*').eq('client_id', cid),
       ]) as any;
+      setMatCriteria(matCritRes?.data || []);
+      setMatAnswers(matAnsRes?.data || []);
       setStrategyObjectives(objsRes?.data || []);
       setPerspectivesList(perspRes?.data || []);
       setOkrKrs(krRes?.data || []);
@@ -885,6 +894,74 @@ const App = () => {
     const wsum = dims.reduce((a, d) => a + d.weight, 0) || 1;
     const overall = R(dims.reduce((a, d) => a + d.score * d.weight, 0) / wsum);
     return { overall, band: maturityBand(overall), dims, hasData: concluded.length > 0 || totA > 0 };
+  };
+
+  // Diagnóstico (pilares estruturais) — nível 0..4 mapeado em 0/25/50/75/100
+  const MAT_LEVELS = ['Inexistente', 'Inicial', 'Em estruturação', 'Estruturado', 'Referência'];
+  const MAT_LEVEL_SCORE = [0, 25, 50, 75, 100];
+  const MAT_DIAG_PILLARS = [{ key: 'propriedade', label: 'Propriedade' }, { key: 'controle', label: 'Controle' }, { key: 'conduta', label: 'Conduta' }];
+  const computeDiagPillars = () => {
+    const ans = new Map((matAnswers || []).map((a: any) => [a.criterion_id, a]));
+    return MAT_DIAG_PILLARS.map(p => {
+      const crits = (matCriteria || []).filter((c: any) => c.pillar === p.key);
+      const order: string[] = []; const byDim: Record<string, any[]> = {};
+      crits.forEach((c: any) => { if (!byDim[c.dimension]) { byDim[c.dimension] = []; order.push(c.dimension); } byDim[c.dimension].push(c); });
+      let pw = 0, ps = 0, pev = 0;
+      const dims = order.map(dn => {
+        const items = byDim[dn].map((c: any) => ({ crit: c, answer: ans.get(c.id) }));
+        let dw = 0, ds = 0, dev = 0;
+        items.forEach((it: any) => { const a = it.answer; if (a && !a.na && a.level != null) { const w = Number(it.crit.weight || 1); dw += w; ds += MAT_LEVEL_SCORE[a.level] * w; dev++; pw += w; ps += MAT_LEVEL_SCORE[a.level] * w; pev++; } });
+        return { dimension: dn, score: dev ? Math.round(ds / dw) : null, evaluated: dev, total: items.length, items };
+      });
+      return { key: p.key, label: p.label, score: pev ? Math.round(ps / pw) : null, evaluated: pev, total: crits.length, dims };
+    });
+  };
+
+  // Modelo consolidado: pilares comportamentais (Conselho, Gestão) + diagnóstico
+  const computeGovernance = () => {
+    const beh = computeMaturity();
+    const dmap: any = Object.fromEntries(beh.dims.map((d: any) => [d.key, d]));
+    const pillarFromDims = (keys: string[]) => {
+      const ds = keys.map(k => dmap[k]).filter(Boolean);
+      if (!ds.length) return null;
+      const w = ds.reduce((a: number, d: any) => a + d.weight, 0);
+      return Math.round(ds.reduce((a: number, d: any) => a + d.score * d.weight, 0) / w);
+    };
+    const diag = computeDiagPillars();
+    const dg: any = Object.fromEntries(diag.map((p: any) => [p.key, p]));
+    const pillars = [
+      { key: 'conselho', label: 'Conselho', type: 'comportamental', weight: 20, score: pillarFromDims(['cadencia', 'atas', 'delib']) },
+      { key: 'gestao', label: 'Gestão', type: 'comportamental', weight: 20, score: pillarFromDims(['execucao', 'indic', 'estrat']) },
+      { key: 'propriedade', label: 'Propriedade', type: 'diagnostico', weight: 25, score: dg.propriedade?.score ?? null, diag: dg.propriedade },
+      { key: 'controle', label: 'Controle', type: 'diagnostico', weight: 20, score: dg.controle?.score ?? null, diag: dg.controle },
+      { key: 'conduta', label: 'Conduta', type: 'diagnostico', weight: 15, score: dg.conduta?.score ?? null, diag: dg.conduta },
+    ];
+    const scored = pillars.filter(p => p.score != null);
+    const w = scored.reduce((a, p) => a + p.weight, 0) || 1;
+    const overall = Math.round(scored.reduce((a, p) => a + (p.score as number) * p.weight, 0) / w);
+    return { overall, band: maturityBand(overall), pillars };
+  };
+
+  const saveMatAnswer = async (criterion: any, patch: any) => {
+    const cid = activeClientId || currentUser?.client_id;
+    const ex: any = (matAnswers || []).find((a: any) => a.criterion_id === criterion.id) || {};
+    const isValidate = patch.status === 'validado';
+    const row: any = {
+      client_id: cid, criterion_id: criterion.id,
+      level: patch.level !== undefined ? patch.level : (ex.level ?? null),
+      na: patch.na !== undefined ? patch.na : (ex.na ?? false),
+      note: patch.note !== undefined ? patch.note : (ex.note ?? null),
+      status: isValidate ? 'validado' : 'declarado',
+      updated_by: currentUser?.name || currentUser?.email,
+      updated_at: new Date().toISOString(),
+      validated_by: isValidate ? (currentUser?.name || currentUser?.email) : null,
+      validated_at: isValidate ? new Date().toISOString() : null,
+    };
+    setMatSaving(true);
+    const { data, error } = await supabase.from('maturity_answers').upsert([row], { onConflict: 'client_id,criterion_id' }).select().single();
+    setMatSaving(false);
+    if (error) { alert('Erro ao salvar o diagnóstico: ' + error.message); return; }
+    setMatAnswers((prev: any) => [...prev.filter((a: any) => a.criterion_id !== criterion.id), data]);
   };
 
   const saveMeeting = async () => {
@@ -4238,60 +4315,90 @@ const App = () => {
                       <p className="text-sm">A maturidade é calculada por empresa. Selecione um cliente para ver o placar.</p>
                     </div>
                   ) : (() => {
-                    const m = computeMaturity();
-                    const size = 150, stroke = 13, r = (size - stroke) / 2, circ = 2 * Math.PI * r, off = circ * (1 - m.overall / 100);
-                    const lows = [...m.dims].filter((d: any) => d.score < 70).sort((a: any, b: any) => a.score - b.score).slice(0, 3);
+                    const g = computeGovernance();
+                    const size = 150, stroke = 13, r = (size - stroke) / 2, circ = 2 * Math.PI * r, off = circ * (1 - g.overall / 100);
+                    const pendentes = g.pillars.filter((p: any) => p.type === 'diagnostico' && p.score == null);
+                    const activeDiag: any = (g.pillars.find((p: any) => p.key === matTab) as any)?.diag;
                     return (
                       <>
+                        {/* Placar consolidado */}
                         <div className="bg-white p-8 rounded-xl border border-slate-200 shadow-sm flex flex-col sm:flex-row items-center gap-8">
                           <div className="relative shrink-0" style={{ width: size, height: size }}>
                             <svg width={size} height={size} className="-rotate-90">
                               <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke="#e2e8f0" strokeWidth={stroke} />
-                              <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke={m.band.ring} strokeWidth={stroke} strokeLinecap="round" strokeDasharray={circ} strokeDashoffset={off} style={{ transition: 'stroke-dashoffset .6s ease' }} />
+                              <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke={g.band.ring} strokeWidth={stroke} strokeLinecap="round" strokeDasharray={circ} strokeDashoffset={off} style={{ transition: 'stroke-dashoffset .6s ease' }} />
                             </svg>
                             <div className="absolute inset-0 flex flex-col items-center justify-center">
-                              <span className="text-4xl font-black text-slate-800">{m.overall}</span>
+                              <span className="text-4xl font-black text-slate-800">{g.overall}</span>
                               <span className="text-[9px] font-bold uppercase tracking-widest text-slate-400">de 100</span>
                             </div>
                           </div>
                           <div className="flex-1 text-center sm:text-left">
-                            <span className="inline-block px-3 py-1 rounded-full text-xs font-bold uppercase tracking-widest" style={{ background: m.band.bg, color: m.band.color }}>{m.band.label}</span>
-                            <p className="text-sm text-slate-500 mt-3 leading-relaxed">Índice consolidado da qualidade da governança deste conselho, calculado a partir da cadência de reuniões, execução do plano de ação, disciplina de atas e deliberações{strategyEnabled ? ', e da gestão de indicadores e do planejamento estratégico' : ''}.</p>
-                            {!m.hasData && <p className="text-[11px] text-amber-600 font-bold mt-2 uppercase tracking-wider">Ainda há poucos dados — o índice evolui conforme o conselho registra sua rotina.</p>}
+                            <span className="inline-block px-3 py-1 rounded-full text-xs font-bold uppercase tracking-widest" style={{ background: g.band.bg, color: g.band.color }}>{g.band.label}</span>
+                            <p className="text-sm text-slate-500 mt-3 leading-relaxed">Índice consolidado de governança, combinando o <b>funcionamento do conselho e da gestão</b> (automático) com o <b>diagnóstico dos pilares de Propriedade, Controle e Conduta</b>.</p>
+                            {pendentes.length > 0 && <p className="text-[11px] text-amber-600 font-bold mt-2 uppercase tracking-wider">Pilares ainda não diagnosticados: {pendentes.map((p: any) => p.label).join(', ')} — responda abaixo para completar o índice.</p>}
                           </div>
                         </div>
 
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                          {m.dims.map((d: any) => { const b = maturityBand(d.score); return (
-                            <div key={d.key} className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm">
-                              <div className="flex items-center justify-between gap-2 mb-2">
-                                <p className="text-sm font-bold text-slate-700">{d.label}</p>
-                                <span className="text-lg font-black" style={{ color: b.color }}>{d.score}</span>
+                        {/* Radar de pilares */}
+                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
+                          {g.pillars.map((p: any) => { const na = p.score == null; const b = maturityBand(p.score || 0); const diag = p.type === 'diagnostico'; return (
+                            <div key={p.key} onClick={() => { if (diag) setMatTab(p.key); }} className={`bg-white p-5 rounded-xl border shadow-sm ${diag ? 'cursor-pointer hover:border-amber-300 transition-colors' : ''} ${diag && matTab === p.key ? 'border-amber-400 ring-1 ring-amber-200' : 'border-slate-200'}`}>
+                              <div className="flex items-center justify-between mb-2">
+                                <p className="text-sm font-bold text-slate-700">{p.label}</p>
+                                <span className="text-xl font-black" style={{ color: na ? '#cbd5e1' : b.color }}>{na ? '—' : p.score}</span>
                               </div>
                               <div className="h-2 rounded-full bg-slate-100 overflow-hidden">
-                                <div className="h-full rounded-full" style={{ width: `${d.score}%`, background: b.ring, transition: 'width .6s ease' }} />
+                                <div className="h-full rounded-full" style={{ width: `${na ? 0 : p.score}%`, background: b.ring, transition: 'width .6s ease' }} />
                               </div>
-                              <div className="flex items-center justify-between mt-2 gap-2">
-                                <p className="text-[11px] text-slate-500">{d.detail}</p>
-                                <span className="text-[9px] font-bold uppercase tracking-widest text-slate-300 shrink-0">peso {d.weight}%</span>
+                              <div className="flex items-center justify-between mt-2">
+                                <span className={`text-[8px] font-bold uppercase tracking-widest px-1.5 py-0.5 rounded ${diag ? 'bg-slate-100 text-slate-500' : 'bg-sky-50 text-sky-600'}`}>{diag ? 'Diagnóstico' : 'Automático'}</span>
+                                <span className="text-[9px] font-bold uppercase tracking-widest text-slate-300">peso {p.weight}%</span>
                               </div>
+                              {diag && <p className="text-[10px] text-slate-400 mt-1.5">{p.diag?.evaluated || 0}/{p.diag?.total || 0} avaliados</p>}
                             </div>
                           ); })}
                         </div>
 
-                        {lows.length > 0 && (
-                          <div className="bg-slate-900 p-6 rounded-xl border border-white/10 shadow-lg">
-                            <p className="text-[10px] font-bold uppercase tracking-widest text-amber-500 mb-3 flex items-center gap-2"><Sparkles size={14} /> Como evoluir a maturidade</p>
-                            <div className="space-y-2.5">
-                              {lows.map((d: any) => (
-                                <div key={d.key} className="flex items-start gap-3">
-                                  <span className="shrink-0 mt-0.5 text-[9px] font-black px-1.5 py-0.5 rounded bg-amber-600 text-white">{d.score}</span>
-                                  <p className="text-[13px] text-slate-300"><span className="font-bold text-white">{d.label}:</span> {d.tip}</p>
-                                </div>
-                              ))}
-                            </div>
+                        {/* Diagnóstico dos pilares estruturais */}
+                        <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+                          <div className="border-b border-slate-100 flex">
+                            {MAT_DIAG_PILLARS.map(p => (
+                              <button key={p.key} onClick={() => setMatTab(p.key)} className={`px-5 py-3 text-[11px] font-bold uppercase tracking-widest transition-all ${matTab === p.key ? 'text-amber-600 border-b-2 border-amber-600' : 'text-slate-400 hover:text-slate-700'}`}>{p.label}</button>
+                            ))}
                           </div>
-                        )}
+                          <div className="p-6 space-y-6">
+                            <p className="text-[11px] text-slate-500">Avalie cada item no nível que melhor descreve a empresa. {isSuper ? 'Como INEPAD, você pode validar as respostas.' : 'Suas respostas ficam como “declaradas” até a INEPAD validar.'}</p>
+                            {(activeDiag?.dims || []).map((dim: any) => (
+                              <div key={dim.dimension}>
+                                <p className="text-[10px] font-bold uppercase tracking-widest text-amber-600 mb-2 pb-1 border-b border-slate-50">{dim.dimension}</p>
+                                <div className="space-y-2">
+                                  {dim.items.map((it: any) => {
+                                    const a = it.answer; const answered = a && !a.na && a.level != null; const validated = a?.status === 'validado';
+                                    const selVal = a?.na ? 'na' : (a && a.level != null ? String(a.level) : '');
+                                    return (
+                                      <div key={it.crit.id} className="p-3 rounded-lg border border-slate-100 bg-slate-50/60">
+                                        <div className="flex items-start justify-between gap-3">
+                                          <p className="text-sm text-slate-700 font-medium flex-1">{it.crit.item}</p>
+                                          {answered && <span className={`shrink-0 text-[8px] font-bold uppercase tracking-widest px-2 py-0.5 rounded-full ${validated ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>{validated ? '✓ Validado' : 'Declarado'}</span>}
+                                          {a?.na && <span className="shrink-0 text-[8px] font-bold uppercase tracking-widest px-2 py-0.5 rounded-full bg-slate-200 text-slate-500">N/A</span>}
+                                        </div>
+                                        <div className="flex flex-wrap items-center gap-2 mt-2">
+                                          <select disabled={matSaving} value={selVal} onChange={e => { const v = e.target.value; if (v === '') saveMatAnswer(it.crit, { level: null, na: false }); else if (v === 'na') saveMatAnswer(it.crit, { na: true, level: null }); else saveMatAnswer(it.crit, { level: Number(v), na: false }); }} className="text-xs font-bold bg-white border border-slate-200 rounded-lg px-3 py-2 outline-none">
+                                            <option value="">— não avaliado —</option>
+                                            {MAT_LEVELS.map((lbl, i) => <option key={i} value={String(i)}>{i}. {lbl}</option>)}
+                                            <option value="na">Não se aplica</option>
+                                          </select>
+                                          {isSuper && answered && !validated && <button onClick={() => saveMatAnswer(it.crit, { status: 'validado' })} className="text-[9px] font-bold uppercase tracking-widest px-3 py-2 rounded-lg bg-emerald-600 text-white hover:bg-emerald-700 transition-all">Validar</button>}
+                                        </div>
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
                       </>
                     );
                   })()}
