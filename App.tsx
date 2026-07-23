@@ -998,10 +998,19 @@ const App = () => {
   // o percentil desta empresa. Nenhuma nota individual de terceiros trafega.
   const loadBenchmark = async () => {
     if (superAll) { setBenchmark(null); return; }
+    const cid = activeClientId || currentUser?.client_id;
     const g = computeGovernance();
-    const { data, error } = await supabase.rpc('benchmark_maturity', { my_overall: g.overall });
+    // Evolução própria: delta entre a 1ª e a última nota do histórico (só se span ≥ 21 dias)
+    const mine = (matHistory || []).filter((h: any) => h.client_id === cid).slice().sort((a: any, b: any) => (a.snapshot_date || '').localeCompare(b.snapshot_date || ''));
+    let myDelta: number | null = null, myDeltaFrom: string | null = null;
+    if (mine.length >= 2) {
+      const first = mine[0], last = mine[mine.length - 1];
+      const spanDays = (new Date(last.snapshot_date + 'T00:00:00').getTime() - new Date(first.snapshot_date + 'T00:00:00').getTime()) / 86400000;
+      if (spanDays >= 21) { myDelta = last.overall - first.overall; myDeltaFrom = first.snapshot_date; }
+    }
+    const { data, error } = await supabase.rpc('benchmark_maturity', { my_overall: g.overall, my_delta: myDelta });
     if (error || !data || (data as any).error) { setBenchmark(null); return; }
-    setBenchmark({ ...(data as any), my_overall: g.overall });
+    setBenchmark({ ...(data as any), my_overall: g.overall, my_delta: myDelta, my_delta_from: myDeltaFrom });
   };
 
   // --- Selo de Governança (Camada 5) ---
@@ -4851,6 +4860,25 @@ const App = () => {
                                 </div>
                                 <span className="text-[10px] font-bold uppercase tracking-widest text-slate-400 bg-slate-50 border border-slate-200 px-2.5 py-1 rounded-full shrink-0">{bm.n} conselhos</span>
                               </div>
+
+                              {/* Reconhecimento de evolução — "entre os X% que mais evoluíram" */}
+                              {(() => {
+                                const evo: any = bm.evolution;
+                                if (!evo || evo.insufficient || bm.my_delta == null || evo.my_percentile == null || bm.my_delta <= 0) return null;
+                                const pct = evo.my_percentile;
+                                const top = Math.max(0, 100 - pct);
+                                const highlight = top <= 25;
+                                const topLabel = top <= 0 ? 'no grupo que mais evoluiu na plataforma' : `entre os ${top}% que mais evoluíram`;
+                                return (
+                                  <div className={`mb-5 rounded-lg p-4 flex items-center gap-3 border ${highlight ? 'bg-emerald-50 border-emerald-200' : 'bg-slate-50 border-slate-200'}`}>
+                                    <div className={`w-10 h-10 rounded-full flex items-center justify-center shrink-0 text-white ${highlight ? 'bg-emerald-600' : 'bg-slate-400'}`}><TrendingUp size={20} /></div>
+                                    <div>
+                                      <p className="text-sm font-black text-slate-800">Este conselho está {topLabel}.</p>
+                                      <p className="text-xs text-slate-500">+{bm.my_delta} pontos{bm.my_delta_from ? ` desde ${new Date(bm.my_delta_from + 'T00:00:00').toLocaleDateString('pt-BR')}` : ''} · evoluiu mais que {pct}% dos conselhos com histórico.</p>
+                                    </div>
+                                  </div>
+                                );
+                              })()}
 
                               {/* Régua 0–100: faixa interquartil (p25–p75), mediana, média e "Você" */}
                               <div className="pt-6 pb-2">
