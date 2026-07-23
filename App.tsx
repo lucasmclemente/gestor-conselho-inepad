@@ -158,6 +158,7 @@ const App = () => {
   const [matAnswers, setMatAnswers] = useState<any[]>([]);
   const [matSaving, setMatSaving] = useState(false);
   const [matTab, setMatTab] = useState('propriedade');
+  const [seals, setSeals] = useState<any[]>([]);
   const [assessing, setAssessing] = useState<Record<string, boolean>>({});
   // Editor de rubrica (SuperAdmin)
   const [rubricAll, setRubricAll] = useState<any[]>([]);
@@ -538,7 +539,7 @@ const App = () => {
         setAllClientsList(fullList);
       }
       // Indicadores & Gatilhos do cliente ativo (semáforos + alertas + cadastros + séries)
-      const [indStatusRes, indEventsRes, indListRes, trigListRes, readingsRes, govRes, targetsRes, fcaRes, objsRes, perspRes, krRes, ckRes, matCritRes, matAnsRes] = await Promise.all([
+      const [indStatusRes, indEventsRes, indListRes, trigListRes, readingsRes, govRes, targetsRes, fcaRes, objsRes, perspRes, krRes, ckRes, matCritRes, matAnsRes, sealsRes] = await Promise.all([
         supabase.from('indicator_current_status').select('*').eq('client_id', cid).order('breach_level', { ascending: false }),
         supabase.from('trigger_events').select('*, indicators(name, unit), triggers(name, indicators(name, unit))').eq('client_id', cid).eq('status', 'open').order('fired_at', { ascending: false }),
         supabase.from('indicators').select('*').eq('client_id', cid).order('name'),
@@ -553,9 +554,11 @@ const App = () => {
         supabase.from('key_result_checkins').select('key_result_id, confidence, created_at').eq('client_id', cid).order('created_at', { ascending: false }),
         supabase.from('maturity_criteria').select('*').eq('active', true).order('position'),
         supabase.from('maturity_answers').select('*').eq('client_id', cid),
+        supabase.from('governance_seals').select('*').eq('client_id', cid).order('issued_at', { ascending: false }),
       ]) as any;
       setMatCriteria(matCritRes?.data || []);
       setMatAnswers(matAnsRes?.data || []);
+      setSeals(sealsRes?.data || []);
       setStrategyObjectives(objsRes?.data || []);
       setPerspectivesList(perspRes?.data || []);
       setOkrKrs(krRes?.data || []);
@@ -947,6 +950,50 @@ const App = () => {
     const w = scored.reduce((a, p) => a + p.weight, 0) || 1;
     const overall = Math.round(scored.reduce((a, p) => a + (p.score as number) * p.weight, 0) / w);
     return { overall, band: maturityBand(overall), pillars };
+  };
+
+  // --- Selo de Governança (Camada 5) ---
+  const SEAL_TIERS = [
+    { key: 'ouro', label: 'Ouro', color: '#b45309', bg: '#fffbeb', ring: '#f59e0b', minOverall: 80, minPillar: 65, needDocValidated: true },
+    { key: 'prata', label: 'Prata', color: '#475569', bg: '#f1f5f9', ring: '#94a3b8', minOverall: 65, minPillar: 50, needDocValidated: true },
+    { key: 'bronze', label: 'Bronze', color: '#9a3412', bg: '#fff7ed', ring: '#ea580c', minOverall: 50, minPillar: 30, needDocValidated: false },
+  ];
+  const sealTier = (key: string) => SEAL_TIERS.find(t => t.key === key) || SEAL_TIERS[2];
+  const computeSealEligibility = (g: any) => {
+    const allScored = g.pillars.every((p: any) => p.score != null);
+    if (!allScored) return { tier: null, reason: 'Diagnostique todos os 5 pilares para se tornar elegível ao selo.' };
+    const minPillar = Math.min(...g.pillars.map((p: any) => p.score));
+    const ans = new Map((matAnswers || []).map((a: any) => [a.criterion_id, a]));
+    const docItems = (matCriteria || []).filter((c: any) => c.requires_evidence);
+    const docPending = docItems.some((c: any) => { const a: any = ans.get(c.id); return !a || (!a.na && a.status !== 'validado'); });
+    for (const t of SEAL_TIERS) {
+      if (g.overall >= t.minOverall && minPillar >= t.minPillar && (!t.needDocValidated || !docPending)) return { tier: t, docPending };
+    }
+    const b = SEAL_TIERS[SEAL_TIERS.length - 1];
+    const faltas: string[] = [];
+    if (g.overall < b.minOverall) faltas.push(`índice geral ≥ ${b.minOverall} (atual ${g.overall})`);
+    if (minPillar < b.minPillar) faltas.push(`todos os pilares ≥ ${b.minPillar}`);
+    return { tier: null, reason: `Para o selo Bronze falta: ${faltas.join('; ') || 'validar as evidências'}.` };
+  };
+  const issueSeal = async (level: string) => {
+    const cid = activeClientId || currentUser.client_id;
+    const t = sealTier(level);
+    if (!window.confirm(`Emitir o Selo de Governança INEPAD nível ${t.label} para ${clientProfile?.name || cid}?\n\nValidade: 24 meses. A INEPAD chancela esta certificação.`)) return;
+    const g = computeGovernance();
+    const code = 'INEPAD-' + (crypto.randomUUID().replace(/-/g, '').slice(0, 10).toUpperCase());
+    const now = new Date(); const valid = new Date(now); valid.setMonth(valid.getMonth() + 24);
+    const snapshot = { overall: g.overall, pillars: g.pillars.map((p: any) => ({ key: p.key, label: p.label, score: p.score })) };
+    const { data, error } = await supabase.from('governance_seals').insert([{ client_id: cid, level, score_snapshot: snapshot, verification_code: code, issued_by: currentUser.name || currentUser.email, valid_until: valid.toISOString(), status: 'valido' }]).select().single();
+    if (error) { alert('Erro ao emitir selo: ' + error.message); return; }
+    setSeals((prev: any) => [data, ...prev]);
+    addLog('Selo', `Selo ${t.label} emitido (código ${code}, válido até ${valid.toLocaleDateString('pt-BR')}).`);
+    alert(`✅ Selo ${t.label} emitido!\n\nCódigo de verificação: ${code}\nVálido até ${valid.toLocaleDateString('pt-BR')}`);
+  };
+  const revokeSeal = async (seal: any) => {
+    if (!window.confirm('Revogar este selo? Ele deixará de ser válido imediatamente.')) return;
+    const { error } = await supabase.from('governance_seals').update({ status: 'revogado' }).eq('id', seal.id);
+    if (error) { alert('Erro ao revogar: ' + error.message); return; }
+    setSeals((prev: any) => prev.map((s: any) => s.id === seal.id ? { ...s, status: 'revogado' } : s));
   };
 
   const saveMatAnswer = async (criterion: any, patch: any) => {
@@ -4430,6 +4477,45 @@ const App = () => {
                             {pendentes.length > 0 && <p className="text-[11px] text-amber-600 font-bold mt-2 uppercase tracking-wider">Pilares ainda não diagnosticados: {pendentes.map((p: any) => p.label).join(', ')} — responda abaixo para completar o índice.</p>}
                           </div>
                         </div>
+
+                        {/* Selo de Governança */}
+                        {(() => {
+                          const currentSeal = seals.find((s: any) => s.status === 'valido' && new Date(s.valid_until) > new Date());
+                          const elig = computeSealEligibility(g);
+                          if (currentSeal) {
+                            const t = sealTier(currentSeal.level);
+                            return (
+                              <div className="rounded-xl border shadow-sm overflow-hidden" style={{ borderColor: t.ring }}>
+                                <div className="p-6 flex flex-col sm:flex-row items-center gap-6" style={{ background: t.bg }}>
+                                  <div className="w-24 h-24 rounded-full flex flex-col items-center justify-center text-white shrink-0 shadow-lg" style={{ background: t.color }}>
+                                    <ShieldCheck size={30} />
+                                    <span className="text-[10px] font-black uppercase tracking-widest mt-0.5">{t.label}</span>
+                                  </div>
+                                  <div className="flex-1 text-center sm:text-left">
+                                    <p className="text-[10px] font-bold uppercase tracking-widest" style={{ color: t.color }}>Selo de Governança INEPAD</p>
+                                    <p className="text-2xl font-black text-slate-800 italic">Nível {t.label}</p>
+                                    <p className="text-xs text-slate-500 mt-1">Válido até {new Date(currentSeal.valid_until).toLocaleDateString('pt-BR')} · código <b className="text-slate-700">{currentSeal.verification_code}</b></p>
+                                    {isSuper && <button onClick={() => revokeSeal(currentSeal)} className="mt-2 text-[9px] font-bold uppercase tracking-widest text-red-400 hover:text-red-600 transition-colors">Revogar selo</button>}
+                                  </div>
+                                </div>
+                              </div>
+                            );
+                          }
+                          return (
+                            <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm">
+                              <div className="flex items-center gap-2 mb-2"><ShieldCheck size={18} className="text-slate-400" /><p className="text-sm font-bold text-slate-700">Selo de Governança INEPAD</p></div>
+                              {(elig as any).tier ? (
+                                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                                  <p className="text-sm text-slate-600">Este conselho está <b style={{ color: (elig as any).tier.color }}>elegível ao selo {(elig as any).tier.label}</b>.</p>
+                                  {isSuper ? <button onClick={() => issueSeal((elig as any).tier.key)} className="px-5 py-2.5 rounded-lg text-white font-bold text-[10px] uppercase tracking-widest shadow-md transition-all" style={{ background: (elig as any).tier.color }}>Emitir selo {(elig as any).tier.label}</button>
+                                    : <span className="text-[10px] font-bold uppercase tracking-widest text-slate-400">A INEPAD emitirá o selo.</span>}
+                                </div>
+                              ) : (
+                                <p className="text-sm text-slate-500">{(elig as any).reason}</p>
+                              )}
+                            </div>
+                          );
+                        })()}
 
                         {/* Radar de pilares */}
                         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
