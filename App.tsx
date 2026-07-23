@@ -4,6 +4,7 @@ import { generateAtaPDF } from './services/generateAtaPDF';
 import { supabase } from './services/supabaseClient';
 import { Estrategia } from './components/Estrategia';
 import { Certificacao } from './components/Certificacao';
+import { RelatorioGovernanca } from './components/RelatorioGovernanca';
 import {
   LayoutDashboard, Calendar, CalendarPlus, CalendarClock, ChevronRight, UserPlus,
   Clock, CheckCircle2, AlertCircle, FileText, Send, X, Trash2,
@@ -2899,6 +2900,7 @@ const App = () => {
             { id: 'deliberacoes', icon: <Scale size={18} />, label: 'Deliberações' },
             { id: 'maturidade', icon: <TrendingUp size={18} />, label: 'Maturidade' },
             { id: 'certificacao', icon: <ShieldCheck size={18} />, label: 'Certificação', super: true },
+            { id: 'relatorio', icon: <BarChart3 size={18} />, label: 'Relatório', super: true },
             { id: 'indicadores', icon: <Gauge size={18} />, label: 'Indicadores', addon: true },
             { id: 'estrategia', icon: <Compass size={18} />, label: 'Estratégia', addon: true },
             { id: 'repositorio-atas', icon: <Archive size={18} />, label: 'Repositório de Atas' },
@@ -4598,6 +4600,10 @@ const App = () => {
 
               {activeMenu === 'certificacao' && (isCertifier || isSuper) && (
                 <Certificacao currentUser={currentUser} criteria={matCriteria} sealTiers={SEAL_TIERS} maturityBand={maturityBand} matLevels={MAT_LEVELS} pillarLabels={PILLAR_LABELS} />
+              )}
+
+              {activeMenu === 'relatorio' && isSuper && (
+                <RelatorioGovernanca />
               )}
 
               {activeMenu === 'maturidade' && (
