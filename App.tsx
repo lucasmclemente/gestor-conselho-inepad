@@ -170,6 +170,7 @@ const App = () => {
   const [matTab, setMatTab] = useState('propriedade');
   const [seals, setSeals] = useState<any[]>([]);
   const [matHistory, setMatHistory] = useState<any[]>([]);
+  const [matAchievements, setMatAchievements] = useState<any[]>([]);
   const [benchmark, setBenchmark] = useState<any>(null);
   const [assessing, setAssessing] = useState<Record<string, boolean>>({});
   // Editor de rubrica (SuperAdmin)
@@ -339,10 +340,10 @@ const App = () => {
   // Registra um snapshot do histórico ao abrir a Maturidade e carrega o benchmark anônimo
   useEffect(() => {
     if (activeMenu !== 'maturidade' || loading || superAll) return;
-    if (canEdit) snapshotMaturity('auto');
+    if (canEdit) { snapshotMaturity('auto'); awardAchievements(); }
     loadBenchmark();
     /* eslint-disable-next-line */
-  }, [activeMenu, loading, activeClientId, matCriteria.length, matAnswers.length]);
+  }, [activeMenu, loading, activeClientId, matCriteria.length, matAnswers.length, seals.length, matHistory.length]);
   // Add-on desligado: não permite ficar em Estratégia/Indicadores (ex.: ao trocar de cliente)
   useEffect(() => {
     if (!strategyEnabled && !isController && (activeMenu === 'estrategia' || activeMenu === 'indicadores')) setActiveMenu('dashboard');
@@ -570,7 +571,7 @@ const App = () => {
         setAllClientsList(fullList);
       }
       // Indicadores & Gatilhos do cliente ativo (semáforos + alertas + cadastros + séries)
-      const [indStatusRes, indEventsRes, indListRes, trigListRes, readingsRes, govRes, targetsRes, fcaRes, objsRes, perspRes, krRes, ckRes, matCritRes, matAnsRes, sealsRes, matHistRes] = await Promise.all([
+      const [indStatusRes, indEventsRes, indListRes, trigListRes, readingsRes, govRes, targetsRes, fcaRes, objsRes, perspRes, krRes, ckRes, matCritRes, matAnsRes, sealsRes, matHistRes, matAchRes] = await Promise.all([
         supabase.from('indicator_current_status').select('*').eq('client_id', cid).order('breach_level', { ascending: false }),
         supabase.from('trigger_events').select('*, indicators(name, unit), triggers(name, indicators(name, unit))').eq('client_id', cid).eq('status', 'open').order('fired_at', { ascending: false }),
         supabase.from('indicators').select('*').eq('client_id', cid).order('name'),
@@ -587,11 +588,13 @@ const App = () => {
         supabase.from('maturity_answers').select('*').eq('client_id', cid),
         supabase.from('governance_seals').select('*').eq('client_id', cid).order('issued_at', { ascending: false }),
         supabase.from('maturity_history').select('*').eq('client_id', cid).order('snapshot_date', { ascending: true }),
+        supabase.from('maturity_achievements').select('*').eq('client_id', cid),
       ]) as any;
       setMatCriteria(matCritRes?.data || []);
       setMatAnswers(matAnsRes?.data || []);
       setSeals(sealsRes?.data || []);
       setMatHistory(matHistRes?.data || []);
+      setMatAchievements(matAchRes?.data || []);
       setStrategyObjectives(objsRes?.data || []);
       setPerspectivesList(perspRes?.data || []);
       setOkrKrs(krRes?.data || []);
@@ -1011,6 +1014,72 @@ const App = () => {
     const { data, error } = await supabase.rpc('benchmark_maturity', { my_overall: g.overall, my_delta: myDelta });
     if (error || !data || (data as any).error) { setBenchmark(null); return; }
     setBenchmark({ ...(data as any), my_overall: g.overall, my_delta: myDelta, my_delta_from: myDeltaFrom });
+  };
+
+  // --- Conquistas de governança (marcos permanentes, derivados dos dados reais) ---
+  const ACHIEVEMENTS: any[] = [
+    { id: 'diagnostico_completo', icon: 'CheckCircle2', label: 'Diagnóstico completo', desc: 'Os 5 pilares de governança avaliados.' },
+    { id: 'regimento', icon: 'FileCheck', label: 'Regimento formalizado', desc: 'Regimento do conselho validado pela INEPAD.' },
+    { id: 'evidencias_validadas', icon: 'ShieldCheck', label: 'Evidências chanceladas', desc: 'Todos os instrumentos documentais validados.' },
+    { id: 'atas_100', icon: 'FileText', label: 'Transparência total', desc: '100% das reuniões realizadas com ata publicada.' },
+    { id: 'deliberacoes', icon: 'Scale', label: 'Deliberações formalizadas', desc: 'Todas as deliberações registradas com votação.' },
+    { id: 'plano_em_dia', icon: 'ListChecks', label: 'Plano de ação em dia', desc: 'Nenhuma ação em atraso.' },
+    { id: 'nota_avancada', icon: 'Sparkles', label: 'Governança avançada', desc: 'Índice de maturidade ≥ 80.' },
+    { id: 'nota_crescente', icon: 'TrendingUp', label: 'Evolução consistente', desc: 'Nota em ascensão ao longo do tempo (≥ 3 registros, 60+ dias).' },
+    { id: 'indicadores', icon: 'Gauge', label: 'Gestão por indicadores', desc: 'Indicadores com meta e leitura monitorados.', addon: true },
+    { id: 'estrategia', icon: 'Compass', label: 'Estratégia estruturada', desc: 'Planejamento estratégico com objetivos e OKRs.', addon: true },
+    { id: 'selo_bronze', icon: 'ShieldCheck', label: 'Selo Bronze INEPAD', desc: 'Certificação de governança nível Bronze.', tier: 'bronze' },
+    { id: 'selo_prata', icon: 'ShieldCheck', label: 'Selo Prata INEPAD', desc: 'Certificação de governança nível Prata.', tier: 'prata' },
+    { id: 'selo_ouro', icon: 'ShieldCheck', label: 'Selo Ouro INEPAD', desc: 'Certificação de governança nível Ouro.', tier: 'ouro' },
+  ];
+  const computeAchievements = () => {
+    const g = computeGovernance();
+    const findComp = (label: string) => { for (const p of g.pillars) { const c = (p.components || []).find((x: any) => x.label === label); if (c) return c; } return null; };
+    const ansMap = new Map((matAnswers || []).map((a: any) => [a.criterion_id, a]));
+    const docItems = (matCriteria || []).filter((c: any) => c.requires_evidence);
+    const docValidated = docItems.length > 0 && !docItems.some((c: any) => { const a: any = ansMap.get(c.id); return !a || (!a.na && a.status !== 'validado'); });
+    const regCrit = (matCriteria || []).find((c: any) => c.requires_evidence && /regimento/i.test(c.dimension || ''));
+    const regOk = !!(regCrit && (ansMap.get(regCrit.id) as any)?.status === 'validado');
+    const cid = activeClientId || currentUser?.client_id;
+    const cSeal = (seals || []).find((s: any) => s.status === 'valido' && new Date(s.valid_until) > new Date());
+    const rank: any = { bronze: 1, prata: 2, ouro: 3 };
+    const sealRank = cSeal ? (rank[cSeal.level] || 0) : 0;
+    const hist = (matHistory || []).filter((h: any) => h.client_id === cid).slice().sort((a: any, b: any) => (a.snapshot_date || '').localeCompare(b.snapshot_date || ''));
+    let crescente = false;
+    if (hist.length >= 3) {
+      const span = (new Date(hist[hist.length - 1].snapshot_date + 'T00:00:00').getTime() - new Date(hist[0].snapshot_date + 'T00:00:00').getTime()) / 86400000;
+      const monotonic = hist.every((h: any, i: number) => i === 0 || h.overall >= hist[i - 1].overall);
+      crescente = span >= 60 && monotonic && hist[hist.length - 1].overall > hist[0].overall;
+    }
+    const atas = findComp('Atas publicadas'); const delib = findComp('Deliberações votadas'); const plano = findComp('Plano de ação em dia');
+    const ind = findComp('Gestão de indicadores'); const est = findComp('Planejamento estratégico');
+    const earned: Record<string, boolean> = {
+      diagnostico_completo: g.pillars.every((p: any) => p.score != null),
+      regimento: regOk,
+      evidencias_validadas: docValidated,
+      atas_100: !!(atas && atas.score === 100),
+      deliberacoes: !!(delib && delib.score === 100),
+      plano_em_dia: !!(plano && plano.score === 100),
+      nota_avancada: g.overall >= 80,
+      nota_crescente: crescente,
+      indicadores: !!(ind && ind.score >= 60),
+      estrategia: !!(est && est.score === 100),
+      selo_bronze: sealRank >= 1,
+      selo_prata: sealRank >= 2,
+      selo_ouro: sealRank >= 3,
+    };
+    return ACHIEVEMENTS.filter(a => !a.addon || strategyEnabled).map(a => ({ ...a, earned: !!earned[a.id] }));
+  };
+  const awardAchievements = async () => {
+    const cid = activeClientId || currentUser?.client_id;
+    if (!cid || superAll || !canEdit) return;
+    const earnedIds = computeAchievements().filter(a => a.earned).map(a => a.id);
+    const have = new Set((matAchievements || []).map((a: any) => a.achievement_id));
+    const toInsert = earnedIds.filter(id => !have.has(id));
+    if (!toInsert.length) return;
+    const rows = toInsert.map(id => ({ client_id: cid, achievement_id: id }));
+    const { data, error } = await supabase.from('maturity_achievements').upsert(rows, { onConflict: 'client_id,achievement_id', ignoreDuplicates: true }).select();
+    if (!error && data) setMatAchievements((prev: any) => [...(prev || []), ...data]);
   };
 
   // --- Selo de Governança (Camada 5) ---
@@ -4827,6 +4896,42 @@ const App = () => {
                                 })}
                               </div>
                               <p className="text-[10px] text-slate-400 mt-3">O selo considera o <b>elo mais fraco</b> (todo pilar precisa atingir o mínimo) e, nos níveis Prata e Ouro, <b>documentos anexados e validados</b> — por isso pode ficar abaixo da média do índice.</p>
+                            </div>
+                          );
+                        })()}
+
+                        {/* Conquistas de governança */}
+                        {(() => {
+                          const list = computeAchievements();
+                          const earnedAt = new Map((matAchievements || []).map((a: any) => [a.achievement_id, a.earned_at]));
+                          const ICONS: any = { CheckCircle2, FileCheck, ShieldCheck, FileText, Scale, ListChecks, Sparkles, TrendingUp, Gauge, Compass };
+                          const earnedList = list.filter((a: any) => a.earned);
+                          const lockedList = list.filter((a: any) => !a.earned);
+                          return (
+                            <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm">
+                              <div className="flex items-center justify-between mb-4">
+                                <div>
+                                  <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Conquistas de governança</p>
+                                  <p className="text-sm text-slate-500">Marcos alcançados por este conselho</p>
+                                </div>
+                                <span className="text-lg font-black text-amber-600">{earnedList.length}<span className="text-slate-300 text-sm">/{list.length}</span></span>
+                              </div>
+                              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
+                                {[...earnedList, ...lockedList].map((a: any) => {
+                                  const Icon = ICONS[a.icon] || CheckCircle2;
+                                  const at = earnedAt.get(a.id);
+                                  return (
+                                    <div key={a.id} className={`rounded-lg border p-4 ${a.earned ? 'border-amber-200 bg-amber-50/50' : 'border-slate-200 bg-slate-50/40 opacity-70'}`}>
+                                      <div className={`w-9 h-9 rounded-full flex items-center justify-center mb-2 ${a.earned ? 'bg-amber-600 text-white' : 'bg-slate-200 text-slate-400'}`}><Icon size={18} /></div>
+                                      <p className={`text-xs font-bold ${a.earned ? 'text-slate-800' : 'text-slate-400'}`}>{a.label}</p>
+                                      <p className="text-[10px] text-slate-400 mt-0.5 leading-snug">{a.desc}</p>
+                                      {a.earned
+                                        ? <p className="text-[9px] font-bold uppercase tracking-widest text-amber-600 mt-1.5">{at ? `Conquistado ${new Date(at).toLocaleDateString('pt-BR')}` : 'Conquistado'}</p>
+                                        : <p className="text-[9px] font-bold uppercase tracking-widest text-slate-300 mt-1.5">A conquistar</p>}
+                                    </div>
+                                  );
+                                })}
+                              </div>
                             </div>
                           );
                         })()}
