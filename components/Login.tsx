@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { ChevronRight } from 'lucide-react';
+import { ChevronRight, ShieldCheck } from 'lucide-react';
 import { supabase } from '../services/supabaseClient';
 import { BoardplanLogo } from './Brand';
 
@@ -24,7 +24,12 @@ export const Login: React.FC = () => {
           <p className="font-voice italic text-2xl md:text-[26px] leading-snug text-white text-balance">Onde o conselho governa e planeja o futuro da empresa.</p>
           <p className="text-sm text-slate-400 mt-4 max-w-xs leading-relaxed">Convocações, deliberações, atas e plano de ação — do agendamento à decisão.</p>
         </div>
-        <div className="flex items-center gap-2 text-[11px] font-bold tracking-wide text-slate-500"><span className="w-4 h-px bg-slate-700" /> INEPAD Governança e Sucessão</div>
+        <div className="flex flex-col gap-4">
+          <a href="/?diretorio" className="inline-flex items-center gap-2 text-[11px] font-bold uppercase tracking-widest text-amber-500 hover:text-amber-400 transition-colors w-fit">
+            <ShieldCheck size={14} /> Conselhos certificados pela INEPAD <ChevronRight size={13} />
+          </a>
+          <div className="flex items-center gap-2 text-[11px] font-bold tracking-wide text-slate-500"><span className="w-4 h-px bg-slate-700" /> INEPAD Governança e Sucessão</div>
+        </div>
       </div>
 
       {/* ── Painel de acesso (branco) ── */}
