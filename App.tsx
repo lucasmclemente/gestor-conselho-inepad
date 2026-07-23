@@ -4514,6 +4514,49 @@ const App = () => {
                           );
                         })()}
 
+                        {/* Critérios dos níveis do selo */}
+                        {(() => {
+                          const allScored = g.pillars.every((p: any) => p.score != null);
+                          const minPillar = allScored ? Math.min(...g.pillars.map((p: any) => p.score)) : null;
+                          const ansM = new Map((matAnswers || []).map((a: any) => [a.criterion_id, a]));
+                          const docItems = (matCriteria || []).filter((c: any) => c.requires_evidence);
+                          const docValidated = docItems.length > 0 && !docItems.some((c: any) => { const a: any = ansM.get(c.id); return !a || (!a.na && a.status !== 'validado'); });
+                          const Req = ({ ok, children }: any) => (
+                            <span className={`inline-flex items-center gap-1.5 text-[11px] ${ok ? 'text-emerald-700 font-bold' : 'text-slate-400'}`}>
+                              {ok ? <Check size={13} className="shrink-0" /> : <span className="w-3 h-3 rounded-full border border-slate-300 inline-block shrink-0" />} {children}
+                            </span>
+                          );
+                          return (
+                            <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm">
+                              <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400 mb-3">Critérios dos níveis do selo</p>
+                              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                                {[...SEAL_TIERS].reverse().map((t: any) => {
+                                  const r1 = g.overall >= t.minOverall;
+                                  const r2 = allScored && minPillar != null && minPillar >= t.minPillar;
+                                  const r3 = !t.needDocValidated || docValidated;
+                                  const atingido = r1 && r2 && r3;
+                                  return (
+                                    <div key={t.key} className="rounded-lg border p-4 transition-all" style={{ borderColor: atingido ? t.ring : '#e2e8f0', background: atingido ? t.bg : '#fff' }}>
+                                      <div className="flex items-center justify-between mb-2.5">
+                                        <span className="text-sm font-black uppercase tracking-widest" style={{ color: t.color }}>{t.label}</span>
+                                        {atingido && <span className="text-[8px] font-bold uppercase tracking-widest text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-full">✓ Atingido</span>}
+                                      </div>
+                                      <div className="flex flex-col gap-1.5">
+                                        <Req ok={r1}>Índice geral ≥ {t.minOverall}</Req>
+                                        <Req ok={r2}>Todos os pilares ≥ {t.minPillar}</Req>
+                                        {t.needDocValidated
+                                          ? <Req ok={r3}>Evidências validadas pela INEPAD</Req>
+                                          : <span className="text-[11px] text-slate-300 italic">Não exige evidência validada</span>}
+                                      </div>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                              <p className="text-[10px] text-slate-400 mt-3">O selo considera o <b>elo mais fraco</b> (todo pilar precisa atingir o mínimo) e, nos níveis Prata e Ouro, <b>documentos anexados e validados</b> — por isso pode ficar abaixo da média do índice.</p>
+                            </div>
+                          );
+                        })()}
+
                         {/* Radar de pilares */}
                         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
                           {g.pillars.map((p: any) => { const na = p.score == null; const b = maturityBand(p.score || 0); const diag = p.hasDiag; return (
