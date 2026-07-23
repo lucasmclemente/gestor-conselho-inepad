@@ -18,6 +18,7 @@ import { BoardplanMark, BoardplanLogo } from './components/Brand';
 import { PublicVote } from './components/PublicVote';
 import { PublicCollect } from './components/PublicCollect';
 import { SealVerify } from './components/SealVerify';
+import { Diretorio } from './components/Diretorio';
 import { generateSealCertificate } from './services/generateSealCertificate';
 import { Login, RecoverPassword } from './components/Login';
 
@@ -30,6 +31,9 @@ const App = () => {
   });
   const [sealCode] = useState<string | null>(() => {
     try { return new URLSearchParams(window.location.search).get('selo'); } catch { return null; }
+  });
+  const [showDirectory] = useState<boolean>(() => {
+    try { return new URLSearchParams(window.location.search).has('diretorio'); } catch { return false; }
   });
   const [users, setUsers] = useState<any[]>([]);
   const [meetings, setMeetings] = useState<any[]>([]);
@@ -1043,6 +1047,18 @@ const App = () => {
     const { error } = await supabase.from('governance_seals').update({ status: 'revogado' }).eq('id', seal.id);
     if (error) { alert('Erro ao revogar: ' + error.message); return; }
     setSeals((prev: any) => prev.map((s: any) => s.id === seal.id ? { ...s, status: 'revogado' } : s));
+  };
+
+  // Consentimento de listagem no diretório público (clients.directory_opt_in) — via Edge Function escopada
+  const [savingOptIn, setSavingOptIn] = useState(false);
+  const setDirectoryOptIn = async (value: boolean) => {
+    const cid = activeClientId || currentUser.client_id;
+    setSavingOptIn(true);
+    const { data, error } = await supabase.functions.invoke('set-directory-optin', { body: { client_id: cid, opt_in: value } });
+    setSavingOptIn(false);
+    if (error || (data as any)?.error) { alert('Erro ao atualizar o diretório: ' + (error?.message || (data as any)?.error)); return; }
+    setClientProfile((p: any) => p ? { ...p, directory_opt_in: value } : p);
+    addLog('Configuração', `Listagem no diretório público ${value ? 'ativada' : 'desativada'}.`);
   };
 
   const saveMatAnswer = async (criterion: any, patch: any) => {
@@ -2746,6 +2762,11 @@ const App = () => {
   // ── Coleta de indicadores (página pública, sem login) ──
   if (collectToken) {
     return <PublicCollect token={collectToken} />;
+  }
+
+  // ── Diretório público de conselhos certificados (sem login) ──
+  if (showDirectory) {
+    return <Diretorio />;
   }
 
   // ── Verificação pública de selo de governança (sem login) ──
@@ -4604,6 +4625,13 @@ const App = () => {
                                       <button onClick={() => { const url = `${window.location.origin}/?selo=${currentSeal.verification_code}`; navigator.clipboard?.writeText(url); alert('Link de verificação copiado:\n' + url); }} className="text-[9px] font-bold uppercase tracking-widest text-amber-700 hover:text-amber-800 transition-colors flex items-center gap-1"><ExternalLink size={11} /> Copiar link de verificação</button>
                                       {isSuper && <button onClick={() => revokeSeal(currentSeal)} className="text-[9px] font-bold uppercase tracking-widest text-red-400 hover:text-red-600 transition-colors">Revogar selo</button>}
                                     </div>
+                                    {(isAdm || isSuper) && (
+                                      <label className="flex flex-wrap items-center gap-2 mt-3 pt-3 border-t border-black/5 cursor-pointer select-none">
+                                        <input type="checkbox" checked={!!clientProfile?.directory_opt_in} disabled={savingOptIn} onChange={e => setDirectoryOptIn(e.target.checked)} className="w-4 h-4 accent-amber-600" />
+                                        <span className="text-[10px] font-bold uppercase tracking-widest text-slate-600">Exibir no diretório público de certificados INEPAD</span>
+                                        {clientProfile?.directory_opt_in && <a href="/?diretorio" target="_blank" rel="noreferrer" onClick={e => e.stopPropagation()} className="text-[9px] font-bold uppercase tracking-widest text-amber-700 hover:text-amber-800 flex items-center gap-1">ver diretório <ExternalLink size={10} /></a>}
+                                      </label>
+                                    )}
                                   </div>
                                 </div>
                               </div>
