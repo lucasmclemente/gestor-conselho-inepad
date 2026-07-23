@@ -859,65 +859,19 @@ const App = () => {
     if (s >= 20) return { label: 'Em estruturação', color: '#ea580c', bg: '#fff7ed', ring: '#f97316' };
     return { label: 'Inicial', color: '#dc2626', bg: '#fef2f2', ring: '#ef4444' };
   };
-  const computeMaturity = () => {
-    const cid = activeClientId || currentUser?.client_id;
-    const now = new Date();
-    const pad = (n: number) => String(n).padStart(2, '0');
-    const todayStr = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
-    const ya = new Date(now); ya.setFullYear(ya.getFullYear() - 1);
-    const yaStr = `${ya.getFullYear()}-${pad(ya.getMonth() + 1)}-${pad(ya.getDate())}`;
-    const cm = (meetings || []).filter((m: any) => m.client_id === cid);
-    const concluded = cm.filter((m: any) => m.status === 'Concluída');
-    const R = (n: number) => Math.max(0, Math.min(100, Math.round(n)));
-
-    // 1) Cadência — reuniões concluídas nos últimos 12 meses (6+/ano = 100)
-    const conc12 = concluded.filter((m: any) => m.date && m.date >= yaStr).length;
-    const cadencia = { key: 'cadencia', label: 'Cadência de reuniões', weight: 20, applicable: true, score: R(conc12 / 6 * 100), detail: `${conc12} reunião(ões) concluída(s) nos últimos 12 meses`, tip: 'Mantenha reuniões regulares (ideal: mensal ou bimestral) e registre-as como concluídas.' };
-
-    // 2) Execução do plano de ação
-    const acoes = cm.flatMap((m: any) => m.acoes || []);
-    const totA = acoes.length;
-    const doneA = acoes.filter((a: any) => a.status === 'Concluída').length;
-    const lateA = acoes.filter((a: any) => a.status !== 'Concluída' && a.date && a.date < todayStr).length;
-    const execucao = { key: 'execucao', label: 'Execução do plano de ação', weight: 25, applicable: true, score: totA === 0 ? 0 : R(doneA / totA * 100), detail: totA === 0 ? 'Sem ações registradas' : `${doneA}/${totA} ações concluídas${lateA ? ` · ${lateA} atrasada(s)` : ''}`, tip: 'Feche as ações dentro do prazo e revise as atrasadas na próxima reunião.' };
-
-    // 3) Disciplina de atas
-    const withAta = concluded.filter((m: any) => (m.atas || []).length > 0).length;
-    const atas = { key: 'atas', label: 'Disciplina de atas', weight: 15, applicable: true, score: concluded.length === 0 ? 0 : R(withAta / concluded.length * 100), detail: `${withAta}/${concluded.length} reunião(ões) concluída(s) com ata`, tip: 'Publique a ata de toda reunião — use a Ata por IA para acelerar.' };
-
-    // 4) Deliberações formais
-    const withDelib = concluded.filter((m: any) => (m.deliberacoes || []).length > 0).length;
-    const delib = { key: 'delib', label: 'Deliberações formais', weight: 15, applicable: true, score: concluded.length === 0 ? 0 : R(withDelib / concluded.length * 100), detail: `${withDelib}/${concluded.length} reunião(ões) com deliberação registrada`, tip: 'Formalize as decisões como deliberações com votação registrada.' };
-
-    // 5) Gestão de indicadores (add-on Estratégia)
-    const withTarget = new Set((targetsList || []).map((t: any) => t.indicator_id));
-    const withReading = new Set((readingsList || []).map((r: any) => r.indicator_id));
-    const tracked = (indicatorsList || []).filter((i: any) => withTarget.has(i.id) && withReading.has(i.id)).length;
-    const green = (indicatorStatuses || []).filter((s: any) => (s.breach_level || 0) === 0).length;
-    const cov = (indicatorsList || []).length ? tracked / indicatorsList.length : 0;
-    const perf = (indicatorStatuses || []).length ? green / indicatorStatuses.length : 0;
-    const indic = { key: 'indic', label: 'Gestão de indicadores', weight: 15, applicable: strategyEnabled, score: (indicatorsList || []).length === 0 ? 0 : R((cov * 0.6 + perf * 0.4) * 100), detail: (indicatorsList || []).length === 0 ? 'Sem indicadores cadastrados' : `${tracked}/${indicatorsList.length} com meta e leitura · ${R(perf * 100)}% no alvo`, tip: 'Cadastre metas e registre leituras; aja sobre os indicadores fora da meta.' };
-
-    // 6) Planejamento estratégico (add-on)
-    let estPts = 0;
-    if ((strategyObjectives || []).length > 0) estPts += 60;
-    if ((okrKrs || []).length > 0) estPts += 40;
-    const estrat = { key: 'estrat', label: 'Planejamento estratégico', weight: 10, applicable: strategyEnabled, score: estPts, detail: `${(strategyObjectives || []).length} objetivo(s) no mapa · ${(okrKrs || []).length} resultado(s)-chave (OKR)`, tip: 'Defina objetivos no mapa estratégico e acompanhe OKRs por ciclo.' };
-
-    const dims = [cadencia, execucao, atas, delib, indic, estrat].filter(d => d.applicable);
-    const wsum = dims.reduce((a, d) => a + d.weight, 0) || 1;
-    const overall = R(dims.reduce((a, d) => a + d.score * d.weight, 0) / wsum);
-    return { overall, band: maturityBand(overall), dims, hasData: concluded.length > 0 || totA > 0 };
-  };
-
-  // Diagnóstico (pilares estruturais) — nível 0..4 mapeado em 0/25/50/75/100
+  // Diagnóstico — nível 0..4 mapeado em 0/25/50/75/100
   const MAT_LEVELS = ['Inexistente', 'Inicial', 'Em estruturação', 'Estruturado', 'Referência'];
   const MAT_LEVEL_SCORE = [0, 25, 50, 75, 100];
-  const MAT_DIAG_PILLARS = [{ key: 'propriedade', label: 'Propriedade' }, { key: 'controle', label: 'Controle' }, { key: 'conduta', label: 'Conduta' }];
+  const PILLAR_LABELS: Record<string, string> = { conselho: 'Conselho', gestao: 'Gestão', propriedade: 'Propriedade', controle: 'Controle', conduta: 'Conduta' };
+  const PILLAR_ORDER = ['conselho', 'gestao', 'propriedade', 'controle', 'conduta'];
+  const PILLAR_WEIGHT: Record<string, number> = { conselho: 20, gestao: 20, propriedade: 25, controle: 20, conduta: 15 };
+  // Pilares que possuem itens de diagnóstico (rubrica) — dinâmico
+  const diagPillarKeys = () => PILLAR_ORDER.filter(k => (matCriteria || []).some((c: any) => c.pillar === k));
+
   const computeDiagPillars = () => {
     const ans = new Map((matAnswers || []).map((a: any) => [a.criterion_id, a]));
-    return MAT_DIAG_PILLARS.map(p => {
-      const crits = (matCriteria || []).filter((c: any) => c.pillar === p.key);
+    return diagPillarKeys().map(pk => {
+      const crits = (matCriteria || []).filter((c: any) => c.pillar === pk);
       const order: string[] = []; const byDim: Record<string, any[]> = {};
       crits.forEach((c: any) => { if (!byDim[c.dimension]) { byDim[c.dimension] = []; order.push(c.dimension); } byDim[c.dimension].push(c); });
       let pw = 0, ps = 0, pev = 0;
@@ -927,29 +881,58 @@ const App = () => {
         items.forEach((it: any) => { const a = it.answer; if (a && !a.na && a.level != null) { const w = Number(it.crit.weight || 1); dw += w; ds += MAT_LEVEL_SCORE[a.level] * w; dev++; pw += w; ps += MAT_LEVEL_SCORE[a.level] * w; pev++; } });
         return { dimension: dn, score: dev ? Math.round(ds / dw) : null, evaluated: dev, total: items.length, items };
       });
-      return { key: p.key, label: p.label, score: pev ? Math.round(ps / pw) : null, evaluated: pev, total: crits.length, dims };
+      return { key: pk, label: PILLAR_LABELS[pk] || pk, score: pev ? Math.round(ps / pw) : null, evaluated: pev, total: crits.length, dims };
     });
   };
 
-  // Modelo consolidado: pilares comportamentais (Conselho, Gestão) + diagnóstico
+  // Modelo consolidado: cada pilar = componentes comportamentais (automáticos) +
+  // dimensões de diagnóstico (respondidas). Média ponderada dos componentes.
   const computeGovernance = () => {
-    const beh = computeMaturity();
-    const dmap: any = Object.fromEntries(beh.dims.map((d: any) => [d.key, d]));
-    const pillarFromDims = (keys: string[]) => {
-      const ds = keys.map(k => dmap[k]).filter(Boolean);
-      if (!ds.length) return null;
-      const w = ds.reduce((a: number, d: any) => a + d.weight, 0);
-      return Math.round(ds.reduce((a: number, d: any) => a + d.score * d.weight, 0) / w);
-    };
-    const diag = computeDiagPillars();
-    const dg: any = Object.fromEntries(diag.map((p: any) => [p.key, p]));
-    const pillars = [
-      { key: 'conselho', label: 'Conselho', type: 'comportamental', weight: 20, score: pillarFromDims(['cadencia', 'atas', 'delib']) },
-      { key: 'gestao', label: 'Gestão', type: 'comportamental', weight: 20, score: pillarFromDims(['execucao', 'indic', 'estrat']) },
-      { key: 'propriedade', label: 'Propriedade', type: 'diagnostico', weight: 25, score: dg.propriedade?.score ?? null, diag: dg.propriedade },
-      { key: 'controle', label: 'Controle', type: 'diagnostico', weight: 20, score: dg.controle?.score ?? null, diag: dg.controle },
-      { key: 'conduta', label: 'Conduta', type: 'diagnostico', weight: 15, score: dg.conduta?.score ?? null, diag: dg.conduta },
-    ];
+    const cid = activeClientId || currentUser?.client_id;
+    const now = new Date(); const pad = (n: number) => String(n).padStart(2, '0');
+    const todayStr = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
+    const R = (n: number) => Math.max(0, Math.min(100, Math.round(n)));
+    const cm = (meetings || []).filter((m: any) => m.client_id === cid);
+    // Reuniões que JÁ aconteceram (concluídas ou com data no passado) — não as futuras
+    const happened = cm.filter((m: any) => m.status === 'Concluída' || (m.date && m.date < todayStr));
+
+    const beh: Record<string, any[]> = { conselho: [], gestao: [] };
+    if (happened.length) {
+      const withAta = happened.filter((m: any) => (m.atas || []).length > 0).length;
+      beh.conselho.push({ label: 'Atas publicadas', score: R(withAta / happened.length * 100), weight: 1, detail: `${withAta}/${happened.length} reuniões realizadas com ata` });
+    }
+    const delibs = cm.flatMap((m: any) => m.deliberacoes || []);
+    if (delibs.length) {
+      const votadas = delibs.filter((d: any) => Object.keys(d.votes || {}).length > 0).length;
+      beh.conselho.push({ label: 'Deliberações votadas', score: R(votadas / delibs.length * 100), weight: 1, detail: `${votadas}/${delibs.length} deliberações votadas` });
+    }
+    const acoes = cm.flatMap((m: any) => m.acoes || []);
+    if (acoes.length) {
+      const overdue = acoes.filter((a: any) => a.status !== 'Concluída' && a.date && a.date < todayStr).length;
+      beh.conselho.push({ label: 'Plano de ação em dia', score: R((acoes.length - overdue) / acoes.length * 100), weight: 1, detail: overdue ? `${overdue} de ${acoes.length} ações atrasadas` : `${acoes.length} ação(ões), nenhuma atrasada` });
+    }
+    if (strategyEnabled) {
+      if ((indicatorsList || []).length) {
+        const withT = new Set((targetsList || []).map((t: any) => t.indicator_id));
+        const withR = new Set((readingsList || []).map((r: any) => r.indicator_id));
+        const tracked = indicatorsList.filter((i: any) => withT.has(i.id) && withR.has(i.id)).length;
+        const green = (indicatorStatuses || []).filter((s: any) => (s.breach_level || 0) === 0).length;
+        const cov = tracked / indicatorsList.length; const perf = (indicatorStatuses || []).length ? green / indicatorStatuses.length : 0;
+        beh.gestao.push({ label: 'Gestão de indicadores', score: R((cov * 0.6 + perf * 0.4) * 100), weight: 1, detail: `${tracked}/${indicatorsList.length} com meta e leitura · ${R(perf * 100)}% no alvo` });
+      }
+      let estPts = 0; if ((strategyObjectives || []).length > 0) estPts += 60; if ((okrKrs || []).length > 0) estPts += 40;
+      beh.gestao.push({ label: 'Planejamento estratégico', score: estPts, weight: 1, detail: `${(strategyObjectives || []).length} objetivo(s) · ${(okrKrs || []).length} KR(s)` });
+    }
+
+    const diagMap: any = Object.fromEntries(computeDiagPillars().map((p: any) => [p.key, p]));
+    const pillars = PILLAR_ORDER.map(pk => {
+      const dg = diagMap[pk];
+      const behComps = beh[pk] || [];
+      const diagComps = dg ? dg.dims.filter((d: any) => d.score != null).map((d: any) => ({ label: d.dimension, score: d.score, weight: 1, detail: `${d.evaluated}/${d.total} avaliados` })) : [];
+      const comps = [...behComps, ...diagComps];
+      const score = comps.length ? Math.round(comps.reduce((a, c) => a + c.score * (c.weight || 1), 0) / comps.reduce((a, c) => a + (c.weight || 1), 0)) : null;
+      return { key: pk, label: PILLAR_LABELS[pk], weight: PILLAR_WEIGHT[pk], score, components: comps, diag: dg, hasDiag: !!(dg && dg.total > 0) };
+    });
     const scored = pillars.filter(p => p.score != null);
     const w = scored.reduce((a, p) => a + p.weight, 0) || 1;
     const overall = Math.round(scored.reduce((a, p) => a + (p.score as number) * p.weight, 0) / w);
@@ -4464,8 +4447,10 @@ const App = () => {
                   ) : (() => {
                     const g = computeGovernance();
                     const size = 150, stroke = 13, r = (size - stroke) / 2, circ = 2 * Math.PI * r, off = circ * (1 - g.overall / 100);
-                    const pendentes = g.pillars.filter((p: any) => p.type === 'diagnostico' && p.score == null);
-                    const activeDiag: any = (g.pillars.find((p: any) => p.key === matTab) as any)?.diag;
+                    const pendentes = g.pillars.filter((p: any) => p.score == null);
+                    const dtabs = diagPillarKeys();
+                    const activeTab = dtabs.includes(matTab) ? matTab : (dtabs[0] || '');
+                    const activeDiag: any = (g.pillars.find((p: any) => p.key === activeTab) as any)?.diag;
                     return (
                       <>
                         {/* Placar consolidado */}
@@ -4482,7 +4467,7 @@ const App = () => {
                           </div>
                           <div className="flex-1 text-center sm:text-left">
                             <span className="inline-block px-3 py-1 rounded-full text-xs font-bold uppercase tracking-widest" style={{ background: g.band.bg, color: g.band.color }}>{g.band.label}</span>
-                            <p className="text-sm text-slate-500 mt-3 leading-relaxed">Índice consolidado de governança, combinando o <b>funcionamento do conselho e da gestão</b> (automático) com o <b>diagnóstico dos pilares de Propriedade, Controle e Conduta</b>.</p>
+                            <p className="text-sm text-slate-500 mt-3 leading-relaxed">Índice consolidado de governança, combinando sinais <b>automáticos</b> do funcionamento do conselho e da gestão com o <b>diagnóstico</b> dos instrumentos (regimento, acordo de sócios, controladoria, código de conduta, etc.).</p>
                             {pendentes.length > 0 && <p className="text-[11px] text-amber-600 font-bold mt-2 uppercase tracking-wider">Pilares ainda não diagnosticados: {pendentes.map((p: any) => p.label).join(', ')} — responda abaixo para completar o índice.</p>}
                           </div>
                         </div>
@@ -4531,8 +4516,8 @@ const App = () => {
 
                         {/* Radar de pilares */}
                         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
-                          {g.pillars.map((p: any) => { const na = p.score == null; const b = maturityBand(p.score || 0); const diag = p.type === 'diagnostico'; return (
-                            <div key={p.key} onClick={() => { if (diag) setMatTab(p.key); }} className={`bg-white p-5 rounded-xl border shadow-sm ${diag ? 'cursor-pointer hover:border-amber-300 transition-colors' : ''} ${diag && matTab === p.key ? 'border-amber-400 ring-1 ring-amber-200' : 'border-slate-200'}`}>
+                          {g.pillars.map((p: any) => { const na = p.score == null; const b = maturityBand(p.score || 0); const diag = p.hasDiag; return (
+                            <div key={p.key} onClick={() => { if (diag) setMatTab(p.key); }} className={`bg-white p-5 rounded-xl border shadow-sm ${diag ? 'cursor-pointer hover:border-amber-300 transition-colors' : ''} ${diag && activeTab === p.key ? 'border-amber-400 ring-1 ring-amber-200' : 'border-slate-200'}`}>
                               <div className="flex items-center justify-between mb-2">
                                 <p className="text-sm font-bold text-slate-700">{p.label}</p>
                                 <span className="text-xl font-black" style={{ color: na ? '#cbd5e1' : b.color }}>{na ? '—' : p.score}</span>
@@ -4541,19 +4526,18 @@ const App = () => {
                                 <div className="h-full rounded-full" style={{ width: `${na ? 0 : p.score}%`, background: b.ring, transition: 'width .6s ease' }} />
                               </div>
                               <div className="flex items-center justify-between mt-2">
-                                <span className={`text-[8px] font-bold uppercase tracking-widest px-1.5 py-0.5 rounded ${diag ? 'bg-slate-100 text-slate-500' : 'bg-sky-50 text-sky-600'}`}>{diag ? 'Diagnóstico' : 'Automático'}</span>
+                                {diag ? <span className="text-[10px] text-slate-400">{p.diag?.evaluated || 0}/{p.diag?.total || 0} no diagnóstico</span> : <span />}
                                 <span className="text-[9px] font-bold uppercase tracking-widest text-slate-300">peso {p.weight}%</span>
                               </div>
-                              {diag && <p className="text-[10px] text-slate-400 mt-1.5">{p.diag?.evaluated || 0}/{p.diag?.total || 0} avaliados</p>}
                             </div>
                           ); })}
                         </div>
 
                         {/* Diagnóstico dos pilares estruturais */}
                         <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-                          <div className="border-b border-slate-100 flex">
-                            {MAT_DIAG_PILLARS.map(p => (
-                              <button key={p.key} onClick={() => setMatTab(p.key)} className={`px-5 py-3 text-[11px] font-bold uppercase tracking-widest transition-all ${matTab === p.key ? 'text-amber-600 border-b-2 border-amber-600' : 'text-slate-400 hover:text-slate-700'}`}>{p.label}</button>
+                          <div className="border-b border-slate-100 flex overflow-x-auto">
+                            {dtabs.map((pk: string) => (
+                              <button key={pk} onClick={() => setMatTab(pk)} className={`px-5 py-3 text-[11px] font-bold uppercase tracking-widest transition-all whitespace-nowrap ${activeTab === pk ? 'text-amber-600 border-b-2 border-amber-600' : 'text-slate-400 hover:text-slate-700'}`}>{PILLAR_LABELS[pk]}</button>
                             ))}
                           </div>
                           <div className="p-6 space-y-6">
@@ -4637,14 +4621,14 @@ const App = () => {
                     </div>
                     <button onClick={() => openCritModal()} className="px-5 py-3 rounded-lg bg-amber-600 text-white font-bold text-[10px] uppercase tracking-widest flex items-center gap-2 hover:bg-amber-700 transition-all shadow-md"><Plus size={16} /> Novo critério</button>
                   </div>
-                  {MAT_DIAG_PILLARS.map(p => {
-                    const crits = rubricAll.filter((c: any) => c.pillar === p.key);
+                  {PILLAR_ORDER.map((pk: string) => {
+                    const crits = rubricAll.filter((c: any) => c.pillar === pk);
                     const order: string[] = []; const byDim: Record<string, any[]> = {};
                     crits.forEach((c: any) => { if (!byDim[c.dimension]) { byDim[c.dimension] = []; order.push(c.dimension); } byDim[c.dimension].push(c); });
                     return (
-                      <div key={p.key} className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+                      <div key={pk} className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
                         <div className="px-6 py-3 bg-slate-900 flex items-center justify-between">
-                          <p className="text-xs font-bold uppercase tracking-widest text-amber-500">{p.label}</p>
+                          <p className="text-xs font-bold uppercase tracking-widest text-amber-500">{PILLAR_LABELS[pk]}</p>
                           <span className="text-[10px] text-slate-400">{crits.length} critério(s)</span>
                         </div>
                         <div className="p-4 space-y-4">
@@ -5023,7 +5007,7 @@ const App = () => {
                 <div>
                   <label className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Pilar</label>
                   <select value={critForm.pillar} onChange={e => setCritForm({ ...critForm, pillar: e.target.value })} className="w-full p-3 border border-slate-200 rounded-lg text-sm font-bold bg-white mt-1">
-                    {MAT_DIAG_PILLARS.map(p => <option key={p.key} value={p.key}>{p.label}</option>)}
+                    {PILLAR_ORDER.map((pk: string) => <option key={pk} value={pk}>{PILLAR_LABELS[pk]}</option>)}
                   </select>
                 </div>
                 <div>
