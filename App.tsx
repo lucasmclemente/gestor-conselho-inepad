@@ -159,6 +159,10 @@ const App = () => {
   const [matSaving, setMatSaving] = useState(false);
   const [matTab, setMatTab] = useState('propriedade');
   const [assessing, setAssessing] = useState<Record<string, boolean>>({});
+  // Editor de rubrica (SuperAdmin)
+  const [rubricAll, setRubricAll] = useState<any[]>([]);
+  const [critModal, setCritModal] = useState<any>(null);
+  const [critForm, setCritForm] = useState<any>({ pillar: 'propriedade', dimension: '', item: '', weight: 1, position: 0, active: true, requires_evidence: false, instrument: '', requirements: '' });
   const [indicatorSeries, setIndicatorSeries] = useState<Record<string, any[]>>({});
   const [readingsList, setReadingsList] = useState<any[]>([]);
   const [targetsList, setTargetsList] = useState<any[]>([]);
@@ -306,6 +310,8 @@ const App = () => {
   useEffect(() => { if (currentUser && !activeClientId) setActiveClientId(currentUser.client_id); }, [currentUser, activeClientId]);
   // (Re)carrega os dados sempre que o cliente ativo muda (login ou troca de cliente)
   useEffect(() => { if (currentUser && activeClientId) { setDetailInd(null); fetchInitialData(); } /* eslint-disable-next-line */ }, [activeClientId, superViewAll]);
+  // Carrega a rubrica completa ao abrir o editor (SuperAdmin)
+  useEffect(() => { if (activeMenu === 'rubrica' && isSuper) loadRubric(); /* eslint-disable-next-line */ }, [activeMenu]);
   // Add-on desligado: não permite ficar em Estratégia/Indicadores (ex.: ao trocar de cliente)
   useEffect(() => {
     if (!strategyEnabled && !isController && (activeMenu === 'estrategia' || activeMenu === 'indicadores')) setActiveMenu('dashboard');
@@ -993,6 +999,46 @@ const App = () => {
     } finally {
       setAssessing((p: any) => ({ ...p, [criterion.id]: false }));
     }
+  };
+
+  // --- Editor de rubrica (SuperAdmin) ---
+  const loadRubric = async () => {
+    const { data } = await supabase.from('maturity_criteria').select('*').order('pillar').order('position');
+    setRubricAll(data || []);
+  };
+  const reloadActiveCriteria = async () => {
+    const { data } = await supabase.from('maturity_criteria').select('*').eq('active', true).order('position');
+    setMatCriteria(data || []);
+  };
+  const openCritModal = (crit?: any) => {
+    if (crit && crit.id) setCritForm({ id: crit.id, pillar: crit.pillar, dimension: crit.dimension, item: crit.item, weight: Number(crit.weight || 1), position: crit.position || 0, active: crit.active, requires_evidence: !!crit.requires_evidence, instrument: crit.instrument || '', requirements: (crit.requirements || []).join('\n') });
+    else setCritForm({ pillar: crit?.pillar || 'propriedade', dimension: crit?.dimension || '', item: '', weight: 1, position: 0, active: true, requires_evidence: false, instrument: '', requirements: '' });
+    setCritModal(crit || {});
+  };
+  const saveCriterion = async () => {
+    if (!critForm.item?.trim() || !critForm.dimension?.trim()) { alert('Preencha a dimensão e o item.'); return; }
+    const reqs = String(critForm.requirements || '').split('\n').map((s: string) => s.trim()).filter(Boolean);
+    const maxPos = Math.max(0, ...rubricAll.filter((c: any) => c.pillar === critForm.pillar).map((c: any) => c.position || 0));
+    const row: any = {
+      ...(critForm.id ? { id: critForm.id } : {}),
+      pillar: critForm.pillar, dimension: critForm.dimension.trim(), item: critForm.item.trim(),
+      weight: Number(critForm.weight) || 1, active: !!critForm.active,
+      requires_evidence: !!critForm.requires_evidence,
+      instrument: critForm.requires_evidence ? (critForm.instrument?.trim() || null) : null,
+      requirements: critForm.requires_evidence ? reqs : [],
+      position: critForm.id ? (Number(critForm.position) || 0) : maxPos + 10,
+    };
+    const { error } = await supabase.from('maturity_criteria').upsert([row]);
+    if (error) { alert('Erro ao salvar: ' + error.message); return; }
+    setCritModal(null);
+    await loadRubric(); await reloadActiveCriteria();
+    addLog('Rubrica', `${critForm.id ? 'Critério editado' : 'Critério criado'}: ${row.item.slice(0, 50)}`);
+  };
+  const deleteCriterion = async (crit: any) => {
+    if (!window.confirm(`Excluir o critério "${crit.item}"?\n\nAs respostas dos clientes a ele também serão removidas.`)) return;
+    const { error } = await supabase.from('maturity_criteria').delete().eq('id', crit.id);
+    if (error) { alert('Erro ao excluir: ' + error.message); return; }
+    await loadRubric(); await reloadActiveCriteria();
   };
 
   const saveMeeting = async () => {
@@ -2641,9 +2687,10 @@ const App = () => {
             { id: 'estrategia', icon: <Compass size={18} />, label: 'Estratégia', addon: true },
             { id: 'repositorio-atas', icon: <Archive size={18} />, label: 'Repositório de Atas' },
             { id: 'usuarios', icon: <UserCog size={18} />, label: isSuper ? 'Contas de Clientes' : 'Membros', adm: true },
+            { id: 'rubrica', icon: <Settings size={18} />, label: 'Rubrica', super: true },
             { id: 'auditoria', icon: <History size={18} />, label: 'Auditoria', adm: true }
           ]).map((item: any) => (
-            (!item.adm || isAdm) && (!item.addon || strategyEnabled) && (
+            (!item.adm || isAdm) && (!item.addon || strategyEnabled) && (!item.super || isSuper) && (
               <button key={item.id} onClick={() => { setActiveMenu(item.id); if (item.action) item.action(); setIsMobileMenuOpen(false); }} className={`w-full flex items-center gap-3 rounded-lg transition-all ${activeMenu === item.id ? 'bg-amber-600 text-white shadow-sm' : 'hover:bg-slate-700 hover:text-white'} ${isSidebarCollapsed ? 'justify-center p-3' : 'px-4 py-3'}`}>
                 <span className="shrink-0">{item.icon}</span>
                 {!isSidebarCollapsed && <span className="truncate">{item.label}</span>}
@@ -4470,6 +4517,57 @@ const App = () => {
                 </div>
               )}
 
+              {activeMenu === 'rubrica' && isSuper && (
+                <div className="space-y-6 animate-in fade-in">
+                  <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm flex items-center justify-between gap-4">
+                    <div>
+                      <h1 className="text-2xl font-bold text-slate-800 tracking-tight italic">Rubrica de Maturidade</h1>
+                      <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400 mt-1">Metodologia INEPAD · pilares de diagnóstico</p>
+                    </div>
+                    <button onClick={() => openCritModal()} className="px-5 py-3 rounded-lg bg-amber-600 text-white font-bold text-[10px] uppercase tracking-widest flex items-center gap-2 hover:bg-amber-700 transition-all shadow-md"><Plus size={16} /> Novo critério</button>
+                  </div>
+                  {MAT_DIAG_PILLARS.map(p => {
+                    const crits = rubricAll.filter((c: any) => c.pillar === p.key);
+                    const order: string[] = []; const byDim: Record<string, any[]> = {};
+                    crits.forEach((c: any) => { if (!byDim[c.dimension]) { byDim[c.dimension] = []; order.push(c.dimension); } byDim[c.dimension].push(c); });
+                    return (
+                      <div key={p.key} className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+                        <div className="px-6 py-3 bg-slate-900 flex items-center justify-between">
+                          <p className="text-xs font-bold uppercase tracking-widest text-amber-500">{p.label}</p>
+                          <span className="text-[10px] text-slate-400">{crits.length} critério(s)</span>
+                        </div>
+                        <div className="p-4 space-y-4">
+                          {order.length === 0 && <p className="text-sm text-slate-400 text-center py-4">Nenhum critério neste pilar. Clique em “Novo critério”.</p>}
+                          {order.map(dn => (
+                            <div key={dn}>
+                              <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400 mb-2">{dn}</p>
+                              <div className="space-y-1.5">
+                                {byDim[dn].map((c: any) => (
+                                  <div key={c.id} className={`flex items-start justify-between gap-3 p-3 rounded-lg border border-slate-100 ${c.active ? 'bg-slate-50/60' : 'bg-slate-50 opacity-60'}`}>
+                                    <div className="flex-1">
+                                      <p className="text-sm text-slate-700 font-medium">{c.item}
+                                        {c.requires_evidence && <span className="ml-2 text-[8px] font-bold uppercase tracking-widest text-violet-500 whitespace-nowrap">exige evidência</span>}
+                                        {!c.active && <span className="ml-2 text-[8px] font-bold uppercase tracking-widest text-slate-400">inativo</span>}
+                                      </p>
+                                      {c.requires_evidence && (c.requirements || []).length > 0 && <p className="text-[10px] text-slate-400 mt-1">{(c.requirements || []).length} requisito(s): {(c.requirements || []).join(' · ')}</p>}
+                                      <p className="text-[9px] uppercase tracking-widest text-slate-300 mt-1">peso {Number(c.weight)} · posição {c.position}</p>
+                                    </div>
+                                    <div className="flex items-center gap-1 shrink-0">
+                                      <button onClick={() => openCritModal(c)} className="p-2 text-slate-400 hover:text-amber-600 transition-colors"><Edit2 size={16} /></button>
+                                      <button onClick={() => deleteCriterion(c)} className="p-2 text-slate-300 hover:text-red-500 transition-colors"><Trash2 size={16} /></button>
+                                    </div>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+
               {/* ==================== SEÇÃO DE USUÁRIOS ==================== */}
               {activeMenu === 'usuarios' && (
                 <div className="space-y-6 animate-in fade-in">
@@ -4799,6 +4897,64 @@ const App = () => {
         </div>
       </main>
       {isConvocationOpen && <ConvocationModal />}
+      {critModal && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4" onClick={() => setCritModal(null)}>
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[90vh] flex flex-col" onClick={e => e.stopPropagation()}>
+            <div className="p-5 border-b border-slate-100">
+              <h3 className="text-lg font-bold text-slate-800 italic">{critForm.id ? 'Editar critério' : 'Novo critério'}</h3>
+            </div>
+            <div className="p-5 overflow-y-auto space-y-4">
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Pilar</label>
+                  <select value={critForm.pillar} onChange={e => setCritForm({ ...critForm, pillar: e.target.value })} className="w-full p-3 border border-slate-200 rounded-lg text-sm font-bold bg-white mt-1">
+                    {MAT_DIAG_PILLARS.map(p => <option key={p.key} value={p.key}>{p.label}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Dimensão</label>
+                  <input value={critForm.dimension} onChange={e => setCritForm({ ...critForm, dimension: e.target.value })} placeholder="Ex.: Acordo de sócios" className="w-full p-3 border border-slate-200 rounded-lg text-sm font-bold mt-1" />
+                </div>
+              </div>
+              <div>
+                <label className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Critério / pergunta</label>
+                <textarea value={critForm.item} onChange={e => setCritForm({ ...critForm, item: e.target.value })} rows={2} placeholder="Ex.: Existe acordo de sócios formalizado" className="w-full p-3 border border-slate-200 rounded-lg text-sm mt-1 resize-none" />
+              </div>
+              <div className="grid grid-cols-3 gap-3">
+                <div>
+                  <label className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Peso</label>
+                  <input type="number" min={1} value={critForm.weight} onChange={e => setCritForm({ ...critForm, weight: e.target.value })} className="w-full p-3 border border-slate-200 rounded-lg text-sm font-bold mt-1" />
+                </div>
+                <div>
+                  <label className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Posição</label>
+                  <input type="number" value={critForm.position} onChange={e => setCritForm({ ...critForm, position: e.target.value })} className="w-full p-3 border border-slate-200 rounded-lg text-sm font-bold mt-1" />
+                </div>
+                <div className="flex items-end pb-2">
+                  <label className="flex items-center gap-2 text-sm font-bold text-slate-600 cursor-pointer"><input type="checkbox" checked={critForm.active} onChange={e => setCritForm({ ...critForm, active: e.target.checked })} className="accent-amber-600 w-4 h-4" /> Ativo</label>
+                </div>
+              </div>
+              <label className="flex items-center gap-2 text-sm font-bold text-slate-600 cursor-pointer border-t border-slate-50 pt-4"><input type="checkbox" checked={critForm.requires_evidence} onChange={e => setCritForm({ ...critForm, requires_evidence: e.target.checked })} className="accent-violet-600 w-4 h-4" /> Exige evidência (documento avaliado por IA)</label>
+              {critForm.requires_evidence && (
+                <div className="space-y-3 pl-6 border-l-2 border-violet-100">
+                  <div>
+                    <label className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Instrumento esperado</label>
+                    <input value={critForm.instrument} onChange={e => setCritForm({ ...critForm, instrument: e.target.value })} placeholder="Ex.: Acordo de sócios/acionistas" className="w-full p-3 border border-slate-200 rounded-lg text-sm font-bold mt-1" />
+                  </div>
+                  <div>
+                    <label className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Requisitos mínimos (um por linha)</label>
+                    <textarea value={critForm.requirements} onChange={e => setCritForm({ ...critForm, requirements: e.target.value })} rows={6} placeholder={"Regras de compra e venda\nTag along / drag along\nResolução de impasses\n..."} className="w-full p-3 border border-slate-200 rounded-lg text-sm mt-1 resize-none font-mono" />
+                    <p className="text-[10px] text-slate-400 mt-1">A IA confere o documento contra cada requisito (presente/parcial/ausente).</p>
+                  </div>
+                </div>
+              )}
+            </div>
+            <div className="p-4 border-t border-slate-100 flex justify-end gap-2">
+              <button onClick={() => setCritModal(null)} className="px-5 py-2.5 rounded-lg text-slate-500 font-bold text-xs uppercase hover:bg-slate-100 transition-all">Cancelar</button>
+              <button onClick={saveCriterion} className="px-5 py-2.5 rounded-lg bg-amber-600 text-white font-bold text-xs uppercase hover:bg-amber-700 transition-all">Salvar</button>
+            </div>
+          </div>
+        </div>
+      )}
       {suggestOpen && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4" onClick={() => setSuggestOpen(false)}>
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[85vh] flex flex-col" onClick={e => e.stopPropagation()}>
