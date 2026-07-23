@@ -164,6 +164,7 @@ const App = () => {
   const [matSaving, setMatSaving] = useState(false);
   const [matTab, setMatTab] = useState('propriedade');
   const [seals, setSeals] = useState<any[]>([]);
+  const [matHistory, setMatHistory] = useState<any[]>([]);
   const [assessing, setAssessing] = useState<Record<string, boolean>>({});
   // Editor de rubrica (SuperAdmin)
   const [rubricAll, setRubricAll] = useState<any[]>([]);
@@ -328,6 +329,8 @@ const App = () => {
   useEffect(() => { if (currentUser && activeClientId) { setDetailInd(null); fetchInitialData(); } /* eslint-disable-next-line */ }, [activeClientId, superViewAll]);
   // Carrega a rubrica completa ao abrir o editor (SuperAdmin)
   useEffect(() => { if (activeMenu === 'rubrica' && isSuper) loadRubric(); /* eslint-disable-next-line */ }, [activeMenu]);
+  // Registra um snapshot do histórico ao abrir a Maturidade (após os dados carregarem)
+  useEffect(() => { if (activeMenu === 'maturidade' && !loading && !superAll && canEdit) snapshotMaturity('auto'); /* eslint-disable-next-line */ }, [activeMenu, loading, activeClientId, matCriteria.length, matAnswers.length]);
   // Add-on desligado: não permite ficar em Estratégia/Indicadores (ex.: ao trocar de cliente)
   useEffect(() => {
     if (!strategyEnabled && !isController && (activeMenu === 'estrategia' || activeMenu === 'indicadores')) setActiveMenu('dashboard');
@@ -554,7 +557,7 @@ const App = () => {
         setAllClientsList(fullList);
       }
       // Indicadores & Gatilhos do cliente ativo (semáforos + alertas + cadastros + séries)
-      const [indStatusRes, indEventsRes, indListRes, trigListRes, readingsRes, govRes, targetsRes, fcaRes, objsRes, perspRes, krRes, ckRes, matCritRes, matAnsRes, sealsRes] = await Promise.all([
+      const [indStatusRes, indEventsRes, indListRes, trigListRes, readingsRes, govRes, targetsRes, fcaRes, objsRes, perspRes, krRes, ckRes, matCritRes, matAnsRes, sealsRes, matHistRes] = await Promise.all([
         supabase.from('indicator_current_status').select('*').eq('client_id', cid).order('breach_level', { ascending: false }),
         supabase.from('trigger_events').select('*, indicators(name, unit), triggers(name, indicators(name, unit))').eq('client_id', cid).eq('status', 'open').order('fired_at', { ascending: false }),
         supabase.from('indicators').select('*').eq('client_id', cid).order('name'),
@@ -570,10 +573,12 @@ const App = () => {
         supabase.from('maturity_criteria').select('*').eq('active', true).order('position'),
         supabase.from('maturity_answers').select('*').eq('client_id', cid),
         supabase.from('governance_seals').select('*').eq('client_id', cid).order('issued_at', { ascending: false }),
+        supabase.from('maturity_history').select('*').eq('client_id', cid).order('snapshot_date', { ascending: true }),
       ]) as any;
       setMatCriteria(matCritRes?.data || []);
       setMatAnswers(matAnsRes?.data || []);
       setSeals(sealsRes?.data || []);
+      setMatHistory(matHistRes?.data || []);
       setStrategyObjectives(objsRes?.data || []);
       setPerspectivesList(perspRes?.data || []);
       setOkrKrs(krRes?.data || []);
@@ -950,6 +955,32 @@ const App = () => {
     return { overall, band: maturityBand(overall), pillars };
   };
 
+  // Histórico da nota: grava um snapshot do índice do cliente (1 por dia, atualizado
+  // se a nota mudar). Só Adm/Sec/Super, fora da visão consolidada. Chamado ao abrir a
+  // Maturidade e na emissão do selo. Não bloqueia a UI se falhar.
+  const snapshotMaturity = async (source: 'auto' | 'selo' = 'auto') => {
+    const cid = activeClientId || currentUser?.client_id;
+    if (!cid || superAll || !canEdit) return;
+    const g = computeGovernance();
+    if (!g.pillars.some((p: any) => p.score != null)) return; // nada diagnosticado ainda
+    const now = new Date(); const pad = (n: number) => String(n).padStart(2, '0');
+    const today = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
+    const existing = (matHistory || []).find((h: any) => h.client_id === cid && h.snapshot_date === today);
+    // Já há registro de hoje com a mesma nota e não é forçado pela emissão do selo → não regrava
+    if (existing && existing.overall === g.overall && source !== 'selo') return;
+    const row = {
+      client_id: cid, snapshot_date: today, overall: g.overall,
+      pillars: g.pillars.map((p: any) => ({ key: p.key, label: p.label, score: p.score })),
+      source, created_by: currentUser?.name || currentUser?.email || null,
+    };
+    const { data, error } = await supabase.from('maturity_history').upsert([row], { onConflict: 'client_id,snapshot_date' }).select().single();
+    if (error || !data) return;
+    setMatHistory((prev: any) => {
+      const rest = (prev || []).filter((h: any) => !(h.client_id === cid && h.snapshot_date === today));
+      return [...rest, data].sort((a: any, b: any) => (a.snapshot_date || '').localeCompare(b.snapshot_date || ''));
+    });
+  };
+
   // --- Selo de Governança (Camada 5) ---
   const SEAL_TIERS = [
     { key: 'ouro', label: 'Ouro', color: '#b45309', bg: '#fffbeb', ring: '#f59e0b', minOverall: 80, minPillar: 65, needDocValidated: true },
@@ -984,6 +1015,7 @@ const App = () => {
     const { data, error } = await supabase.from('governance_seals').insert([{ client_id: cid, level, score_snapshot: snapshot, verification_code: code, issued_by: currentUser.name || currentUser.email, valid_until: valid.toISOString(), status: 'valido' }]).select().single();
     if (error) { alert('Erro ao emitir selo: ' + error.message); return; }
     setSeals((prev: any) => [data, ...prev]);
+    snapshotMaturity('selo');
     addLog('Selo', `Selo ${t.label} emitido (código ${code}, válido até ${valid.toLocaleDateString('pt-BR')}).`);
     alert(`✅ Selo ${t.label} emitido!\n\nCódigo de verificação: ${code}\nVálido até ${valid.toLocaleDateString('pt-BR')}`);
   };
@@ -4482,6 +4514,47 @@ const App = () => {
                             {pendentes.length > 0 && <p className="text-[11px] text-amber-600 font-bold mt-2 uppercase tracking-wider">Pilares ainda não diagnosticados: {pendentes.map((p: any) => p.label).join(', ')} — responda abaixo para completar o índice.</p>}
                           </div>
                         </div>
+
+                        {/* Evolução do índice (histórico da nota) */}
+                        {(() => {
+                          const cid = activeClientId || currentUser.client_id;
+                          const hist = (matHistory || []).filter((h: any) => h.client_id === cid).slice().sort((a: any, b: any) => (a.snapshot_date || '').localeCompare(b.snapshot_date || ''));
+                          if (hist.length < 2) {
+                            return (
+                              <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm flex items-center gap-3">
+                                <TrendingUp size={18} className="text-slate-300 shrink-0" />
+                                <p className="text-xs text-slate-500">O <b>histórico da nota</b> começa a ser registrado. O gráfico de evolução aparece aqui a partir do segundo registro{hist.length === 1 ? ` (primeiro salvo em ${new Date(hist[0].snapshot_date + 'T00:00:00').toLocaleDateString('pt-BR')})` : ''}.</p>
+                              </div>
+                            );
+                          }
+                          const data = hist.map((h: any) => ({ date: new Date(h.snapshot_date + 'T00:00:00').toLocaleDateString('pt-BR', { day: '2-digit', month: 'short' }), nota: h.overall }));
+                          const first = hist[0].overall, lastV = hist[hist.length - 1].overall, delta = lastV - first;
+                          return (
+                            <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm">
+                              <div className="flex items-start justify-between mb-4 gap-4">
+                                <div>
+                                  <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Evolução do índice</p>
+                                  <p className="text-sm text-slate-500">Histórico da nota de maturidade ao longo do tempo</p>
+                                </div>
+                                <div className="text-right shrink-0">
+                                  <span className={`text-xl font-black ${delta >= 0 ? 'text-emerald-600' : 'text-red-500'}`}>{delta >= 0 ? '+' : ''}{delta}</span>
+                                  <p className="text-[9px] font-bold uppercase tracking-widest text-slate-400">desde {new Date(hist[0].snapshot_date + 'T00:00:00').toLocaleDateString('pt-BR')}</p>
+                                </div>
+                              </div>
+                              <div style={{ width: '100%', height: 220 }}>
+                                <ResponsiveContainer width="100%" height="100%">
+                                  <LineChart data={data} margin={{ top: 8, right: 16, bottom: 0, left: -16 }}>
+                                    <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
+                                    <XAxis dataKey="date" tick={{ fontSize: 10, fill: '#94a3b8' }} />
+                                    <YAxis domain={[0, 100]} tick={{ fontSize: 10, fill: '#94a3b8' }} />
+                                    <Tooltip contentStyle={{ fontSize: 12, borderRadius: 8, border: '1px solid #e2e8f0' }} formatter={(v: any) => [`${v}`, 'Índice']} />
+                                    <Line type="monotone" dataKey="nota" stroke="#d97706" strokeWidth={2.5} dot={{ r: 3, fill: '#d97706' }} activeDot={{ r: 5 }} />
+                                  </LineChart>
+                                </ResponsiveContainer>
+                              </div>
+                            </div>
+                          );
+                        })()}
 
                         {/* Selo de Governança */}
                         {(() => {
