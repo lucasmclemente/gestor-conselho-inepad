@@ -186,6 +186,33 @@ serve(async (req) => {
     })
   }
 
+  // ── Modo de teste: envia UM e-mail de exemplo só para test_to (sem broadcast) ──
+  let reqBody: any = {}
+  try { reqBody = await req.json() } catch { /* corpo vazio no cron normal */ }
+  if (reqBody?.test_to) {
+    const d = new Date()
+    const fmt = (x: Date) => `${x.getFullYear()}-${String(x.getMonth() + 1).padStart(2, '0')}-${String(x.getDate()).padStart(2, '0')}`
+    const past = new Date(d); past.setDate(d.getDate() - 3)
+    const near = new Date(d); near.setDate(d.getDate() + 3)
+    const sample = [
+      { id: 't1', title: 'Revisar o orçamento do 2º semestre', date: fmt(past), status: 'Pendente', obs: 'E-mail de teste — pode ignorar', meetingTitle: 'Reunião de teste' },
+      { id: 't2', title: 'Aprovar a política de alçadas', date: fmt(near), status: 'Pendente', obs: '', meetingTitle: 'Reunião de teste' },
+    ]
+    const res = await fetch('https://api.resend.com/emails', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${Deno.env.get('RESEND_API_KEY')}` },
+      body: JSON.stringify({
+        from: 'Governança INEPAD <conselho@inepadconsulting.com>',
+        to: reqBody.test_to,
+        subject: '⚠️ Você tem 1 atividade atrasada — Plano de Ação Boardplan (TESTE)',
+        html: buildEmail(reqBody.test_name || 'Teste', sample),
+      }),
+    })
+    return new Response(JSON.stringify({ test: true, to: reqBody.test_to, status: res.status }), {
+      headers: { 'Content-Type': 'application/json' }, status: 200,
+    })
+  }
+
   try {
     // Cliente admin (service_role ignora RLS)
     const supabaseAdmin = createClient(
