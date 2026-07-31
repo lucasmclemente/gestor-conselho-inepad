@@ -17,6 +17,7 @@ import { PRIORITIES, PRIORITY_STYLES, PRIORITY_WEIGHT } from './constants';
 import { deliberationResult } from './utils';
 import { BoardplanMark, BoardplanLogo } from './components/Brand';
 import { PublicVote } from './components/PublicVote';
+import { PublicAtaApproval } from './components/PublicAtaApproval';
 import { PublicCollect } from './components/PublicCollect';
 import { SealVerify } from './components/SealVerify';
 import { Diretorio } from './components/Diretorio';
@@ -29,6 +30,9 @@ const App = () => {
   });
   const [collectToken] = useState<string | null>(() => {
     try { return new URLSearchParams(window.location.search).get('coleta'); } catch { return null; }
+  });
+  const [ataToken] = useState<string | null>(() => {
+    try { return new URLSearchParams(window.location.search).get('atatoken'); } catch { return null; }
   });
   const [sealCode] = useState<string | null>(() => {
     try { return new URLSearchParams(window.location.search).get('selo'); } catch { return null; }
@@ -636,7 +640,7 @@ const App = () => {
         .createSignedUrl(filePath, 60 * 60 * 24 * 7);
       if (signedError) throw signedError;
       const secureUrl = signedData.signedUrl;
-      const newFile = { name: file.name, url: secureUrl, uploadedAt: new Date().toISOString() };
+      const newFile = { name: file.name, url: secureUrl, uploadedAt: new Date().toISOString(), ...(type === 'atas' ? { id: Date.now(), approvals: {}, approvalNotes: {}, approvalAt: {} } : {}) };
       // Atas: substituir a anterior (cada reunião tem 1 ata vigente)
       // Materiais: acumular normalmente
       if (type === 'atas' && (currentMeeting.atas || []).length > 0) {
@@ -675,7 +679,16 @@ const App = () => {
             await supabase.functions.invoke('send-minute-notification', {
               body: { meetingTitle: currentMeeting.title, minuteName: file.name, minuteUrl: secureUrl, actions: currentMeeting.acoes || [], recipients: emails, pendingSummary: usersToNotify }
             });
-            alert("✅ Ata publicada, salva automaticamente e e-mails enviados!");
+            // Pedido de aprovação da ata aos conselheiros internos (automático ao publicar)
+            let aprov = '';
+            try {
+              const { data: ap } = await supabase.functions.invoke('send-ata-approval', { body: { meetingId: currentMeeting.id, ataId: newFile.id, appOrigin: window.location.origin } });
+              if (ap?.approvers) {
+                setCurrentMeeting((prev: any) => ({ ...prev, atas: (prev.atas || []).map((a: any) => a.id === newFile.id ? { ...a, approvers: ap.approvers, approvalSentAt: new Date().toISOString() } : a) }));
+                aprov = `\n\n✍️ Pedido de aprovação enviado a ${ap.sent} conselheiro(s).`;
+              }
+            } catch (_) { /* aprovação não bloqueia a publicação */ }
+            alert("✅ Ata publicada, salva automaticamente e e-mails enviados!" + aprov);
           } catch (e) { alert("✅ Ata publicada e salva automaticamente. Erro no disparo de e-mails."); }
         } else {
           alert("✅ Ata publicada e salva automaticamente!");
@@ -2636,6 +2649,24 @@ const App = () => {
     }
   };
 
+  // Reenvia o pedido de aprovação da ata aos conselheiros internos
+  const [ataApprovalLoading, setAtaApprovalLoading] = useState(false);
+  const resendAtaApproval = async (ata: any) => {
+    if (!currentMeeting.id || !ata) return;
+    const internos = (currentMeeting.participants || []).filter((p: any) => !p.isExternal && p.email);
+    if (internos.length === 0) return alert('A reunião não tem conselheiros internos com e-mail.');
+    if (!window.confirm(`Enviar o pedido de aprovação da ata a ${internos.length} conselheiro(s) interno(s)?`)) return;
+    setAtaApprovalLoading(true);
+    try {
+      const { data, error } = await supabase.functions.invoke('send-ata-approval', { body: { meetingId: currentMeeting.id, ataId: ata.id, appOrigin: window.location.origin } });
+      if (error || data?.error) throw new Error(error?.message || data?.error);
+      setCurrentMeeting((prev: any) => ({ ...prev, atas: (prev.atas || []).map((a: any) => a.id === ata.id ? { ...a, id: data.ataId, approvers: data.approvers, approvalSentAt: new Date().toISOString() } : a) }));
+      addLog('Aprovação de ata', `Pedido de aprovação enviado (${data.sent}) — ${ata.name}`);
+      alert(`✅ Pedido de aprovação enviado a ${data.sent} conselheiro(s).`);
+    } catch (e: any) { alert('Erro ao enviar aprovação: ' + e.message); }
+    finally { setAtaApprovalLoading(false); }
+  };
+
   // Envia ata para assinatura digital via ClickSign
   const handleSendToClickSign = async (ataIndex: number) => {
     if (!currentMeeting.id) return;
@@ -2836,6 +2867,10 @@ const App = () => {
   // ── Voto por e-mail (página pública, sem login) ──
   if (voteToken) {
     return <PublicVote token={voteToken} />;
+  }
+
+  if (ataToken) {
+    return <PublicAtaApproval token={ataToken} />;
   }
 
   // ── Coleta de indicadores (página pública, sem login) ──
@@ -3796,6 +3831,39 @@ const App = () => {
         </button>
       </div>
     )}
+    {canEdit && (() => {
+      const approvers: string[] = ata.approvers || [];
+      const approvals: any = ata.approvals || {};
+      const notes: any = ata.approvalNotes || {};
+      const LB: any = { aprovada: { t: 'Aprovou', c: 'text-emerald-700 bg-emerald-50 border-emerald-200' }, ressalva: { t: 'Ressalvas', c: 'text-amber-700 bg-amber-50 border-amber-200' }, reprovada: { t: 'Reprovou', c: 'text-red-600 bg-red-50 border-red-200' } };
+      const done = approvers.filter((n: string) => approvals[n]).length;
+      return (
+        <div className="px-4 pb-4 border-t border-slate-50 pt-3">
+          <div className="flex items-center justify-between mb-2">
+            <p className="text-[9px] font-bold uppercase tracking-widest text-slate-400 not-italic">Aprovação da ata{approvers.length > 0 ? ` · ${done}/${approvers.length}` : ''}</p>
+            <button disabled={ataApprovalLoading} onClick={() => resendAtaApproval(ata)} className="text-[9px] font-bold uppercase tracking-widest text-amber-600 hover:text-amber-700 disabled:opacity-50 not-italic">{approvers.length > 0 ? 'Reenviar' : 'Solicitar aprovação'}</button>
+          </div>
+          {approvers.length === 0 ? (
+            <p className="text-[10px] text-slate-400 not-italic">Nenhum pedido de aprovação enviado ainda.</p>
+          ) : (
+            <div className="space-y-1.5">
+              {approvers.map((n: string) => { const st = approvals[n]; const lb = st ? LB[st] : null; return (
+                <div key={n} className="flex items-center justify-between gap-2 not-italic">
+                  <span className="text-[11px] text-slate-600 font-bold truncate">{n}</span>
+                  {lb ? <span className={`text-[8px] font-bold uppercase tracking-widest px-2 py-0.5 rounded-full border ${lb.c} shrink-0`}>{lb.t}</span>
+                      : <span className="text-[8px] font-bold uppercase tracking-widest px-2 py-0.5 rounded-full border border-slate-200 text-slate-400 shrink-0">Pendente</span>}
+                </div>
+              ); })}
+              {approvers.some((n: string) => notes[n]) && (
+                <div className="mt-1.5 pt-1.5 border-t border-slate-50 space-y-0.5">
+                  {approvers.filter((n: string) => notes[n]).map((n: string) => <p key={n} className="text-[9px] text-slate-500 not-italic leading-snug"><b>{n}:</b> {notes[n]}</p>)}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      );
+    })()}
   </div>
 ))}</div></div>
                     )}
