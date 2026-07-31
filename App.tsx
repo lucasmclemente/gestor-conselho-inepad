@@ -677,7 +677,7 @@ const App = () => {
         if (emails.length > 0) {
           try {
             await supabase.functions.invoke('send-minute-notification', {
-              body: { meetingTitle: currentMeeting.title, minuteName: file.name, minuteUrl: secureUrl, actions: currentMeeting.acoes || [], recipients: emails, pendingSummary: usersToNotify }
+              body: { meetingTitle: currentMeeting.title, minuteName: file.name, minuteUrl: secureUrl, actions: currentMeeting.acoes || [], recipients: emails, pendingSummary: usersToNotify, meetingId: currentMeeting.id }
             });
             // Pedido de aprovação da ata aos conselheiros internos (automático ao publicar)
             let aprov = '';

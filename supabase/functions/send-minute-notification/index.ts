@@ -57,10 +57,29 @@ serve(async (req) => {
   }
 
   try {
-    const { meetingTitle, minuteName, minuteUrl, actions, pendingSummary } = await req.json()
+    const { meetingTitle, minuteName, minuteUrl, actions, pendingSummary, meetingId } = await req.json()
     const RESEND_API_KEY = Deno.env.get('RESEND_API_KEY')
 
-    const emailPromises = pendingSummary.map(async (user: any) => {
+    // Blindagem: a ATA NUNCA vai para convidados externos. Mesmo que o front envie um
+    // externo por engano, o servidor busca os participantes da reunião e descarta
+    // qualquer e-mail marcado como externo (isExternal).
+    const externalEmails = new Set<string>()
+    if (meetingId) {
+      const admin = createClient(
+        Deno.env.get('SUPABASE_URL') ?? '',
+        Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '',
+        { auth: { autoRefreshToken: false, persistSession: false } }
+      )
+      const { data: meeting } = await admin.from('meetings').select('participants').eq('id', meetingId).maybeSingle()
+      for (const p of (meeting?.participants || [])) {
+        if (p?.isExternal && p?.email) externalEmails.add(String(p.email).trim().toLowerCase())
+      }
+    }
+    const safeRecipients = (pendingSummary || []).filter(
+      (u: any) => !externalEmails.has(String(u?.email || '').trim().toLowerCase())
+    )
+
+    const emailPromises = safeRecipients.map(async (user: any) => {
 
       // Lista de ações específicas desta ata
       const currentActionsHtml = actions.length > 0
