@@ -236,6 +236,7 @@ const App = () => {
   const isSec = currentUser?.role === 'Secretário';
   const canEdit = isAdm || isSec;
   const isAssistant = currentUser?.role === 'Assistente';
+  const isComercial = currentUser?.role === 'Comercial';
   const isController = currentUser?.role === 'Controller';
   const isCertifier = currentUser?.role === 'Certificador';
   // Controller: só lança o realizado dos indicadores (não altera metas nem cadastra indicadores)
@@ -528,6 +529,15 @@ const App = () => {
         else { setClientProfileForm({ name: cid, logo_url: '' }); }
         setActiveMenu('materiais-assistente');
         await loadAssistantMeetings();
+        setLoading(false);
+        return;
+      }
+      // Comercial (SDR): sem acesso à governança — só o CRM. Carrega o perfil do cliente e cai no CRM.
+      if (isComercial) {
+        const { data: cli } = await supabase.from('clients').select('*').eq('client_id', cid).maybeSingle();
+        if (cli) { setClientProfile(cli); setClientProfileForm({ name: cli.name || '', logo_url: cli.logo_url || '' }); }
+        else { setClientProfileForm({ name: cid, logo_url: '' }); }
+        setActiveMenu('crm');
         setLoading(false);
         return;
       }
@@ -2945,6 +2955,8 @@ const App = () => {
         <nav className="flex-1 px-3 py-4 space-y-1 text-[10px] font-bold uppercase tracking-widest">
           {(isAssistant ? [
             { id: 'materiais-assistente', icon: <Upload size={18} />, label: 'Materiais' },
+          ] : isComercial ? [
+            { id: 'crm', icon: <Filter size={18} />, label: 'CRM' },
           ] : isController ? (strategyEnabled ? [
             { id: 'indicadores', icon: <Gauge size={18} />, label: 'Indicadores' },
           ] : []) : isCertifier ? [
@@ -2960,11 +2972,12 @@ const App = () => {
             { id: 'indicadores', icon: <Gauge size={18} />, label: 'Indicadores', addon: true },
             { id: 'estrategia', icon: <Compass size={18} />, label: 'Estratégia', addon: true },
             { id: 'repositorio-atas', icon: <Archive size={18} />, label: 'Repositório de Atas' },
+            { id: 'crm', icon: <Filter size={18} />, label: 'CRM', crm: true },
             { id: 'usuarios', icon: <UserCog size={18} />, label: isSuper ? 'Contas de Clientes' : 'Membros', adm: true },
             { id: 'rubrica', icon: <Settings size={18} />, label: 'Rubrica', super: true },
             { id: 'auditoria', icon: <History size={18} />, label: 'Auditoria', adm: true }
           ]).map((item: any) => (
-            (!item.adm || isAdm) && (!item.addon || strategyEnabled) && (!item.super || isSuper) && (
+            (!item.adm || isAdm) && (!item.addon || strategyEnabled) && (!item.super || isSuper) && (!item.crm || clientProfile?.crm_enabled) && (
               <button key={item.id} onClick={() => { setActiveMenu(item.id); if (item.action) item.action(); setIsMobileMenuOpen(false); }} className={`w-full flex items-center gap-3 rounded-lg transition-all ${activeMenu === item.id ? 'bg-amber-600 text-white shadow-sm' : 'hover:bg-slate-700 hover:text-white'} ${isSidebarCollapsed ? 'justify-center p-3' : 'px-4 py-3'}`}>
                 <span className="shrink-0">{item.icon}</span>
                 {!isSidebarCollapsed && <span className="truncate">{item.label}</span>}
@@ -3077,6 +3090,19 @@ const App = () => {
                 </div>
               )}
 
+              {activeMenu === 'crm' && (
+                <div className="space-y-6 animate-in fade-in">
+                  <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
+                    <h1 className="text-2xl font-bold text-slate-800 tracking-tight italic">CRM Comercial</h1>
+                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1">Funil de vendas • {clientProfile?.name || currentUser.client_id}</p>
+                  </div>
+                  <div className="bg-white p-12 rounded-xl border border-slate-200 shadow-sm flex flex-col items-center justify-center text-center gap-4">
+                    <Filter size={40} className="text-amber-500" />
+                    <h2 className="text-lg font-bold text-slate-700 italic">Módulo em construção</h2>
+                    <p className="text-sm text-slate-400 max-w-md">O funil de vendas (kanban arrastável), contatos, empresas e atividades chegam no próximo passo. A base de dados e a segurança já estão prontas.</p>
+                  </div>
+                </div>
+              )}
               {activeMenu === 'dashboard' && (
                 <div className="space-y-6 animate-in fade-in">
                   <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
@@ -5547,6 +5573,7 @@ const App = () => {
                             <option value="Conselheiro">Conselheiro</option>
                             <option value="Assistente">Assistente (só materiais)</option>
                             <option value="Controller">Controller (só lançar indicadores)</option>
+                            <option value="Comercial">Comercial (só CRM)</option>
                             <option value="Secretário">Secretário</option>
                             <option value="Administrador">Administrador</option>
                             {isSuper && <option value="Certificador">Certificador (INEPAD — emite selos)</option>}
@@ -5592,6 +5619,7 @@ const App = () => {
                                   <option value="Conselheiro">Conselheiro</option>
                                   <option value="Assistente">Assistente</option>
                                   <option value="Controller">Controller</option>
+                                  <option value="Comercial">Comercial</option>
                                   <option value="Secretário">Secretário</option>
                                   <option value="Administrador">Administrador</option>
                                   {isSuper && <option value="Certificador">Certificador</option>}

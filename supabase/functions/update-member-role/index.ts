@@ -16,7 +16,7 @@ function getCorsHeaders(req: Request): Record<string, string> {
   }
 }
 
-const VALID_ROLES = ['Conselheiro', 'Assistente', 'Controller', 'Secretário', 'Administrador', 'Certificador', 'SuperAdmin']
+const VALID_ROLES = ['Conselheiro', 'Assistente', 'Controller', 'Comercial', 'Secretário', 'Administrador', 'Certificador', 'SuperAdmin']
 
 serve(async (req) => {
   const cors = getCorsHeaders(req)
