@@ -336,6 +336,17 @@ const App = () => {
     setCurrentUser(profile);
   };
 
+  // Ao abrir a aba de Atas, atualiza o status de aprovação a partir do banco (as
+  // aprovações chegam pela página pública, fora do estado local). Mescla só `atas`
+  // para não sobrescrever edições não salvas de outros campos.
+  useEffect(() => {
+    if (view === 'details' && tab === 'atas' && currentMeeting?.id) {
+      supabase.from('meetings').select('atas').eq('id', currentMeeting.id).maybeSingle().then(({ data }: any) => {
+        if (data?.atas) setCurrentMeeting((prev: any) => (prev?.id === currentMeeting.id ? { ...prev, atas: data.atas } : prev));
+      });
+    }
+    /* eslint-disable-next-line */
+  }, [tab, view, currentMeeting?.id]);
   // Define o cliente ativo no login (cliente "casa"); mantém a escolha durante a sessão
   useEffect(() => { if (currentUser && !activeClientId) setActiveClientId(currentUser.client_id); }, [currentUser, activeClientId]);
   // (Re)carrega os dados sempre que o cliente ativo muda (login ou troca de cliente)
@@ -641,8 +652,15 @@ const App = () => {
       if (signedError) throw signedError;
       const secureUrl = signedData.signedUrl;
       // Versionamento de ata: ao republicar, arquiva a versão anterior (com suas
-      // aprovações/ressalvas) no histórico da nova versão.
-      const oldAta = type === 'atas' ? (currentMeeting.atas || [])[0] : null;
+      // aprovações/ressalvas) no histórico da nova versão. As aprovações são gravadas
+      // direto no banco pela página pública, então buscamos a versão FRESCA do banco
+      // (o estado local pode estar defasado e perderíamos as ressalvas).
+      let oldAta = type === 'atas' ? (currentMeeting.atas || [])[0] : null;
+      if (type === 'atas' && oldAta && currentMeeting.id) {
+        const { data: freshM } = await supabase.from('meetings').select('atas').eq('id', currentMeeting.id).maybeSingle();
+        const freshAta = (freshM?.atas || [])[0];
+        if (freshAta) oldAta = freshAta;
+      }
       const ataHistory = oldAta ? [...(oldAta.previousVersions || []), {
         name: oldAta.name, url: oldAta.url, uploadedAt: oldAta.uploadedAt,
         approvers: oldAta.approvers || [], approvals: oldAta.approvals || {}, approvalNotes: oldAta.approvalNotes || {}, approvalAt: oldAta.approvalAt || {}, approvalSentAt: oldAta.approvalSentAt || null,
