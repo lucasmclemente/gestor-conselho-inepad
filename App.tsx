@@ -2156,6 +2156,23 @@ const App = () => {
     }
   };
 
+  const toggleManagedCrm = async () => {
+    if (!managedClientId) return;
+    const newVal = !managedClientProfile?.crm_enabled;
+    const payload = {
+      client_id: managedClientId,
+      name: managedClientForm.name || managedClientId,
+      logo_url: managedClientForm.logo_url || '',
+      crm_enabled: newVal
+    };
+    const { data, error } = await supabase.from('clients').upsert(payload, { onConflict: 'client_id' }).select().single();
+    if (!error && data) {
+      setManagedClientProfile(data);
+      setAllClientsList(prev => prev.map((c: any) => c.client_id === managedClientId ? data : c));
+      addLog('Configuração', `CRM ${newVal ? 'ativado' : 'desativado'} para ${managedClientId}`);
+    }
+  };
+
   // Cria um novo cliente (tenant) — apenas SuperAdmin
   const createClient = async () => {
     if (!isSuper) return;
@@ -5410,6 +5427,7 @@ const App = () => {
                                     {c.active === false && <span className="text-[8px] bg-red-100 text-red-600 border border-red-200 px-1.5 py-0.5 rounded-full font-bold">Inativo</span>}
                                     {c.strategy_enabled && <span className="text-[8px] bg-emerald-100 text-emerald-700 border border-emerald-200 px-1.5 py-0.5 rounded-full font-bold">Estratégia</span>}
                                     {c.clicksign_enabled && <span className="text-[8px] bg-amber-100 text-amber-700 border border-amber-200 px-1.5 py-0.5 rounded-full font-bold">ClickSign</span>}
+                                    {c.crm_enabled && <span className="text-[8px] bg-sky-100 text-sky-700 border border-sky-200 px-1.5 py-0.5 rounded-full font-bold">CRM</span>}
                                     {!c.name && <span className="text-[8px] bg-slate-100 text-slate-400 border border-slate-200 px-1.5 py-0.5 rounded-full font-bold">Sem perfil</span>}
                                   </div>
                                 </div>
@@ -5510,6 +5528,25 @@ const App = () => {
                             {managedClientProfile?.clicksign_enabled
                               ? <p className="text-[10px] text-emerald-600 font-bold not-italic flex items-center gap-1.5"><CheckCircle2 size={12} /> Add-on ativo — botão de assinatura digital visível nas atas</p>
                               : <p className="text-[10px] text-slate-400 font-normal not-italic">Add-on inativo — o cliente não verá a opção de assinatura digital</p>}
+                          </div>
+
+                          {/* Add-on CRM */}
+                          <div className="border-t border-slate-100 pt-5 space-y-3">
+                            <h4 className="text-[10px] font-bold uppercase text-slate-400 tracking-widest flex items-center gap-2">
+                              <Filter size={13} className="text-amber-600" /> Add-on: CRM Comercial
+                            </h4>
+                            <div className="flex items-center justify-between p-4 bg-slate-50 rounded-xl border border-slate-200">
+                              <div>
+                                <p className="text-sm font-bold text-slate-800 italic">CRM — {managedClientForm.name || managedClientId}</p>
+                                <p className="text-[10px] text-slate-400 font-normal not-italic mt-0.5">Libera o funil de vendas (kanban), contatos, empresas e atividades. Habilita o papel Comercial (SDR).</p>
+                              </div>
+                              <button onClick={toggleManagedCrm} className={`relative inline-flex h-7 w-12 shrink-0 items-center rounded-full transition-colors duration-200 focus:outline-none ${managedClientProfile?.crm_enabled ? 'bg-amber-600' : 'bg-slate-200'}`}>
+                                <span className={`inline-block h-5 w-5 transform rounded-full bg-white shadow-md transition-transform duration-200 ${managedClientProfile?.crm_enabled ? 'translate-x-6' : 'translate-x-1'}`} />
+                              </button>
+                            </div>
+                            {managedClientProfile?.crm_enabled
+                              ? <p className="text-[10px] text-emerald-600 font-bold not-italic flex items-center gap-1.5"><CheckCircle2 size={12} /> Add-on ativo — menu CRM visível e papel Comercial disponível</p>
+                              : <p className="text-[10px] text-slate-400 font-normal not-italic">Add-on inativo — o cliente não verá o CRM</p>}
                           </div>
 
                           {/* Status da conta — ativar/inativar (reversível) */}
