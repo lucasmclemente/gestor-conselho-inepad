@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2"
+import { signVoteToken } from "../_shared/votetoken.ts"
 
 const ALLOWED_ORIGINS = [
   'https://conselho.inepadconsulting.com',
@@ -57,29 +58,63 @@ serve(async (req) => {
   }
 
   try {
-    const { meetingTitle, minuteName, minuteUrl, actions, pendingSummary, meetingId } = await req.json()
+    const { meetingTitle, minuteName, minuteUrl, actions, pendingSummary, meetingId, ataId, appOrigin } = await req.json()
     const RESEND_API_KEY = Deno.env.get('RESEND_API_KEY')
+    const SECRET = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
+    const origin = (typeof appOrigin === 'string' && /^https?:\/\//.test(appOrigin)) ? appOrigin.replace(/\/$/, '') : 'https://conselho.inepadconsulting.com'
+    const exp = Date.now() + 7 * 24 * 60 * 60 * 1000
 
-    // Blindagem: a ATA NUNCA vai para convidados externos. Mesmo que o front envie um
-    // externo por engano, o servidor busca os participantes da reunião e descarta
-    // qualquer e-mail marcado como externo (isExternal).
+    // Blindagem: a ATA NUNCA vai para convidados externos (filtro no servidor). Também
+    // carrega a ata alvo para (a) marcar os aprovadores e (b) embutir o link de aprovação.
     const externalEmails = new Set<string>()
+    let admin: any = null
+    let allAtas: any[] = []
+    let ataIdx = -1
     if (meetingId) {
-      const admin = createClient(
+      admin = createClient(
         Deno.env.get('SUPABASE_URL') ?? '',
         Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '',
         { auth: { autoRefreshToken: false, persistSession: false } }
       )
-      const { data: meeting } = await admin.from('meetings').select('participants').eq('id', meetingId).maybeSingle()
+      const { data: meeting } = await admin.from('meetings').select('participants, atas').eq('id', meetingId).maybeSingle()
       for (const p of (meeting?.participants || [])) {
         if (p?.isExternal && p?.email) externalEmails.add(String(p.email).trim().toLowerCase())
       }
+      allAtas = [...(meeting?.atas || [])]
+      ataIdx = (ataId != null) ? allAtas.findIndex((a: any) => a.id === ataId) : allAtas.length - 1
     }
     const safeRecipients = (pendingSummary || []).filter(
       (u: any) => !externalEmails.has(String(u?.email || '').trim().toLowerCase())
     )
 
+    // Marca os aprovadores (conselheiros internos) na ata alvo — base do painel de status
+    let resolvedAtaId: any = null
+    if (admin && ataIdx >= 0) {
+      const ata = { ...allAtas[ataIdx] }
+      if (ata.id == null) ata.id = Date.now()
+      ata.approvers = safeRecipients.map((u: any) => u.name)
+      ata.approvalSentAt = new Date().toISOString()
+      ata.approvals = ata.approvals || {}
+      ata.approvalNotes = ata.approvalNotes || {}
+      ata.approvalAt = ata.approvalAt || {}
+      allAtas[ataIdx] = ata
+      resolvedAtaId = ata.id
+      try { await admin.from('meetings').update({ atas: allAtas }).eq('id', meetingId) } catch (_) { /* não bloqueia o e-mail */ }
+    }
+
     const emailPromises = safeRecipients.map(async (user: any) => {
+
+      // Botão de aprovação individual (token assinado, sem login)
+      let approveBtn = ''
+      if (resolvedAtaId != null) {
+        const token = await signVoteToken(SECRET, { m: meetingId, a: resolvedAtaId, v: user.name, e: user.email, exp, k: 'ata' })
+        const approveUrl = `${origin}/?atatoken=${encodeURIComponent(token)}`
+        approveBtn = `
+          <div style="margin: 20px 0; padding: 18px; background: #fffbeb; border: 1px solid #fde68a; border-radius: 10px; text-align: center;">
+            <p style="margin: 0 0 12px; font-size: 13px; color: #92400e; font-weight: bold;">Esta ata depende da sua aprovação.</p>
+            <a href="${approveUrl}" style="background: #b45309; color: #fff; padding: 13px 30px; text-decoration: none; border-radius: 8px; font-weight: bold; font-size: 13px; display: inline-block;">✍️ Aprovar a ata</a>
+          </div>`
+      }
 
       // Lista de ações específicas desta ata
       const currentActionsHtml = actions.length > 0
@@ -112,7 +147,7 @@ serve(async (req) => {
         body: JSON.stringify({
           from: 'Governança INEPAD <conselho@inepadconsulting.com>',
           to: user.email,
-          subject: `ATA PUBLICADA E PENDÊNCIAS: ${meetingTitle}`,
+          subject: resolvedAtaId != null ? `✍️ Aprove a ata: ${meetingTitle}` : `ATA PUBLICADA E PENDÊNCIAS: ${meetingTitle}`,
           html: `
             <div style="font-family: sans-serif; max-width: 600px; margin: auto; border: 1px solid #e2e8f0; border-radius: 12px; overflow: hidden; background: #ffffff;">
               <div style="background: #0f172a; padding: 20px; text-align: center;">
@@ -127,6 +162,8 @@ serve(async (req) => {
                   <p style="margin: 0; font-weight: bold; font-size: 14px; color: #1e293b;">${escapeHtml(minuteName)}</p>
                   <a href="${safeUrl(minuteUrl)}" style="color: #b45309; font-size: 13px; font-weight: bold; text-decoration: none;">⬇ Baixar Ata em PDF</a>
                 </div>
+
+                ${approveBtn}
 
                 <h4 style="text-transform: uppercase; font-size: 11px; color: #64748b; border-bottom: 1px solid #f1f5f9; padding-bottom: 5px; letter-spacing: 1px; margin-top: 25px;">Plano de Ação (Desta Reunião)</h4>
                 <ul style="padding-left: 20px; color: #334155; font-size: 13px;">
@@ -149,7 +186,7 @@ serve(async (req) => {
     })
 
     const results = await Promise.all(emailPromises)
-    return new Response(JSON.stringify({ count: results.length }), {
+    return new Response(JSON.stringify({ count: results.length, ataId: resolvedAtaId, approvers: safeRecipients.map((u: any) => u.name) }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       status: 200,
     })

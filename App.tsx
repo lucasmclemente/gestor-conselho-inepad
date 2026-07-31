@@ -640,7 +640,15 @@ const App = () => {
         .createSignedUrl(filePath, 60 * 60 * 24 * 7);
       if (signedError) throw signedError;
       const secureUrl = signedData.signedUrl;
-      const newFile = { name: file.name, url: secureUrl, uploadedAt: new Date().toISOString(), ...(type === 'atas' ? { id: Date.now(), approvals: {}, approvalNotes: {}, approvalAt: {} } : {}) };
+      // Versionamento de ata: ao republicar, arquiva a versão anterior (com suas
+      // aprovações/ressalvas) no histórico da nova versão.
+      const oldAta = type === 'atas' ? (currentMeeting.atas || [])[0] : null;
+      const ataHistory = oldAta ? [...(oldAta.previousVersions || []), {
+        name: oldAta.name, url: oldAta.url, uploadedAt: oldAta.uploadedAt,
+        approvers: oldAta.approvers || [], approvals: oldAta.approvals || {}, approvalNotes: oldAta.approvalNotes || {}, approvalAt: oldAta.approvalAt || {}, approvalSentAt: oldAta.approvalSentAt || null,
+        version: oldAta.version || 1, archivedAt: new Date().toISOString(),
+      }] : [];
+      const newFile = { name: file.name, url: secureUrl, uploadedAt: new Date().toISOString(), ...(type === 'atas' ? { id: Date.now(), approvals: {}, approvalNotes: {}, approvalAt: {}, version: (oldAta?.version || 0) + 1, previousVersions: ataHistory } : {}) };
       // Atas: substituir a anterior (cada reunião tem 1 ata vigente)
       // Materiais: acumular normalmente
       if (type === 'atas' && (currentMeeting.atas || []).length > 0) {
@@ -676,19 +684,14 @@ const App = () => {
         const usersToNotify = participants.map((p: any) => ({ email: p.email, name: p.name, pendingActions: allPendingActions.filter((a: any) => a.resp === p.name) })).filter((u: any) => u.email);
         if (emails.length > 0) {
           try {
-            await supabase.functions.invoke('send-minute-notification', {
-              body: { meetingTitle: currentMeeting.title, minuteName: file.name, minuteUrl: secureUrl, actions: currentMeeting.acoes || [], recipients: emails, pendingSummary: usersToNotify, meetingId: currentMeeting.id }
+            // O e-mail de publicação já traz o pedido de aprovação (botão + token individual)
+            const { data: mn } = await supabase.functions.invoke('send-minute-notification', {
+              body: { meetingTitle: currentMeeting.title, minuteName: file.name, minuteUrl: secureUrl, actions: currentMeeting.acoes || [], recipients: emails, pendingSummary: usersToNotify, meetingId: currentMeeting.id, ataId: newFile.id, appOrigin: window.location.origin }
             });
-            // Pedido de aprovação da ata aos conselheiros internos (automático ao publicar)
-            let aprov = '';
-            try {
-              const { data: ap } = await supabase.functions.invoke('send-ata-approval', { body: { meetingId: currentMeeting.id, ataId: newFile.id, appOrigin: window.location.origin } });
-              if (ap?.approvers) {
-                setCurrentMeeting((prev: any) => ({ ...prev, atas: (prev.atas || []).map((a: any) => a.id === newFile.id ? { ...a, approvers: ap.approvers, approvalSentAt: new Date().toISOString() } : a) }));
-                aprov = `\n\n✍️ Pedido de aprovação enviado a ${ap.sent} conselheiro(s).`;
-              }
-            } catch (_) { /* aprovação não bloqueia a publicação */ }
-            alert("✅ Ata publicada, salva automaticamente e e-mails enviados!" + aprov);
+            if (mn?.approvers) {
+              setCurrentMeeting((prev: any) => ({ ...prev, atas: (prev.atas || []).map((a: any) => a.id === newFile.id ? { ...a, approvers: mn.approvers, approvalSentAt: new Date().toISOString() } : a) }));
+            }
+            alert(`✅ Ata publicada e enviada para aprovação de ${mn?.approvers?.length ?? emails.length} conselheiro(s)!`);
           } catch (e) { alert("✅ Ata publicada e salva automaticamente. Erro no disparo de e-mails."); }
         } else {
           alert("✅ Ata publicada e salva automaticamente!");
@@ -3864,6 +3867,28 @@ const App = () => {
         </div>
       );
     })()}
+    {(ata.previousVersions || []).length > 0 && (
+      <div className="px-4 pb-4 border-t border-slate-50 pt-3">
+        <p className="text-[9px] font-bold uppercase tracking-widest text-slate-400 not-italic mb-2">Versões anteriores ({(ata.previousVersions || []).length})</p>
+        <div className="space-y-1.5">
+          {[...(ata.previousVersions || [])].reverse().map((v: any, vi: number) => {
+            const appr = v.approvals || {}; const c: any = { aprovada: 0, ressalva: 0, reprovada: 0 };
+            (v.approvers || []).forEach((n: string) => { if (appr[n]) c[appr[n]] = (c[appr[n]] || 0) + 1; });
+            return (
+              <div key={vi} className="flex items-center justify-between gap-2 not-italic text-[10px]">
+                <span className="text-slate-500 truncate">v{v.version} · {v.name}</span>
+                <span className="flex items-center gap-1.5 shrink-0">
+                  {c.aprovada > 0 && <span className="text-emerald-600 font-bold" title="Aprovaram">{c.aprovada}✓</span>}
+                  {c.ressalva > 0 && <span className="text-amber-600 font-bold" title="Ressalvas">{c.ressalva}✎</span>}
+                  {c.reprovada > 0 && <span className="text-red-500 font-bold" title="Reprovaram">{c.reprovada}✗</span>}
+                  <button onClick={() => openAtaUrl(v.url)} className="text-slate-400 hover:text-amber-600" title="Abrir esta versão"><ExternalLink size={12} /></button>
+                </span>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    )}
   </div>
 ))}</div></div>
                     )}
