@@ -3,7 +3,7 @@ import { supabase } from '../services/supabaseClient';
 import {
   ChevronLeft, Trophy, Ban, RotateCcw, Save, Trash2, Plus, X,
   Phone, Mail, Calendar, MessageSquare, FileText, CheckSquare,
-  Building2, User, Clock, Check,
+  Building2, User, Clock, Check, History,
 } from 'lucide-react';
 
 const BRL = (n: any) => (Number(n) || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
@@ -41,6 +41,7 @@ export const CrmDeal: React.FC<Props> = ({ dealId, cid, currentUser, isAdmin, me
   const [contact, setContact] = useState<any>(null);
   const [org, setOrg] = useState<any>(null);
   const [acts, setActs] = useState<any[]>([]);
+  const [events, setEvents] = useState<any[]>([]);
 
   const [dForm, setDForm] = useState<any>({ title: '', value: '', expected_close_date: '', source: '', owner_member_id: '' });
   const [savingDeal, setSavingDeal] = useState(false);
@@ -57,12 +58,13 @@ export const CrmDeal: React.FC<Props> = ({ dealId, cid, currentUser, isAdmin, me
       title: d?.title || '', value: d?.value ?? '', expected_close_date: d?.expected_close_date || '',
       source: d?.source || '', owner_member_id: d?.owner_member_id || '',
     });
-    const [ct, og, ac] = await Promise.all([
+    const [ct, og, ac, ev] = await Promise.all([
       d?.contact_id ? supabase.from('crm_contacts').select('*').eq('id', d.contact_id).maybeSingle() : Promise.resolve({ data: null }),
       d?.organization_id ? supabase.from('crm_organizations').select('*').eq('id', d.organization_id).maybeSingle() : Promise.resolve({ data: null }),
       supabase.from('crm_activities').select('*').eq('deal_id', dealId).order('created_at', { ascending: false }),
+      supabase.from('crm_deal_events').select('*').eq('deal_id', dealId).order('created_at', { ascending: false }),
     ]);
-    setContact(ct.data); setOrg(og.data); setActs(ac.data || []);
+    setContact(ct.data); setOrg(og.data); setActs(ac.data || []); setEvents(ev.data || []);
     setLoading(false);
   }, [dealId]);
   useEffect(() => { load(); }, [load]);
@@ -347,6 +349,26 @@ export const CrmDeal: React.FC<Props> = ({ dealId, cid, currentUser, isAdmin, me
                 </div>
               );
             })}
+          </div>
+
+          {/* Changelog auditável */}
+          <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm space-y-3">
+            <h3 className="text-[10px] font-bold uppercase text-slate-400 tracking-widest flex items-center gap-1.5"><History size={13} className="text-amber-600" /> Histórico de alterações</h3>
+            {events.length === 0 ? (
+              <p className="text-xs text-slate-400 italic">Sem alterações registradas.</p>
+            ) : (
+              <div className="space-y-2.5">
+                {events.map(ev => (
+                  <div key={ev.id} className="flex items-start gap-2.5 text-sm">
+                    <span className="mt-1.5 w-1.5 h-1.5 rounded-full bg-amber-400 shrink-0" />
+                    <div className="flex-1 min-w-0">
+                      <p className="text-slate-700">{ev.description}</p>
+                      <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wide">{ev.actor_name || 'Sistema'} • {fmtDateTime(ev.created_at)}</p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         </div>
       </div>
