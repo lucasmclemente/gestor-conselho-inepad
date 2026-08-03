@@ -126,7 +126,7 @@ export const Crm: React.FC<Props> = ({ currentUser, activeClientId, isAdmin, mem
   const boardTotal = deals.reduce((s, d) => s + (Number(d.value) || 0), 0);
 
   if (settingsOpen) return (
-    <CrmSettings cid={cid} addLog={addLog} onBack={() => { setSettingsOpen(false); loadPipelines(); loadBoard(); }} />
+    <CrmSettings cid={cid} members={members} addLog={addLog} onBack={() => { setSettingsOpen(false); loadPipelines(); loadBoard(); }} />
   );
 
   // Detalhe do negócio (abre ao clicar num card). Antes do loading para não desmontar ao recarregar o board.
@@ -256,7 +256,7 @@ export const Crm: React.FC<Props> = ({ currentUser, activeClientId, isAdmin, mem
       )}
 
       {importOpen && (
-        <CrmImport cid={cid} currentUser={currentUser} pipelineId={pipelineId} stages={stages} addLog={addLog}
+        <CrmImport cid={cid} currentUser={currentUser} members={members} pipelineId={pipelineId} stages={stages} addLog={addLog}
           onClose={() => setImportOpen(false)} onDone={loadBoard} />
       )}
     </div>

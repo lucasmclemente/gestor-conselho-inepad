@@ -5,6 +5,7 @@ import { X, Upload, Building2, Users, CheckCircle2, FileSpreadsheet } from 'luci
 type Props = {
   cid: string;
   currentUser: any;
+  members?: any[];
   pipelineId: string | null;
   stages: any[]; // ordenadas por position; usamos a primeira etapa
   addLog?: (action: string, details: string) => Promise<void> | void;
@@ -29,8 +30,9 @@ const parseCSV = (text: string): any[] => {
   });
 };
 
-export const CrmImport: React.FC<Props> = ({ cid, currentUser, pipelineId, stages, addLog, onClose, onDone }) => {
+export const CrmImport: React.FC<Props> = ({ cid, currentUser, members = [], pipelineId, stages, addLog, onClose, onDone }) => {
   const log = async (a: string, d: string) => { try { await addLog?.(a, d); } catch { /* noop */ } };
+  const crmUsers = members.filter((m: any) => ['SuperAdmin', 'Administrador', 'Comercial'].includes(m.role));
 
   const [empresas, setEmpresas] = useState<any[]>([]);
   const [socios, setSocios] = useState<any[]>([]);
@@ -38,6 +40,7 @@ export const CrmImport: React.FC<Props> = ({ cid, currentUser, pipelineId, stage
   const [socName, setSocName] = useState('');
   const [onlyDecisores, setOnlyDecisores] = useState(true);
   const [source, setSource] = useState('');
+  const [ownerId, setOwnerId] = useState<string>(currentUser?.id || '');
   const [busy, setBusy] = useState(false);
   const [progress, setProgress] = useState('');
   const [report, setReport] = useState<any>(null);
@@ -82,7 +85,7 @@ export const CrmImport: React.FC<Props> = ({ cid, currentUser, pipelineId, stage
       setProgress('Importando empresas...');
       const newOrgs = [...compByCnpj.values()].filter(c => !orgIdByCnpj.has(c.cnpj)).map(c => ({
         client_id: cid, name: c.name, cnpj: c.cnpj, segment: c.segment, phone: c.phone,
-        address: c.address, city: c.city, uf: c.uf, owner_member_id: currentUser?.id || null,
+        address: c.address, city: c.city, uf: c.uf, owner_member_id: ownerId || currentUser?.id || null,
       }));
       for (const part of chunk(newOrgs, 200)) {
         const { data, error } = await supabase.from('crm_organizations').insert(part).select('id, cnpj');
@@ -102,7 +105,7 @@ export const CrmImport: React.FC<Props> = ({ cid, currentUser, pipelineId, stage
         if (orgId && !dealByOrg.has(orgId)) newDeals.push({
           client_id: cid, pipeline_id: pipelineId, stage_id: stage0.id, title: c.name,
           organization_id: orgId, value: 0, status: 'open', source: source.trim() || 'Importação',
-          owner_member_id: currentUser?.id || null,
+          owner_member_id: ownerId || currentUser?.id || null,
         });
       }
       let leadsCriados = 0;
@@ -135,7 +138,7 @@ export const CrmImport: React.FC<Props> = ({ cid, currentUser, pipelineId, stage
             role_title: (s['OCUPACAO'] || '').trim() || null,
             phone: firstOf(s, ['DDDFONEMOVEL1', 'DDDFONEMOVEL2', 'DDDFONEMOVEL3']) || null,
             email: (s['EMAILCORPORATIVO'] || '').trim() || null,
-            owner_member_id: currentUser?.id || null,
+            owner_member_id: ownerId || currentUser?.id || null,
           });
         }
         for (const part of chunk(newContacts, 200)) {
@@ -214,6 +217,15 @@ export const CrmImport: React.FC<Props> = ({ cid, currentUser, pipelineId, stage
               <input type="checkbox" checked={onlyDecisores} onChange={e => setOnlyDecisores(e.target.checked)} className="w-4 h-4 accent-amber-600" />
               Importar só decisores (sócio administrador, diretor, presidente)
             </label>
+
+            {crmUsers.length > 0 && (
+              <div className="space-y-1">
+                <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Responsável (dono dos leads)</label>
+                <select value={ownerId} onChange={e => setOwnerId(e.target.value)} className="w-full p-2.5 border border-slate-200 rounded-lg text-sm font-bold outline-none focus:border-amber-500 bg-white">
+                  {crmUsers.map((m: any) => <option key={m.id} value={m.id}>{m.name}{m.id === currentUser?.id ? ' (você)' : ''}</option>)}
+                </select>
+              </div>
+            )}
 
             <div className="space-y-1">
               <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Origem / lista (opcional)</label>
