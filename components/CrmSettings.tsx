@@ -1,16 +1,14 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { supabase } from '../services/supabaseClient';
-import { ChevronLeft, Plus, X, Save, Trash2, ChevronUp, ChevronDown, Edit2, Check, Star, ArrowRight, Users } from 'lucide-react';
+import { ChevronLeft, Plus, X, Save, Trash2, ChevronUp, ChevronDown, Edit2, Check, Star } from 'lucide-react';
 
 type Props = {
   cid: string;
-  members?: any[];
   addLog?: (action: string, details: string) => Promise<void> | void;
   onBack: () => void;
 };
 
-export const CrmSettings: React.FC<Props> = ({ cid, members = [], addLog, onBack }) => {
-  const crmUsers = members.filter((m: any) => ['SuperAdmin', 'Administrador', 'Comercial'].includes(m.role));
+export const CrmSettings: React.FC<Props> = ({ cid, addLog, onBack }) => {
   const log = async (a: string, d: string) => { try { await addLog?.(a, d); } catch { /* noop */ } };
 
   const [loading, setLoading] = useState(true);
@@ -23,11 +21,6 @@ export const CrmSettings: React.FC<Props> = ({ cid, members = [], addLog, onBack
   const [editStageName, setEditStageName] = useState('');
   const [editPipeName, setEditPipeName] = useState('');
   const [editingPipe, setEditingPipe] = useState(false);
-  // Transferência de carteira
-  const [fromId, setFromId] = useState('');
-  const [toId, setToId] = useState('');
-  const [fromCount, setFromCount] = useState<number | null>(null);
-  const [transferring, setTransferring] = useState(false);
 
   const loadPipelines = useCallback(async () => {
     const { data } = await supabase.from('crm_pipelines').select('*').eq('client_id', cid).eq('active', true).order('position');
@@ -47,28 +40,6 @@ export const CrmSettings: React.FC<Props> = ({ cid, members = [], addLog, onBack
   useEffect(() => { loadStages(); }, [loadStages]);
 
   const currentPipe = pipelines.find(p => p.id === pid);
-
-  // ── Transferência de carteira (saída de funcionário) ────
-  useEffect(() => {
-    if (!fromId) { setFromCount(null); return; }
-    supabase.from('crm_deals').select('id', { count: 'exact', head: true }).eq('client_id', cid).eq('owner_member_id', fromId)
-      .then(({ count }) => setFromCount(count ?? 0));
-  }, [fromId, cid]);
-
-  const nameOf = (id: string) => crmUsers.find((m: any) => m.id === id)?.name || '';
-
-  const transferPortfolio = async () => {
-    if (!fromId || !toId) return alert('Selecione o responsável de origem e o de destino.');
-    if (fromId === toId) return alert('Escolha dois usuários diferentes.');
-    if (!window.confirm(`Transferir ${fromCount ?? 0} negócio(s) de ${nameOf(fromId)} para ${nameOf(toId)}?`)) return;
-    setTransferring(true);
-    const { error } = await supabase.from('crm_deals').update({ owner_member_id: toId }).eq('client_id', cid).eq('owner_member_id', fromId);
-    setTransferring(false);
-    if (error) { alert('Erro ao transferir: ' + error.message); return; }
-    log('CRM', `Carteira transferida de ${nameOf(fromId)} para ${nameOf(toId)} (${fromCount ?? 0} negócios)`);
-    alert('✅ Transferência concluída.');
-    setFromId(''); setToId(''); setFromCount(null);
-  };
 
   // ── Etapas ──────────────────────────────────────────────
   const addStage = async () => {
@@ -226,33 +197,6 @@ export const CrmSettings: React.FC<Props> = ({ cid, members = [], addLog, onBack
             <button onClick={addStage} className="px-5 py-2.5 bg-amber-600 hover:bg-amber-700 text-white rounded-lg font-bold text-[10px] uppercase tracking-widest flex items-center gap-2 transition-all"><Plus size={14} /> Adicionar</button>
           </div>
         </div>
-      </div>
-
-      {/* Transferência de carteira */}
-      <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm space-y-3">
-        <h3 className="text-[10px] font-bold uppercase text-slate-400 tracking-widest flex items-center gap-1.5"><Users size={13} className="text-amber-600" /> Transferir carteira</h3>
-        <p className="text-[11px] text-slate-500">Passe todos os negócios de um responsável para outro — útil quando alguém sai da equipe.</p>
-        <div className="flex flex-col sm:flex-row items-stretch sm:items-end gap-3">
-          <div className="flex-1 space-y-1">
-            <label className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">De</label>
-            <select value={fromId} onChange={e => setFromId(e.target.value)} className="w-full p-2.5 border border-slate-200 rounded-lg text-sm font-bold outline-none focus:border-amber-500 bg-white">
-              <option value="">Selecione...</option>
-              {crmUsers.map((m: any) => <option key={m.id} value={m.id}>{m.name}</option>)}
-            </select>
-          </div>
-          <ArrowRight size={18} className="text-slate-300 shrink-0 hidden sm:block mb-2.5" />
-          <div className="flex-1 space-y-1">
-            <label className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">Para</label>
-            <select value={toId} onChange={e => setToId(e.target.value)} className="w-full p-2.5 border border-slate-200 rounded-lg text-sm font-bold outline-none focus:border-amber-500 bg-white">
-              <option value="">Selecione...</option>
-              {crmUsers.filter((m: any) => m.id !== fromId).map((m: any) => <option key={m.id} value={m.id}>{m.name}</option>)}
-            </select>
-          </div>
-          <button disabled={transferring || !fromId || !toId} onClick={transferPortfolio} className="px-5 py-2.5 bg-slate-900 text-amber-500 hover:bg-slate-800 rounded-lg font-bold text-[10px] uppercase tracking-widest flex items-center justify-center gap-2 transition-all disabled:opacity-50 shrink-0">
-            <ArrowRight size={14} /> {transferring ? 'Transferindo...' : 'Transferir'}
-          </button>
-        </div>
-        {fromId && <p className="text-[11px] text-slate-500">{nameOf(fromId)} tem <b>{fromCount ?? '...'}</b> negócio(s) que serão transferidos.</p>}
       </div>
     </div>
   );

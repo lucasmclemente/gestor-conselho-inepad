@@ -1,9 +1,10 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { supabase } from '../services/supabaseClient';
-import { Filter, Plus, X, Save, Trash2, Trophy, Ban, Settings, Upload } from 'lucide-react';
+import { Filter, Plus, X, Save, Trash2, Trophy, Ban, Settings, Upload, Users } from 'lucide-react';
 import { CrmDeal } from './CrmDeal';
 import { CrmSettings } from './CrmSettings';
 import { CrmImport } from './CrmImport';
+import { CrmLeads } from './CrmLeads';
 
 type Props = {
   currentUser: any;
@@ -30,6 +31,7 @@ export const Crm: React.FC<Props> = ({ currentUser, activeClientId, isAdmin, mem
   const [detailId, setDetailId] = useState<string | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
+  const [leadsOpen, setLeadsOpen] = useState(false);
   const [dealModal, setDealModal] = useState<any>(null); // { stage_id } ao criar
   const [form, setForm] = useState({ title: '', value: '', expected_close_date: '' });
   const [saving, setSaving] = useState(false);
@@ -126,7 +128,14 @@ export const Crm: React.FC<Props> = ({ currentUser, activeClientId, isAdmin, mem
   const boardTotal = deals.reduce((s, d) => s + (Number(d.value) || 0), 0);
 
   if (settingsOpen) return (
-    <CrmSettings cid={cid} members={members} addLog={addLog} onBack={() => { setSettingsOpen(false); loadPipelines(); loadBoard(); }} />
+    <CrmSettings cid={cid} addLog={addLog} onBack={() => { setSettingsOpen(false); loadPipelines(); loadBoard(); }} />
+  );
+
+  if (leadsOpen) return (
+    <CrmLeads cid={cid} members={members} addLog={addLog}
+      onBack={() => { setLeadsOpen(false); loadBoard(); }}
+      onMutated={loadBoard}
+      onOpenDeal={(id) => { setLeadsOpen(false); setDetailId(id); }} />
   );
 
   // Detalhe do negócio (abre ao clicar num card). Antes do loading para não desmontar ao recarregar o board.
@@ -158,6 +167,12 @@ export const Crm: React.FC<Props> = ({ currentUser, activeClientId, isAdmin, mem
             className="p-2.5 rounded-lg bg-amber-600 text-white hover:bg-amber-700 transition-all flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest">
             <Upload size={16} /><span className="hidden sm:inline">Importar</span>
           </button>
+          {isAdmin && (
+            <button onClick={() => setLeadsOpen(true)} title="Carteira de leads"
+              className="p-2.5 rounded-lg bg-slate-100 text-slate-700 hover:bg-slate-200 transition-all flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest">
+              <Users size={16} /><span className="hidden sm:inline">Carteira</span>
+            </button>
+          )}
           {isAdmin && (
             <button onClick={() => setSettingsOpen(true)} title="Gerenciar funil"
               className="p-2.5 rounded-lg bg-slate-900 text-amber-500 hover:bg-slate-800 transition-all flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest">
