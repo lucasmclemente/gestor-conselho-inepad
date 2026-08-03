@@ -44,6 +44,13 @@ export const CrmResults: React.FC<Props> = ({ cid, currentUser, members, onBack,
   const sum = (arr: any[]) => arr.reduce((s, d) => s + (Number(d.value) || 0), 0);
   const conv = (won.length + lost.length) ? Math.round((won.length / (won.length + lost.length)) * 100) : null;
 
+  const lostReasons = (() => {
+    const m = new Map<string, number>();
+    lost.forEach(d => { const r = (d.lost_reason && String(d.lost_reason).trim()) || 'Sem motivo'; m.set(r, (m.get(r) || 0) + 1); });
+    return [...m.entries()].map(([reason, count]) => ({ reason, count })).sort((a, b) => b.count - a.count);
+  })();
+  const maxLost = lostReasons.reduce((mx, r) => Math.max(mx, r.count), 0);
+
   const PERIODS: [string, string][] = [['month', 'Este mês'], ['30d', 'Últimos 30 dias'], ['year', 'Este ano'], ['all', 'Tudo']];
 
   if (loading) return <div className="flex items-center justify-center h-64 text-amber-600 font-bold uppercase animate-pulse">Carregando resultados...</div>;
@@ -125,6 +132,25 @@ export const CrmResults: React.FC<Props> = ({ cid, currentUser, members, onBack,
         <List title="Ganhos" icon={<Trophy size={13} className="text-emerald-600" />} color="text-emerald-600" items={won} dateField="won_at" />
         <List title="Perdidos" icon={<Ban size={13} className="text-red-500" />} color="text-red-500" items={lost} dateField="lost_at" />
       </div>
+
+      {lost.length > 0 && (
+        <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm space-y-3">
+          <h3 className="text-[10px] font-bold uppercase text-slate-400 tracking-widest flex items-center gap-1.5"><Ban size={13} className="text-red-500" /> Motivos de perda</h3>
+          <div className="space-y-2">
+            {lostReasons.map(r => (
+              <div key={r.reason} className="flex items-center gap-3">
+                <span className="text-xs font-bold text-slate-600 w-32 sm:w-44 shrink-0 truncate" title={r.reason}>{r.reason}</span>
+                <div className="flex-1 bg-slate-100 rounded-full h-5 overflow-hidden">
+                  <div className="h-full bg-red-400 rounded-full flex items-center justify-end px-2" style={{ width: `${maxLost ? Math.max((r.count / maxLost) * 100, 8) : 0}%` }}>
+                    <span className="text-[10px] font-bold text-white">{r.count}</span>
+                  </div>
+                </div>
+                <span className="text-[10px] font-bold text-slate-400 w-10 text-right shrink-0">{Math.round((r.count / lost.length) * 100)}%</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 };
