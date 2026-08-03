@@ -35,6 +35,9 @@ type Props = {
 export const CrmDeal: React.FC<Props> = ({ dealId, cid, currentUser, isAdmin, members, stages, addLog, onBack, onMutated }) => {
   const log = async (a: string, d: string) => { try { await addLog?.(a, d); } catch { /* noop */ } };
   const ownerName = (id: string) => (members.find((m: any) => m.id === id)?.name) || (id === currentUser?.id ? currentUser?.name : '—');
+  const digitsOnly = (s: string) => (s || '').replace(/\D/g, '');
+  const waLink = (phone: string) => { let d = digitsOnly(phone); if (d.length <= 11) d = '55' + d; return `https://wa.me/${d}`; };
+  const mailtoLink = (email: string) => `mailto:${email}?subject=${encodeURIComponent('Contato — ' + (deal?.title || ''))}`;
 
   const [loading, setLoading] = useState(true);
   const [deal, setDeal] = useState<any>(null);
@@ -307,10 +310,16 @@ export const CrmDeal: React.FC<Props> = ({ dealId, cid, currentUser, isAdmin, me
             </div>
             {cForm === null ? (
               contact ? (
-                <div className="text-sm text-slate-700 space-y-0.5">
+                <div className="text-sm text-slate-700 space-y-1">
                   <p className="font-bold italic">{contact.name}{contact.role_title && <span className="text-[10px] not-italic text-slate-400 font-bold uppercase tracking-wide ml-2">{contact.role_title}</span>}</p>
-                  {contact.phone && <p className="text-xs flex items-center gap-1.5 text-slate-500"><Phone size={11} /> {contact.phone}</p>}
-                  {contact.email && <p className="text-xs flex items-center gap-1.5 text-slate-500"><Mail size={11} /> {contact.email}</p>}
+                  {contact.phone && <a href={waLink(contact.phone)} target="_blank" rel="noreferrer" className="text-xs flex items-center gap-1.5 text-slate-500 hover:text-emerald-600 w-fit transition-colors"><Phone size={11} /> {contact.phone}</a>}
+                  {contact.email && <a href={mailtoLink(contact.email)} className="text-xs flex items-center gap-1.5 text-slate-500 hover:text-amber-600 w-fit transition-colors"><Mail size={11} /> {contact.email}</a>}
+                  {(contact.email || contact.phone) && (
+                    <div className="flex gap-3 pt-1">
+                      {contact.email && <a href={mailtoLink(contact.email)} className="text-[9px] font-bold uppercase tracking-wide text-amber-600 hover:text-amber-700 flex items-center gap-1 not-italic"><Mail size={12} /> E-mail</a>}
+                      {contact.phone && <a href={waLink(contact.phone)} target="_blank" rel="noreferrer" className="text-[9px] font-bold uppercase tracking-wide text-emerald-600 hover:text-emerald-700 flex items-center gap-1 not-italic"><MessageSquare size={12} /> WhatsApp</a>}
+                    </div>
+                  )}
                 </div>
               ) : <p className="text-xs text-slate-400 italic">Nenhum contato vinculado.</p>
             ) : (
