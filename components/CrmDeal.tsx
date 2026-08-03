@@ -45,6 +45,7 @@ export const CrmDeal: React.FC<Props> = ({ dealId, cid, currentUser, isAdmin, me
   const [fieldDefs, setFieldDefs] = useState<any[]>([]);
   const [customForm, setCustomForm] = useState<Record<string, any>>({});
   const [savingCustom, setSavingCustom] = useState(false);
+  const [tags, setTags] = useState<any[]>([]);
 
   const [dForm, setDForm] = useState<any>({ title: '', value: '', expected_close_date: '', source: '', owner_member_id: '' });
   const [savingDeal, setSavingDeal] = useState(false);
@@ -61,15 +62,16 @@ export const CrmDeal: React.FC<Props> = ({ dealId, cid, currentUser, isAdmin, me
       title: d?.title || '', value: d?.value ?? '', expected_close_date: d?.expected_close_date || '',
       source: d?.source || '', owner_member_id: d?.owner_member_id || '',
     });
-    const [ct, og, ac, ev, fd] = await Promise.all([
+    const [ct, og, ac, ev, fd, tg] = await Promise.all([
       d?.contact_id ? supabase.from('crm_contacts').select('*').eq('id', d.contact_id).maybeSingle() : Promise.resolve({ data: null }),
       d?.organization_id ? supabase.from('crm_organizations').select('*').eq('id', d.organization_id).maybeSingle() : Promise.resolve({ data: null }),
       supabase.from('crm_activities').select('*').eq('deal_id', dealId).order('created_at', { ascending: false }),
       supabase.from('crm_deal_events').select('*').eq('deal_id', dealId).order('created_at', { ascending: false }),
       supabase.from('crm_field_defs').select('*').eq('client_id', cid).eq('active', true).order('position'),
+      supabase.from('crm_tags').select('*').eq('client_id', cid).order('position'),
     ]);
     setContact(ct.data); setOrg(og.data); setActs(ac.data || []); setEvents(ev.data || []);
-    setFieldDefs(fd.data || []); setCustomForm(d?.custom || {});
+    setFieldDefs(fd.data || []); setCustomForm(d?.custom || {}); setTags(tg.data || []);
     setLoading(false);
   }, [dealId]);
   useEffect(() => { load(); }, [load]);
@@ -150,6 +152,15 @@ export const CrmDeal: React.FC<Props> = ({ dealId, cid, currentUser, isAdmin, me
       await supabase.from('crm_deals').update({ organization_id: data.id }).eq('id', dealId);
     }
     setOForm(null); await load();
+  };
+
+  const toggleTag = async (tagId: string) => {
+    const cur = Array.isArray(deal?.tag_ids) ? deal.tag_ids : [];
+    const next = cur.includes(tagId) ? cur.filter((id: string) => id !== tagId) : [...cur, tagId];
+    setDeal((prev: any) => ({ ...prev, tag_ids: next }));
+    const { error } = await supabase.from('crm_deals').update({ tag_ids: next }).eq('id', dealId);
+    if (error) { alert('Erro: ' + error.message); load(); return; }
+    onMutated();
   };
 
   const setCustom = (id: string, val: any) => setCustomForm(prev => ({ ...prev, [id]: val }));
@@ -239,6 +250,15 @@ export const CrmDeal: React.FC<Props> = ({ dealId, cid, currentUser, isAdmin, me
             );
           })}
         </div>
+
+        {tags.length > 0 && (
+          <div className="flex flex-wrap gap-1.5 pt-1">
+            {tags.map(t => {
+              const on = Array.isArray(deal.tag_ids) && deal.tag_ids.includes(t.id);
+              return <button key={t.id} onClick={() => toggleTag(t.id)} className="text-[10px] font-bold rounded-full px-2.5 py-1 border transition-all not-italic" style={on ? { backgroundColor: t.color, color: '#fff', borderColor: t.color } : { color: t.color, borderColor: t.color + '55', backgroundColor: t.color + '11' }}>{t.name}</button>;
+            })}
+          </div>
+        )}
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">

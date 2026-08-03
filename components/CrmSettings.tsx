@@ -1,6 +1,8 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { supabase } from '../services/supabaseClient';
-import { ChevronLeft, Plus, X, Save, Trash2, ChevronUp, ChevronDown, Edit2, Check, Star } from 'lucide-react';
+import { ChevronLeft, Plus, X, Save, Trash2, ChevronUp, ChevronDown, Edit2, Check, Star, Tag } from 'lucide-react';
+
+const PALETTE = ['#64748b', '#f59e0b', '#10b981', '#ef4444', '#3b82f6', '#8b5cf6', '#ec4899', '#14b8a6'];
 
 type Props = {
   cid: string;
@@ -29,6 +31,11 @@ export const CrmSettings: React.FC<Props> = ({ cid, addLog, onBack }) => {
   const [editFieldId, setEditFieldId] = useState<string | null>(null);
   const [editFieldLabel, setEditFieldLabel] = useState('');
   const [expandedStage, setExpandedStage] = useState<string | null>(null);
+  const [tags, setTags] = useState<any[]>([]);
+  const [ntName, setNtName] = useState('');
+  const [ntColor, setNtColor] = useState(PALETTE[1]);
+  const [editTagId, setEditTagId] = useState<string | null>(null);
+  const [editTagName, setEditTagName] = useState('');
 
   const loadPipelines = useCallback(async () => {
     const { data } = await supabase.from('crm_pipelines').select('*').eq('client_id', cid).eq('active', true).order('position');
@@ -48,10 +55,33 @@ export const CrmSettings: React.FC<Props> = ({ cid, addLog, onBack }) => {
     const { data } = await supabase.from('crm_field_defs').select('*').eq('client_id', cid).eq('active', true).order('position');
     setFields(data || []);
   }, [cid]);
+  const loadTags = useCallback(async () => {
+    const { data } = await supabase.from('crm_tags').select('*').eq('client_id', cid).order('position');
+    setTags(data || []);
+  }, [cid]);
 
   useEffect(() => { loadPipelines(); }, [loadPipelines]);
   useEffect(() => { loadStages(); }, [loadStages]);
   useEffect(() => { loadFields(); }, [loadFields]);
+  useEffect(() => { loadTags(); }, [loadTags]);
+
+  const addTag = async () => {
+    if (!ntName.trim()) return;
+    const pos = tags.length ? Math.max(...tags.map(t => t.position)) + 1 : 0;
+    const { error } = await supabase.from('crm_tags').insert({ client_id: cid, name: ntName.trim(), color: ntColor, position: pos });
+    if (error) { alert('Erro: ' + error.message); return; }
+    setNtName(''); log('CRM', `Etiqueta "${ntName.trim()}" criada`); loadTags();
+  };
+  const renameTag = async (t: any) => {
+    if (!editTagName.trim()) { setEditTagId(null); return; }
+    await supabase.from('crm_tags').update({ name: editTagName.trim() }).eq('id', t.id);
+    setEditTagId(null); loadTags();
+  };
+  const deleteTag = async (t: any) => {
+    if (!window.confirm(`Excluir a etiqueta "${t.name}"?`)) return;
+    await supabase.from('crm_tags').delete().eq('id', t.id);
+    log('CRM', `Etiqueta "${t.name}" excluída`); loadTags();
+  };
 
   const currentPipe = pipelines.find(p => p.id === pid);
 
@@ -309,6 +339,32 @@ export const CrmSettings: React.FC<Props> = ({ cid, addLog, onBack }) => {
             <input type="text" placeholder="Opções, separadas por vírgula" className="flex-1 p-2.5 border border-slate-200 rounded-lg text-sm outline-none focus:border-amber-500" value={nfOptions} onChange={e => setNfOptions(e.target.value)} />
           )}
           <button onClick={addField} className="px-5 py-2.5 bg-amber-600 hover:bg-amber-700 text-white rounded-lg font-bold text-[10px] uppercase tracking-widest flex items-center gap-2 transition-all shrink-0"><Plus size={14} /> Adicionar</button>
+        </div>
+      </div>
+
+      {/* Etiquetas */}
+      <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm space-y-3">
+        <h3 className="text-[10px] font-bold uppercase text-slate-400 tracking-widest flex items-center gap-1.5"><Tag size={13} className="text-amber-600" /> Etiquetas</h3>
+        <p className="text-[11px] text-slate-500">Segmente os negócios (ex.: Quente, Agro, Indicação). Aparecem no card e permitem filtrar.</p>
+        <div className="flex flex-wrap gap-2">
+          {tags.map(t => (
+            <div key={t.id} className="flex items-center gap-1.5 rounded-full border pl-2.5 pr-2 py-1" style={{ backgroundColor: t.color + '18', borderColor: t.color + '55' }}>
+              {editTagId === t.id ? (
+                <input autoFocus type="text" className="w-24 bg-transparent text-xs font-bold outline-none not-italic" style={{ color: t.color }} value={editTagName} onChange={e => setEditTagName(e.target.value)} onKeyDown={e => e.key === 'Enter' && renameTag(t)} onBlur={() => renameTag(t)} />
+              ) : (
+                <button onClick={() => { setEditTagId(t.id); setEditTagName(t.name); }} className="text-xs font-bold not-italic" style={{ color: t.color }}>{t.name}</button>
+              )}
+              <button onClick={() => deleteTag(t)} className="opacity-60 hover:opacity-100" style={{ color: t.color }}><X size={12} /></button>
+            </div>
+          ))}
+          {tags.length === 0 && <p className="text-xs text-slate-400 italic">Nenhuma etiqueta ainda.</p>}
+        </div>
+        <div className="flex items-center gap-2 pt-2 border-t border-slate-100">
+          <div className="flex gap-1 shrink-0">
+            {PALETTE.map(c => <button key={c} onClick={() => setNtColor(c)} title="Cor" className="w-5 h-5 rounded-full border-2 transition-transform hover:scale-110" style={{ backgroundColor: c, borderColor: ntColor === c ? '#0f172a' : 'transparent' }} />)}
+          </div>
+          <input type="text" placeholder="Nova etiqueta" className="flex-1 p-2.5 border border-slate-200 rounded-lg text-sm outline-none focus:border-amber-500" value={ntName} onChange={e => setNtName(e.target.value)} onKeyDown={e => e.key === 'Enter' && addTag()} />
+          <button onClick={addTag} className="px-5 py-2.5 bg-amber-600 hover:bg-amber-700 text-white rounded-lg font-bold text-[10px] uppercase tracking-widest flex items-center gap-2 transition-all shrink-0"><Plus size={14} /> Adicionar</button>
         </div>
       </div>
     </div>

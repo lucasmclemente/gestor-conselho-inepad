@@ -28,6 +28,7 @@ export const Crm: React.FC<Props> = ({ currentUser, activeClientId, isAdmin, mem
   const [stages, setStages] = useState<any[]>([]);
   const [deals, setDeals] = useState<any[]>([]);
   const [fieldDefs, setFieldDefs] = useState<any[]>([]);
+  const [tags, setTags] = useState<any[]>([]);
   const [dragId, setDragId] = useState<string | null>(null);
   const [overStage, setOverStage] = useState<string | null>(null);
   const [detailId, setDetailId] = useState<string | null>(null);
@@ -36,6 +37,7 @@ export const Crm: React.FC<Props> = ({ currentUser, activeClientId, isAdmin, mem
   const [leadsOpen, setLeadsOpen] = useState(false);
   const [resultsOpen, setResultsOpen] = useState(false);
   const [ownerFilter, setOwnerFilter] = useState('all');
+  const [tagFilter, setTagFilter] = useState('all');
   const [dealModal, setDealModal] = useState<any>(null); // { stage_id } ao criar
   const [form, setForm] = useState({ title: '', value: '', expected_close_date: '' });
   const [saving, setSaving] = useState(false);
@@ -43,7 +45,10 @@ export const Crm: React.FC<Props> = ({ currentUser, activeClientId, isAdmin, mem
   const ownerName = (id: string) => (members.find((m: any) => m.id === id)?.name) || (id === currentUser?.id ? currentUser?.name : '');
   const crmUsers = members.filter((m: any) => ['SuperAdmin', 'Administrador', 'Comercial'].includes(m.role));
   // Filtro por responsável no quadro
-  const visibleDeals = ownerFilter === 'all' ? deals : deals.filter(d => (ownerFilter === 'none' ? !d.owner_member_id : d.owner_member_id === ownerFilter));
+  const visibleDeals = deals.filter(d =>
+    (ownerFilter === 'all' || (ownerFilter === 'none' ? !d.owner_member_id : d.owner_member_id === ownerFilter)) &&
+    (tagFilter === 'all' || (Array.isArray(d.tag_ids) && d.tag_ids.includes(tagFilter)))
+  );
 
   // 1) Carrega os funis do cliente (uma vez / ao trocar de cliente)
   const loadPipelines = useCallback(async () => {
@@ -74,6 +79,8 @@ export const Crm: React.FC<Props> = ({ currentUser, activeClientId, isAdmin, mem
     if (!cid) return;
     supabase.from('crm_field_defs').select('id, label, type, required').eq('client_id', cid).eq('active', true)
       .then(({ data }) => setFieldDefs(data || []));
+    supabase.from('crm_tags').select('*').eq('client_id', cid).order('position')
+      .then(({ data }) => setTags(data || []));
   }, [cid]);
 
   // Campos exigidos pela etapa (compara contra os valores salvos em deal.custom)
@@ -199,6 +206,13 @@ export const Crm: React.FC<Props> = ({ currentUser, activeClientId, isAdmin, mem
               {crmUsers.map((m: any) => <option key={m.id} value={m.id}>{m.name}</option>)}
             </select>
           )}
+          {tags.length > 0 && (
+            <select value={tagFilter} onChange={e => setTagFilter(e.target.value)} title="Filtrar por etiqueta"
+              className="p-2.5 border border-slate-200 rounded-lg text-sm font-bold outline-none focus:border-amber-500 transition-colors bg-white not-italic">
+              <option value="all">Todas as etiquetas</option>
+              {tags.map((t: any) => <option key={t.id} value={t.id}>{t.name}</option>)}
+            </select>
+          )}
           {pipelines.length > 1 && (
             <select value={pipelineId || ''} onChange={e => setPipelineId(e.target.value)}
               className="p-2.5 border border-slate-200 rounded-lg text-sm font-bold outline-none focus:border-amber-500 transition-colors bg-white not-italic">
@@ -269,6 +283,11 @@ export const Crm: React.FC<Props> = ({ currentUser, activeClientId, isAdmin, mem
                       <p className="text-sm font-bold text-slate-800 italic leading-tight">{deal.title}</p>
                       {Number(deal.value) > 0 && <p className="text-[11px] font-bold text-emerald-600 mt-1 not-italic">{BRL(deal.value)}</p>}
                       {ownerName(deal.owner_member_id) && <p className="text-[9px] text-slate-400 uppercase tracking-wide mt-1 truncate not-italic">{ownerName(deal.owner_member_id)}</p>}
+                      {Array.isArray(deal.tag_ids) && deal.tag_ids.length > 0 && (
+                        <div className="flex flex-wrap gap-1 mt-1.5">
+                          {deal.tag_ids.map((tid: string) => { const t = tags.find((x: any) => x.id === tid); if (!t) return null; return <span key={tid} className="text-[8px] font-bold uppercase tracking-wide rounded px-1.5 py-0.5 border not-italic" style={{ backgroundColor: t.color + '18', color: t.color, borderColor: t.color + '55' }}>{t.name}</span>; })}
+                        </div>
+                      )}
                       <div className="flex items-center gap-2 mt-2 pt-2 border-t border-slate-100 opacity-0 group-hover:opacity-100 transition-opacity">
                         <button onClick={(e) => { e.stopPropagation(); setOutcome(deal, 'won'); }} title="Marcar como Ganho" className="text-[9px] font-bold uppercase tracking-wide text-emerald-600 hover:text-emerald-700 flex items-center gap-1 not-italic"><Trophy size={12} /> Ganho</button>
                         <button onClick={(e) => { e.stopPropagation(); setOutcome(deal, 'lost'); }} title="Marcar como Perdido" className="text-[9px] font-bold uppercase tracking-wide text-slate-400 hover:text-red-500 flex items-center gap-1 not-italic"><Ban size={12} /> Perdido</button>
