@@ -5,6 +5,7 @@ import { supabase } from './services/supabaseClient';
 import { Estrategia } from './components/Estrategia';
 import { Certificacao } from './components/Certificacao';
 import { RelatorioGovernanca } from './components/RelatorioGovernanca';
+import { Crm } from './components/Crm';
 import {
   LayoutDashboard, Calendar, CalendarPlus, CalendarClock, ChevronRight, UserPlus,
   Clock, CheckCircle2, AlertCircle, FileText, Send, X, Trash2,
@@ -3108,17 +3109,7 @@ const App = () => {
               )}
 
               {activeMenu === 'crm' && (
-                <div className="space-y-6 animate-in fade-in">
-                  <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
-                    <h1 className="text-2xl font-bold text-slate-800 tracking-tight italic">CRM Comercial</h1>
-                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1">Funil de vendas • {clientProfile?.name || currentUser.client_id}</p>
-                  </div>
-                  <div className="bg-white p-12 rounded-xl border border-slate-200 shadow-sm flex flex-col items-center justify-center text-center gap-4">
-                    <Filter size={40} className="text-amber-500" />
-                    <h2 className="text-lg font-bold text-slate-700 italic">Módulo em construção</h2>
-                    <p className="text-sm text-slate-400 max-w-md">O funil de vendas (kanban arrastável), contatos, empresas e atividades chegam no próximo passo. A base de dados e a segurança já estão prontas.</p>
-                  </div>
-                </div>
+                <Crm currentUser={currentUser} activeClientId={activeClientId} isAdmin={isAdm} members={users} addLog={addLog} />
               )}
               {activeMenu === 'dashboard' && (
                 <div className="space-y-6 animate-in fade-in">
