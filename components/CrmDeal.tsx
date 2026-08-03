@@ -94,6 +94,16 @@ export const CrmDeal: React.FC<Props> = ({ dealId, cid, currentUser, isAdmin, me
 
   const moveStage = async (stageId: string) => {
     if (!deal || stageId === deal.stage_id) return;
+    // Campos obrigatórios: só bloqueia ao AVANÇAR (etapa de posição maior)
+    const curPos = stages.find(s => s.id === deal.stage_id)?.position ?? 0;
+    const tgtPos = stages.find(s => s.id === stageId)?.position ?? 0;
+    if (tgtPos > curPos) {
+      const miss = fieldDefs.filter((f: any) => f.required).filter((f: any) => {
+        const v = deal.custom?.[f.id];
+        return f.type === 'checkbox' ? !v : (v === undefined || v === null || v === '');
+      });
+      if (miss.length) { alert('Preencha e salve os campos obrigatórios antes de avançar:\n\n• ' + miss.map((f: any) => f.label).join('\n• ')); return; }
+    }
     const { error } = await supabase.from('crm_deals').update({ stage_id: stageId }).eq('id', dealId);
     if (error) { alert('Erro: ' + error.message); return; }
     const st = stages.find(s => s.id === stageId);
@@ -147,6 +157,7 @@ export const CrmDeal: React.FC<Props> = ({ dealId, cid, currentUser, isAdmin, me
     const { error } = await supabase.from('crm_deals').update({ custom: customForm }).eq('id', dealId);
     setSavingCustom(false);
     if (error) { alert('Erro ao salvar campos: ' + error.message); return; }
+    setDeal((prev: any) => ({ ...prev, custom: customForm }));
     log('CRM', 'Campos personalizados atualizados');
   };
 

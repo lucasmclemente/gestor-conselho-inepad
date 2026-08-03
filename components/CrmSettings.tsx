@@ -26,6 +26,7 @@ export const CrmSettings: React.FC<Props> = ({ cid, addLog, onBack }) => {
   const [nfLabel, setNfLabel] = useState('');
   const [nfType, setNfType] = useState('text');
   const [nfOptions, setNfOptions] = useState('');
+  const [nfRequired, setNfRequired] = useState(false);
   const [editFieldId, setEditFieldId] = useState<string | null>(null);
   const [editFieldLabel, setEditFieldLabel] = useState('');
 
@@ -59,9 +60,14 @@ export const CrmSettings: React.FC<Props> = ({ cid, addLog, onBack }) => {
     if (!nfLabel.trim()) return;
     const pos = fields.length ? Math.max(...fields.map(f => f.position)) + 1 : 0;
     const options = nfType === 'select' ? nfOptions.split(',').map(s => s.trim()).filter(Boolean) : [];
-    const { error } = await supabase.from('crm_field_defs').insert({ client_id: cid, label: nfLabel.trim(), type: nfType, options, position: pos });
+    const { error } = await supabase.from('crm_field_defs').insert({ client_id: cid, label: nfLabel.trim(), type: nfType, options, required: nfRequired, position: pos });
     if (error) { alert('Erro: ' + error.message); return; }
-    setNfLabel(''); setNfOptions(''); setNfType('text'); log('CRM', `Campo "${nfLabel.trim()}" criado`); loadFields();
+    setNfLabel(''); setNfOptions(''); setNfType('text'); setNfRequired(false); log('CRM', `Campo "${nfLabel.trim()}" criado`); loadFields();
+  };
+  const toggleRequired = async (f: any) => {
+    const { error } = await supabase.from('crm_field_defs').update({ required: !f.required }).eq('id', f.id);
+    if (error) { alert('Erro: ' + error.message); return; }
+    loadFields();
   };
   const renameField = async (f: any) => {
     if (!editFieldLabel.trim()) { setEditFieldId(null); return; }
@@ -263,6 +269,7 @@ export const CrmSettings: React.FC<Props> = ({ cid, addLog, onBack }) => {
                 <>
                   <span className="flex-1 text-sm font-bold text-slate-700 italic truncate">{f.label}</span>
                   <span className="text-[9px] font-bold uppercase tracking-wide text-slate-400 bg-white border border-slate-200 rounded px-1.5 py-0.5 not-italic">{TYPE_LABEL[f.type]}{f.type === 'select' && Array.isArray(f.options) ? ` (${f.options.length})` : ''}</span>
+                  <button onClick={() => toggleRequired(f)} title="Obrigatório para avançar de etapa" className={`text-[9px] font-bold uppercase tracking-wide rounded px-1.5 py-0.5 border transition-all not-italic ${f.required ? 'bg-amber-100 text-amber-700 border-amber-200' : 'bg-white text-slate-300 border-slate-200 hover:text-slate-500'}`}>Obrigatório</button>
                   <button onClick={() => { setEditFieldId(f.id); setEditFieldLabel(f.label); }} className="text-slate-300 hover:text-amber-600 p-1"><Edit2 size={14} /></button>
                   <button onClick={() => deleteField(f)} className="text-slate-300 hover:text-red-500 p-1"><Trash2 size={14} /></button>
                 </>
@@ -283,6 +290,9 @@ export const CrmSettings: React.FC<Props> = ({ cid, addLog, onBack }) => {
           {nfType === 'select' && (
             <input type="text" placeholder="Opções, separadas por vírgula" className="flex-1 p-2.5 border border-slate-200 rounded-lg text-sm outline-none focus:border-amber-500" value={nfOptions} onChange={e => setNfOptions(e.target.value)} />
           )}
+          <label className="flex items-center gap-1.5 text-[11px] font-bold text-slate-500 uppercase tracking-wide px-1 shrink-0 cursor-pointer" title="Obrigatório para avançar de etapa">
+            <input type="checkbox" checked={nfRequired} onChange={e => setNfRequired(e.target.checked)} className="w-4 h-4 accent-amber-600" /> Obrig.
+          </label>
           <button onClick={addField} className="px-5 py-2.5 bg-amber-600 hover:bg-amber-700 text-white rounded-lg font-bold text-[10px] uppercase tracking-widest flex items-center gap-2 transition-all shrink-0"><Plus size={14} /> Adicionar</button>
         </div>
       </div>
