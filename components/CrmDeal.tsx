@@ -5,6 +5,7 @@ import {
   Phone, Mail, Calendar, MessageSquare, FileText, CheckSquare,
   Building2, User, Clock, Check, History,
 } from 'lucide-react';
+import { CrmLostModal } from './CrmLostModal';
 
 const BRL = (n: any) => (Number(n) || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 const fmtDateTime = (s: string) => { try { return new Date(s).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' }); } catch { return s; } };
@@ -49,6 +50,7 @@ export const CrmDeal: React.FC<Props> = ({ dealId, cid, currentUser, isAdmin, me
   const [customForm, setCustomForm] = useState<Record<string, any>>({});
   const [savingCustom, setSavingCustom] = useState(false);
   const [tags, setTags] = useState<any[]>([]);
+  const [lostOpen, setLostOpen] = useState(false);
 
   const [dForm, setDForm] = useState<any>({ title: '', value: '', expected_close_date: '', source: '', owner_member_id: '' });
   const [savingDeal, setSavingDeal] = useState(false);
@@ -118,15 +120,22 @@ export const CrmDeal: React.FC<Props> = ({ dealId, cid, currentUser, isAdmin, me
     onMutated();
   };
 
-  const setStatus = async (status: 'open' | 'won' | 'lost') => {
-    const patch: any = { status };
-    patch.won_at = status === 'won' ? new Date().toISOString() : null;
-    patch.lost_at = status === 'lost' ? new Date().toISOString() : null;
+  const setStatus = async (status: 'open' | 'won') => {
+    const patch: any = { status, won_at: status === 'won' ? new Date().toISOString() : null, lost_at: null, lost_reason: null };
     const { error } = await supabase.from('crm_deals').update(patch).eq('id', dealId);
     if (error) { alert('Erro: ' + error.message); return; }
     setDeal((prev: any) => ({ ...prev, ...patch }));
-    log('CRM', `Negócio "${deal.title}" — ${status === 'won' ? 'Ganho' : status === 'lost' ? 'Perdido' : 'Reaberto'}`);
+    log('CRM', `Negócio "${deal.title}" — ${status === 'won' ? 'Ganho' : 'Reaberto'}`);
     onMutated();
+  };
+
+  const confirmLost = async (reason: string) => {
+    const patch: any = { status: 'lost', lost_at: new Date().toISOString(), lost_reason: reason || null };
+    const { error } = await supabase.from('crm_deals').update(patch).eq('id', dealId);
+    if (error) { alert('Erro: ' + error.message); return; }
+    setDeal((prev: any) => ({ ...prev, ...patch }));
+    log('CRM', `Negócio "${deal.title}" marcado como Perdido${reason ? ' — ' + reason : ''}`);
+    setLostOpen(false); onMutated();
   };
 
   const saveContact = async () => {
@@ -229,13 +238,13 @@ export const CrmDeal: React.FC<Props> = ({ dealId, cid, currentUser, isAdmin, me
             <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1">
               {BRL(deal.value)} • Proprietário: {ownerName(deal.owner_member_id)}
               {won && <span className="ml-2 text-emerald-600">• GANHO</span>}
-              {lost && <span className="ml-2 text-red-500">• PERDIDO</span>}
+              {lost && <span className="ml-2 text-red-500">• PERDIDO{deal.lost_reason ? ` (${deal.lost_reason})` : ''}</span>}
             </p>
           </div>
           <div className="flex items-center gap-2 shrink-0">
             {!won && !lost && <>
               <button onClick={() => setStatus('won')} className="px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-[10px] uppercase tracking-widest flex items-center gap-1.5 transition-all"><Trophy size={14} /> Ganho</button>
-              <button onClick={() => setStatus('lost')} className="px-4 py-2 rounded-lg bg-slate-100 hover:bg-red-50 text-slate-600 hover:text-red-600 border border-slate-200 font-bold text-[10px] uppercase tracking-widest flex items-center gap-1.5 transition-all"><Ban size={14} /> Perdido</button>
+              <button onClick={() => setLostOpen(true)} className="px-4 py-2 rounded-lg bg-slate-100 hover:bg-red-50 text-slate-600 hover:text-red-600 border border-slate-200 font-bold text-[10px] uppercase tracking-widest flex items-center gap-1.5 transition-all"><Ban size={14} /> Perdido</button>
             </>}
             {(won || lost) && <button onClick={() => setStatus('open')} className="px-4 py-2 rounded-lg bg-slate-100 hover:bg-amber-50 text-slate-600 hover:text-amber-700 border border-slate-200 font-bold text-[10px] uppercase tracking-widest flex items-center gap-1.5 transition-all"><RotateCcw size={14} /> Reabrir</button>}
           </div>
@@ -458,6 +467,10 @@ export const CrmDeal: React.FC<Props> = ({ dealId, cid, currentUser, isAdmin, me
           </div>
         </div>
       </div>
+
+      {lostOpen && (
+        <CrmLostModal dealTitle={deal.title} onConfirm={confirmLost} onClose={() => setLostOpen(false)} />
+      )}
     </div>
   );
 };

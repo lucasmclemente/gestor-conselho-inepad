@@ -6,6 +6,7 @@ import { CrmSettings } from './CrmSettings';
 import { CrmImport } from './CrmImport';
 import { CrmLeads } from './CrmLeads';
 import { CrmResults } from './CrmResults';
+import { CrmLostModal } from './CrmLostModal';
 
 type Props = {
   currentUser: any;
@@ -39,6 +40,7 @@ export const Crm: React.FC<Props> = ({ currentUser, activeClientId, isAdmin, mem
   const [ownerFilter, setOwnerFilter] = useState('all');
   const [tagFilter, setTagFilter] = useState('all');
   const [dealModal, setDealModal] = useState<any>(null); // { stage_id } ao criar
+  const [lostDeal, setLostDeal] = useState<any>(null); // negócio sendo marcado como perdido
   const [form, setForm] = useState({ title: '', value: '', expected_close_date: '' });
   const [saving, setSaving] = useState(false);
 
@@ -150,6 +152,16 @@ export const Crm: React.FC<Props> = ({ currentUser, activeClientId, isAdmin, mem
     if (error) { alert('Erro: ' + error.message); return; }
     setDeals(prev => prev.filter(d => d.id !== deal.id)); // some do board (só mostramos abertos)
     log('CRM', `Negócio "${deal.title}" marcado como ${status === 'won' ? 'Ganho' : 'Perdido'}`);
+  };
+
+  const confirmLost = async (reason: string) => {
+    const deal = lostDeal;
+    if (!deal) return;
+    const { error } = await supabase.from('crm_deals').update({ status: 'lost', lost_at: new Date().toISOString(), lost_reason: reason || null }).eq('id', deal.id);
+    if (error) { alert('Erro: ' + error.message); return; }
+    setDeals(prev => prev.filter(d => d.id !== deal.id));
+    log('CRM', `Negócio "${deal.title}" marcado como Perdido${reason ? ' — ' + reason : ''}`);
+    setLostDeal(null);
   };
 
   const removeDeal = async (deal: any) => {
@@ -290,7 +302,7 @@ export const Crm: React.FC<Props> = ({ currentUser, activeClientId, isAdmin, mem
                       )}
                       <div className="flex items-center gap-2 mt-2 pt-2 border-t border-slate-100 opacity-0 group-hover:opacity-100 transition-opacity">
                         <button onClick={(e) => { e.stopPropagation(); setOutcome(deal, 'won'); }} title="Marcar como Ganho" className="text-[9px] font-bold uppercase tracking-wide text-emerald-600 hover:text-emerald-700 flex items-center gap-1 not-italic"><Trophy size={12} /> Ganho</button>
-                        <button onClick={(e) => { e.stopPropagation(); setOutcome(deal, 'lost'); }} title="Marcar como Perdido" className="text-[9px] font-bold uppercase tracking-wide text-slate-400 hover:text-red-500 flex items-center gap-1 not-italic"><Ban size={12} /> Perdido</button>
+                        <button onClick={(e) => { e.stopPropagation(); setLostDeal(deal); }} title="Marcar como Perdido" className="text-[9px] font-bold uppercase tracking-wide text-slate-400 hover:text-red-500 flex items-center gap-1 not-italic"><Ban size={12} /> Perdido</button>
                         <button onClick={(e) => { e.stopPropagation(); removeDeal(deal); }} title="Excluir" className="ml-auto text-slate-300 hover:text-red-500 transition-colors"><Trash2 size={12} /></button>
                       </div>
                     </div>
@@ -338,6 +350,10 @@ export const Crm: React.FC<Props> = ({ currentUser, activeClientId, isAdmin, mem
       {importOpen && (
         <CrmImport cid={cid} currentUser={currentUser} members={members} pipelineId={pipelineId} stages={stages} addLog={addLog}
           onClose={() => setImportOpen(false)} onDone={loadBoard} />
+      )}
+
+      {lostDeal && (
+        <CrmLostModal dealTitle={lostDeal.title} onConfirm={confirmLost} onClose={() => setLostDeal(null)} />
       )}
     </div>
   );
