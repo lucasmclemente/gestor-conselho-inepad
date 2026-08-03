@@ -26,9 +26,9 @@ export const CrmSettings: React.FC<Props> = ({ cid, addLog, onBack }) => {
   const [nfLabel, setNfLabel] = useState('');
   const [nfType, setNfType] = useState('text');
   const [nfOptions, setNfOptions] = useState('');
-  const [nfRequired, setNfRequired] = useState(false);
   const [editFieldId, setEditFieldId] = useState<string | null>(null);
   const [editFieldLabel, setEditFieldLabel] = useState('');
+  const [expandedStage, setExpandedStage] = useState<string | null>(null);
 
   const loadPipelines = useCallback(async () => {
     const { data } = await supabase.from('crm_pipelines').select('*').eq('client_id', cid).eq('active', true).order('position');
@@ -60,14 +60,16 @@ export const CrmSettings: React.FC<Props> = ({ cid, addLog, onBack }) => {
     if (!nfLabel.trim()) return;
     const pos = fields.length ? Math.max(...fields.map(f => f.position)) + 1 : 0;
     const options = nfType === 'select' ? nfOptions.split(',').map(s => s.trim()).filter(Boolean) : [];
-    const { error } = await supabase.from('crm_field_defs').insert({ client_id: cid, label: nfLabel.trim(), type: nfType, options, required: nfRequired, position: pos });
+    const { error } = await supabase.from('crm_field_defs').insert({ client_id: cid, label: nfLabel.trim(), type: nfType, options, position: pos });
     if (error) { alert('Erro: ' + error.message); return; }
-    setNfLabel(''); setNfOptions(''); setNfType('text'); setNfRequired(false); log('CRM', `Campo "${nfLabel.trim()}" criado`); loadFields();
+    setNfLabel(''); setNfOptions(''); setNfType('text'); log('CRM', `Campo "${nfLabel.trim()}" criado`); loadFields();
   };
-  const toggleRequired = async (f: any) => {
-    const { error } = await supabase.from('crm_field_defs').update({ required: !f.required }).eq('id', f.id);
+  const toggleStageField = async (stage: any, fieldId: string) => {
+    const cur = Array.isArray(stage.required_field_ids) ? stage.required_field_ids : [];
+    const next = cur.includes(fieldId) ? cur.filter((id: string) => id !== fieldId) : [...cur, fieldId];
+    const { error } = await supabase.from('crm_stages').update({ required_field_ids: next }).eq('id', stage.id);
     if (error) { alert('Erro: ' + error.message); return; }
-    loadFields();
+    loadStages();
   };
   const renameField = async (f: any) => {
     if (!editFieldLabel.trim()) { setEditFieldId(null); return; }
@@ -216,28 +218,45 @@ export const CrmSettings: React.FC<Props> = ({ cid, addLog, onBack }) => {
 
           <h3 className="text-[10px] font-bold uppercase text-slate-400 tracking-widest">Etapas</h3>
           <div className="space-y-2">
-            {stages.map((s, idx) => (
-              <div key={s.id} className="flex items-center gap-2 bg-slate-50 rounded-lg border border-slate-200 p-2">
-                <div className="flex flex-col">
-                  <button onClick={() => moveStage(idx, -1)} disabled={idx === 0} className="text-slate-300 hover:text-slate-600 disabled:opacity-30"><ChevronUp size={14} /></button>
-                  <button onClick={() => moveStage(idx, 1)} disabled={idx === stages.length - 1} className="text-slate-300 hover:text-slate-600 disabled:opacity-30"><ChevronDown size={14} /></button>
+            {stages.map((s, idx) => {
+              const reqIds = Array.isArray(s.required_field_ids) ? s.required_field_ids : [];
+              return (
+              <div key={s.id} className="bg-slate-50 rounded-lg border border-slate-200">
+                <div className="flex items-center gap-2 p-2">
+                  <div className="flex flex-col">
+                    <button onClick={() => moveStage(idx, -1)} disabled={idx === 0} className="text-slate-300 hover:text-slate-600 disabled:opacity-30"><ChevronUp size={14} /></button>
+                    <button onClick={() => moveStage(idx, 1)} disabled={idx === stages.length - 1} className="text-slate-300 hover:text-slate-600 disabled:opacity-30"><ChevronDown size={14} /></button>
+                  </div>
+                  <span className="text-[10px] font-bold text-slate-300 w-5 text-center shrink-0">{idx + 1}</span>
+                  {editStageId === s.id ? (
+                    <>
+                      <input autoFocus type="text" className="flex-1 p-2 border border-slate-200 rounded-lg text-sm font-bold outline-none focus:border-amber-500" value={editStageName} onChange={e => setEditStageName(e.target.value)} onKeyDown={e => e.key === 'Enter' && renameStage(s)} />
+                      <button onClick={() => renameStage(s)} className="p-2 bg-amber-600 text-white rounded-lg"><Check size={14} /></button>
+                      <button onClick={() => setEditStageId(null)} className="p-2 bg-slate-100 text-slate-500 rounded-lg"><X size={14} /></button>
+                    </>
+                  ) : (
+                    <>
+                      <span className="flex-1 text-sm font-bold text-slate-700 italic truncate">{s.name}</span>
+                      {fields.length > 0 && <button onClick={() => setExpandedStage(expandedStage === s.id ? null : s.id)} title="Campos exigidos para avançar desta etapa" className={`text-[9px] font-bold uppercase tracking-wide rounded px-1.5 py-0.5 border transition-all not-italic ${reqIds.length ? 'bg-amber-100 text-amber-700 border-amber-200' : 'bg-white text-slate-400 border-slate-200 hover:text-amber-600'}`}>Exigências ({reqIds.length})</button>}
+                      <button onClick={() => { setEditStageId(s.id); setEditStageName(s.name); }} className="text-slate-300 hover:text-amber-600 p-1"><Edit2 size={14} /></button>
+                      <button onClick={() => deleteStage(s)} className="text-slate-300 hover:text-red-500 p-1"><Trash2 size={14} /></button>
+                    </>
+                  )}
                 </div>
-                <span className="text-[10px] font-bold text-slate-300 w-5 text-center shrink-0">{idx + 1}</span>
-                {editStageId === s.id ? (
-                  <>
-                    <input autoFocus type="text" className="flex-1 p-2 border border-slate-200 rounded-lg text-sm font-bold outline-none focus:border-amber-500" value={editStageName} onChange={e => setEditStageName(e.target.value)} onKeyDown={e => e.key === 'Enter' && renameStage(s)} />
-                    <button onClick={() => renameStage(s)} className="p-2 bg-amber-600 text-white rounded-lg"><Check size={14} /></button>
-                    <button onClick={() => setEditStageId(null)} className="p-2 bg-slate-100 text-slate-500 rounded-lg"><X size={14} /></button>
-                  </>
-                ) : (
-                  <>
-                    <span className="flex-1 text-sm font-bold text-slate-700 italic truncate">{s.name}</span>
-                    <button onClick={() => { setEditStageId(s.id); setEditStageName(s.name); }} className="text-slate-300 hover:text-amber-600 p-1"><Edit2 size={14} /></button>
-                    <button onClick={() => deleteStage(s)} className="text-slate-300 hover:text-red-500 p-1"><Trash2 size={14} /></button>
-                  </>
+                {expandedStage === s.id && fields.length > 0 && (
+                  <div className="px-3 pb-3 pt-1 border-t border-slate-200 space-y-2">
+                    <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wide">Exigir preenchidos para avançar desta etapa:</p>
+                    <div className="flex flex-wrap gap-2">
+                      {fields.map(f => {
+                        const on = reqIds.includes(f.id);
+                        return <button key={f.id} onClick={() => toggleStageField(s, f.id)} className={`text-[10px] font-bold rounded-full px-2.5 py-1 border transition-all not-italic ${on ? 'bg-amber-600 text-white border-amber-600' : 'bg-white text-slate-500 border-slate-200 hover:border-amber-300'}`}>{f.label}</button>;
+                      })}
+                    </div>
+                  </div>
                 )}
               </div>
-            ))}
+              );
+            })}
             {stages.length === 0 && <p className="text-xs text-slate-400 italic">Nenhuma etapa. Adicione a primeira abaixo.</p>}
           </div>
 
@@ -269,7 +288,6 @@ export const CrmSettings: React.FC<Props> = ({ cid, addLog, onBack }) => {
                 <>
                   <span className="flex-1 text-sm font-bold text-slate-700 italic truncate">{f.label}</span>
                   <span className="text-[9px] font-bold uppercase tracking-wide text-slate-400 bg-white border border-slate-200 rounded px-1.5 py-0.5 not-italic">{TYPE_LABEL[f.type]}{f.type === 'select' && Array.isArray(f.options) ? ` (${f.options.length})` : ''}</span>
-                  <button onClick={() => toggleRequired(f)} title="Obrigatório para avançar de etapa" className={`text-[9px] font-bold uppercase tracking-wide rounded px-1.5 py-0.5 border transition-all not-italic ${f.required ? 'bg-amber-100 text-amber-700 border-amber-200' : 'bg-white text-slate-300 border-slate-200 hover:text-slate-500'}`}>Obrigatório</button>
                   <button onClick={() => { setEditFieldId(f.id); setEditFieldLabel(f.label); }} className="text-slate-300 hover:text-amber-600 p-1"><Edit2 size={14} /></button>
                   <button onClick={() => deleteField(f)} className="text-slate-300 hover:text-red-500 p-1"><Trash2 size={14} /></button>
                 </>
@@ -290,9 +308,6 @@ export const CrmSettings: React.FC<Props> = ({ cid, addLog, onBack }) => {
           {nfType === 'select' && (
             <input type="text" placeholder="Opções, separadas por vírgula" className="flex-1 p-2.5 border border-slate-200 rounded-lg text-sm outline-none focus:border-amber-500" value={nfOptions} onChange={e => setNfOptions(e.target.value)} />
           )}
-          <label className="flex items-center gap-1.5 text-[11px] font-bold text-slate-500 uppercase tracking-wide px-1 shrink-0 cursor-pointer" title="Obrigatório para avançar de etapa">
-            <input type="checkbox" checked={nfRequired} onChange={e => setNfRequired(e.target.checked)} className="w-4 h-4 accent-amber-600" /> Obrig.
-          </label>
           <button onClick={addField} className="px-5 py-2.5 bg-amber-600 hover:bg-amber-700 text-white rounded-lg font-bold text-[10px] uppercase tracking-widest flex items-center gap-2 transition-all shrink-0"><Plus size={14} /> Adicionar</button>
         </div>
       </div>

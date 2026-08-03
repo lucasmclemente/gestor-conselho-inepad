@@ -94,15 +94,16 @@ export const CrmDeal: React.FC<Props> = ({ dealId, cid, currentUser, isAdmin, me
 
   const moveStage = async (stageId: string) => {
     if (!deal || stageId === deal.stage_id) return;
-    // Campos obrigatórios: só bloqueia ao AVANÇAR (etapa de posição maior)
-    const curPos = stages.find(s => s.id === deal.stage_id)?.position ?? 0;
+    // Campos exigidos pela etapa atual: só bloqueia ao AVANÇAR (etapa de posição maior)
+    const curStage = stages.find(s => s.id === deal.stage_id);
     const tgtPos = stages.find(s => s.id === stageId)?.position ?? 0;
-    if (tgtPos > curPos) {
-      const miss = fieldDefs.filter((f: any) => f.required).filter((f: any) => {
+    if ((curStage?.position ?? 0) < tgtPos) {
+      const reqIds = Array.isArray(curStage?.required_field_ids) ? curStage.required_field_ids : [];
+      const miss = fieldDefs.filter((f: any) => reqIds.includes(f.id)).filter((f: any) => {
         const v = deal.custom?.[f.id];
         return f.type === 'checkbox' ? !v : (v === undefined || v === null || v === '');
       });
-      if (miss.length) { alert('Preencha e salve os campos obrigatórios antes de avançar:\n\n• ' + miss.map((f: any) => f.label).join('\n• ')); return; }
+      if (miss.length) { alert('Preencha e salve os campos exigidos nesta etapa antes de avançar:\n\n• ' + miss.map((f: any) => f.label).join('\n• ')); return; }
     }
     const { error } = await supabase.from('crm_deals').update({ stage_id: stageId }).eq('id', dealId);
     if (error) { alert('Erro: ' + error.message); return; }

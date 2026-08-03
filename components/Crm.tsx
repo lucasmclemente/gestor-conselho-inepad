@@ -76,10 +76,14 @@ export const Crm: React.FC<Props> = ({ currentUser, activeClientId, isAdmin, mem
       .then(({ data }) => setFieldDefs(data || []));
   }, [cid]);
 
-  const missingRequired = (deal: any) => fieldDefs.filter((f: any) => f.required).filter((f: any) => {
-    const v = deal?.custom?.[f.id];
-    return f.type === 'checkbox' ? !v : (v === undefined || v === null || v === '');
-  });
+  // Campos exigidos pela etapa (compara contra os valores salvos em deal.custom)
+  const missingForStage = (deal: any, stage: any) => {
+    const reqIds = Array.isArray(stage?.required_field_ids) ? stage.required_field_ids : [];
+    return fieldDefs.filter((f: any) => reqIds.includes(f.id)).filter((f: any) => {
+      const v = deal?.custom?.[f.id];
+      return f.type === 'checkbox' ? !v : (v === undefined || v === null || v === '');
+    });
+  };
 
   // Cria um funil padrão (para cliente que acabou de ativar o add-on)
   const createDefaultPipeline = async () => {
@@ -96,12 +100,12 @@ export const Crm: React.FC<Props> = ({ currentUser, activeClientId, isAdmin, mem
   const moveDeal = async (dealId: string, toStageId: string) => {
     const deal = deals.find(d => d.id === dealId);
     if (!deal || deal.stage_id === toStageId) return;
-    // Campos obrigatórios: só bloqueia ao AVANÇAR (etapa de posição maior)
-    const curPos = stages.find(s => s.id === deal.stage_id)?.position ?? 0;
+    // Campos exigidos pela etapa atual: só bloqueia ao AVANÇAR (etapa de posição maior)
+    const curStage = stages.find(s => s.id === deal.stage_id);
     const tgtPos = stages.find(s => s.id === toStageId)?.position ?? 0;
-    if (tgtPos > curPos) {
-      const miss = missingRequired(deal);
-      if (miss.length) { alert('Preencha os campos obrigatórios antes de avançar:\n\n• ' + miss.map((f: any) => f.label).join('\n• ')); return; }
+    if ((curStage?.position ?? 0) < tgtPos) {
+      const miss = missingForStage(deal, curStage);
+      if (miss.length) { alert('Preencha os campos exigidos nesta etapa antes de avançar:\n\n• ' + miss.map((f: any) => f.label).join('\n• ')); return; }
     }
     setDeals(prev => prev.map(d => d.id === dealId ? { ...d, stage_id: toStageId } : d)); // otimista
     const { error } = await supabase.from('crm_deals').update({ stage_id: toStageId }).eq('id', dealId);
