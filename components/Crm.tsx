@@ -1,8 +1,9 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { supabase } from '../services/supabaseClient';
-import { Filter, Plus, X, Save, Trash2, Trophy, Ban, Settings } from 'lucide-react';
+import { Filter, Plus, X, Save, Trash2, Trophy, Ban, Settings, Upload } from 'lucide-react';
 import { CrmDeal } from './CrmDeal';
 import { CrmSettings } from './CrmSettings';
+import { CrmImport } from './CrmImport';
 
 type Props = {
   currentUser: any;
@@ -28,6 +29,7 @@ export const Crm: React.FC<Props> = ({ currentUser, activeClientId, isAdmin, mem
   const [overStage, setOverStage] = useState<string | null>(null);
   const [detailId, setDetailId] = useState<string | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [importOpen, setImportOpen] = useState(false);
   const [dealModal, setDealModal] = useState<any>(null); // { stage_id } ao criar
   const [form, setForm] = useState({ title: '', value: '', expected_close_date: '' });
   const [saving, setSaving] = useState(false);
@@ -152,6 +154,10 @@ export const Crm: React.FC<Props> = ({ currentUser, activeClientId, isAdmin, mem
               {pipelines.map((p: any) => <option key={p.id} value={p.id}>{p.name}</option>)}
             </select>
           )}
+          <button onClick={() => setImportOpen(true)} title="Importar leads e contatos"
+            className="p-2.5 rounded-lg bg-amber-600 text-white hover:bg-amber-700 transition-all flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest">
+            <Upload size={16} /><span className="hidden sm:inline">Importar</span>
+          </button>
           {isAdmin && (
             <button onClick={() => setSettingsOpen(true)} title="Gerenciar funil"
               className="p-2.5 rounded-lg bg-slate-900 text-amber-500 hover:bg-slate-800 transition-all flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest">
@@ -247,6 +253,11 @@ export const Crm: React.FC<Props> = ({ currentUser, activeClientId, isAdmin, mem
             </button>
           </div>
         </div>
+      )}
+
+      {importOpen && (
+        <CrmImport cid={cid} currentUser={currentUser} pipelineId={pipelineId} stages={stages} addLog={addLog}
+          onClose={() => setImportOpen(false)} onDone={loadBoard} />
       )}
     </div>
   );
