@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { supabase } from '../services/supabaseClient';
-import { Filter, Plus, X, Save, Trash2, Trophy, Ban } from 'lucide-react';
+import { Filter, Plus, X, Save, Trash2, Trophy, Ban, Settings } from 'lucide-react';
 import { CrmDeal } from './CrmDeal';
+import { CrmSettings } from './CrmSettings';
 
 type Props = {
   currentUser: any;
@@ -26,6 +27,7 @@ export const Crm: React.FC<Props> = ({ currentUser, activeClientId, isAdmin, mem
   const [dragId, setDragId] = useState<string | null>(null);
   const [overStage, setOverStage] = useState<string | null>(null);
   const [detailId, setDetailId] = useState<string | null>(null);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const [dealModal, setDealModal] = useState<any>(null); // { stage_id } ao criar
   const [form, setForm] = useState({ title: '', value: '', expected_close_date: '' });
   const [saving, setSaving] = useState(false);
@@ -121,6 +123,10 @@ export const Crm: React.FC<Props> = ({ currentUser, activeClientId, isAdmin, mem
 
   const boardTotal = deals.reduce((s, d) => s + (Number(d.value) || 0), 0);
 
+  if (settingsOpen) return (
+    <CrmSettings cid={cid} addLog={addLog} onBack={() => { setSettingsOpen(false); loadPipelines(); loadBoard(); }} />
+  );
+
   // Detalhe do negócio (abre ao clicar num card). Antes do loading para não desmontar ao recarregar o board.
   if (detailId) return (
     <CrmDeal dealId={detailId} cid={cid} currentUser={currentUser} isAdmin={isAdmin} members={members}
@@ -139,12 +145,20 @@ export const Crm: React.FC<Props> = ({ currentUser, activeClientId, isAdmin, mem
             Funil de vendas • {deals.length} negócio(s) aberto(s) • {BRL(boardTotal)}
           </p>
         </div>
-        {pipelines.length > 1 && (
-          <select value={pipelineId || ''} onChange={e => setPipelineId(e.target.value)}
-            className="p-2.5 border border-slate-200 rounded-lg text-sm font-bold outline-none focus:border-amber-500 transition-colors bg-white not-italic">
-            {pipelines.map((p: any) => <option key={p.id} value={p.id}>{p.name}</option>)}
-          </select>
-        )}
+        <div className="flex items-center gap-2">
+          {pipelines.length > 1 && (
+            <select value={pipelineId || ''} onChange={e => setPipelineId(e.target.value)}
+              className="p-2.5 border border-slate-200 rounded-lg text-sm font-bold outline-none focus:border-amber-500 transition-colors bg-white not-italic">
+              {pipelines.map((p: any) => <option key={p.id} value={p.id}>{p.name}</option>)}
+            </select>
+          )}
+          {isAdmin && (
+            <button onClick={() => setSettingsOpen(true)} title="Gerenciar funil"
+              className="p-2.5 rounded-lg bg-slate-900 text-amber-500 hover:bg-slate-800 transition-all flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest">
+              <Settings size={16} /><span className="hidden sm:inline">Gerenciar funil</span>
+            </button>
+          )}
+        </div>
       </div>
 
       {pipelines.length === 0 ? (
