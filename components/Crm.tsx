@@ -32,11 +32,15 @@ export const Crm: React.FC<Props> = ({ currentUser, activeClientId, isAdmin, mem
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
   const [leadsOpen, setLeadsOpen] = useState(false);
+  const [ownerFilter, setOwnerFilter] = useState('all');
   const [dealModal, setDealModal] = useState<any>(null); // { stage_id } ao criar
   const [form, setForm] = useState({ title: '', value: '', expected_close_date: '' });
   const [saving, setSaving] = useState(false);
 
   const ownerName = (id: string) => (members.find((m: any) => m.id === id)?.name) || (id === currentUser?.id ? currentUser?.name : '');
+  const crmUsers = members.filter((m: any) => ['SuperAdmin', 'Administrador', 'Comercial'].includes(m.role));
+  // Filtro por responsável no quadro
+  const visibleDeals = ownerFilter === 'all' ? deals : deals.filter(d => (ownerFilter === 'none' ? !d.owner_member_id : d.owner_member_id === ownerFilter));
 
   // 1) Carrega os funis do cliente (uma vez / ao trocar de cliente)
   const loadPipelines = useCallback(async () => {
@@ -125,7 +129,7 @@ export const Crm: React.FC<Props> = ({ currentUser, activeClientId, isAdmin, mem
     log('CRM', `Negócio "${deal.title}" excluído`);
   };
 
-  const boardTotal = deals.reduce((s, d) => s + (Number(d.value) || 0), 0);
+  const boardTotal = visibleDeals.reduce((s, d) => s + (Number(d.value) || 0), 0);
 
   if (settingsOpen) return (
     <CrmSettings cid={cid} addLog={addLog} onBack={() => { setSettingsOpen(false); loadPipelines(); loadBoard(); }} />
@@ -153,10 +157,18 @@ export const Crm: React.FC<Props> = ({ currentUser, activeClientId, isAdmin, mem
         <div>
           <h1 className="text-2xl font-bold text-slate-800 tracking-tight italic">CRM Comercial</h1>
           <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1">
-            Funil de vendas • {deals.length} negócio(s) aberto(s) • {BRL(boardTotal)}
+            Funil de vendas • {visibleDeals.length} negócio(s) aberto(s) • {BRL(boardTotal)}
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
+          {crmUsers.length > 1 && (
+            <select value={ownerFilter} onChange={e => setOwnerFilter(e.target.value)} title="Filtrar por responsável"
+              className="p-2.5 border border-slate-200 rounded-lg text-sm font-bold outline-none focus:border-amber-500 transition-colors bg-white not-italic">
+              <option value="all">Todos os responsáveis</option>
+              <option value="none">Sem responsável</option>
+              {crmUsers.map((m: any) => <option key={m.id} value={m.id}>{m.name}</option>)}
+            </select>
+          )}
           {pipelines.length > 1 && (
             <select value={pipelineId || ''} onChange={e => setPipelineId(e.target.value)}
               className="p-2.5 border border-slate-200 rounded-lg text-sm font-bold outline-none focus:border-amber-500 transition-colors bg-white not-italic">
@@ -196,7 +208,7 @@ export const Crm: React.FC<Props> = ({ currentUser, activeClientId, isAdmin, mem
       ) : (
         <div className="flex gap-4 overflow-x-auto pb-4">
           {stages.map((stage: any) => {
-            const stageDeals = deals.filter(d => d.stage_id === stage.id);
+            const stageDeals = visibleDeals.filter(d => d.stage_id === stage.id);
             const total = stageDeals.reduce((s, d) => s + (Number(d.value) || 0), 0);
             const isOver = overStage === stage.id;
             return (
