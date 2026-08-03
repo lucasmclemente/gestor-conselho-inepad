@@ -1,10 +1,11 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { supabase } from '../services/supabaseClient';
-import { Filter, Plus, X, Save, Trash2, Trophy, Ban, Settings, Upload, Users } from 'lucide-react';
+import { Filter, Plus, X, Save, Trash2, Trophy, Ban, Settings, Upload, Users, TrendingUp } from 'lucide-react';
 import { CrmDeal } from './CrmDeal';
 import { CrmSettings } from './CrmSettings';
 import { CrmImport } from './CrmImport';
 import { CrmLeads } from './CrmLeads';
+import { CrmResults } from './CrmResults';
 
 type Props = {
   currentUser: any;
@@ -32,6 +33,7 @@ export const Crm: React.FC<Props> = ({ currentUser, activeClientId, isAdmin, mem
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
   const [leadsOpen, setLeadsOpen] = useState(false);
+  const [resultsOpen, setResultsOpen] = useState(false);
   const [ownerFilter, setOwnerFilter] = useState('all');
   const [dealModal, setDealModal] = useState<any>(null); // { stage_id } ao criar
   const [form, setForm] = useState({ title: '', value: '', expected_close_date: '' });
@@ -142,6 +144,12 @@ export const Crm: React.FC<Props> = ({ currentUser, activeClientId, isAdmin, mem
       onOpenDeal={(id) => { setLeadsOpen(false); setDetailId(id); }} />
   );
 
+  if (resultsOpen) return (
+    <CrmResults cid={cid} currentUser={currentUser} members={members}
+      onBack={() => setResultsOpen(false)}
+      onOpenDeal={(id) => { setResultsOpen(false); setDetailId(id); }} />
+  );
+
   // Detalhe do negócio (abre ao clicar num card). Antes do loading para não desmontar ao recarregar o board.
   if (detailId) return (
     <CrmDeal dealId={detailId} cid={cid} currentUser={currentUser} isAdmin={isAdmin} members={members}
@@ -178,6 +186,10 @@ export const Crm: React.FC<Props> = ({ currentUser, activeClientId, isAdmin, mem
           <button onClick={() => setImportOpen(true)} title="Importar leads e contatos"
             className="p-2.5 rounded-lg bg-amber-600 text-white hover:bg-amber-700 transition-all flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest">
             <Upload size={16} /><span className="hidden sm:inline">Importar</span>
+          </button>
+          <button onClick={() => setResultsOpen(true)} title="Resultados (ganhos e perdidos)"
+            className="p-2.5 rounded-lg bg-slate-100 text-slate-700 hover:bg-slate-200 transition-all flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest">
+            <TrendingUp size={16} /><span className="hidden sm:inline">Resultados</span>
           </button>
           {isAdmin && (
             <button onClick={() => setLeadsOpen(true)} title="Carteira de leads"
