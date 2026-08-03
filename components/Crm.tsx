@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { supabase } from '../services/supabaseClient';
 import { Filter, Plus, X, Save, Trash2, Trophy, Ban } from 'lucide-react';
+import { CrmDeal } from './CrmDeal';
 
 type Props = {
   currentUser: any;
@@ -24,6 +25,7 @@ export const Crm: React.FC<Props> = ({ currentUser, activeClientId, isAdmin, mem
   const [deals, setDeals] = useState<any[]>([]);
   const [dragId, setDragId] = useState<string | null>(null);
   const [overStage, setOverStage] = useState<string | null>(null);
+  const [detailId, setDetailId] = useState<string | null>(null);
   const [dealModal, setDealModal] = useState<any>(null); // { stage_id } ao criar
   const [form, setForm] = useState({ title: '', value: '', expected_close_date: '' });
   const [saving, setSaving] = useState(false);
@@ -119,6 +121,13 @@ export const Crm: React.FC<Props> = ({ currentUser, activeClientId, isAdmin, mem
 
   const boardTotal = deals.reduce((s, d) => s + (Number(d.value) || 0), 0);
 
+  // Detalhe do negócio (abre ao clicar num card). Antes do loading para não desmontar ao recarregar o board.
+  if (detailId) return (
+    <CrmDeal dealId={detailId} cid={cid} currentUser={currentUser} isAdmin={isAdmin} members={members}
+      stages={stages} addLog={addLog}
+      onBack={() => setDetailId(null)} onMutated={loadBoard} />
+  );
+
   if (loading) return <div className="flex items-center justify-center h-64 text-amber-600 font-bold uppercase animate-pulse">Carregando CRM...</div>;
 
   return (
@@ -172,16 +181,17 @@ export const Crm: React.FC<Props> = ({ currentUser, activeClientId, isAdmin, mem
                 <div className="flex-1 p-2 space-y-2 min-h-[120px]">
                   {stageDeals.map((deal: any) => (
                     <div key={deal.id} draggable
+                      onClick={() => setDetailId(deal.id)}
                       onDragStart={() => setDragId(deal.id)}
                       onDragEnd={() => { setDragId(null); setOverStage(null); }}
-                      className="group bg-white rounded-lg border border-slate-200 p-3 shadow-sm cursor-grab active:cursor-grabbing hover:border-amber-300 hover:shadow transition-all">
+                      className="group bg-white rounded-lg border border-slate-200 p-3 shadow-sm cursor-pointer hover:border-amber-300 hover:shadow transition-all">
                       <p className="text-sm font-bold text-slate-800 italic leading-tight">{deal.title}</p>
                       {Number(deal.value) > 0 && <p className="text-[11px] font-bold text-emerald-600 mt-1 not-italic">{BRL(deal.value)}</p>}
                       {ownerName(deal.owner_member_id) && <p className="text-[9px] text-slate-400 uppercase tracking-wide mt-1 truncate not-italic">{ownerName(deal.owner_member_id)}</p>}
                       <div className="flex items-center gap-2 mt-2 pt-2 border-t border-slate-100 opacity-0 group-hover:opacity-100 transition-opacity">
-                        <button onClick={() => setOutcome(deal, 'won')} title="Marcar como Ganho" className="text-[9px] font-bold uppercase tracking-wide text-emerald-600 hover:text-emerald-700 flex items-center gap-1 not-italic"><Trophy size={12} /> Ganho</button>
-                        <button onClick={() => setOutcome(deal, 'lost')} title="Marcar como Perdido" className="text-[9px] font-bold uppercase tracking-wide text-slate-400 hover:text-red-500 flex items-center gap-1 not-italic"><Ban size={12} /> Perdido</button>
-                        <button onClick={() => removeDeal(deal)} title="Excluir" className="ml-auto text-slate-300 hover:text-red-500 transition-colors"><Trash2 size={12} /></button>
+                        <button onClick={(e) => { e.stopPropagation(); setOutcome(deal, 'won'); }} title="Marcar como Ganho" className="text-[9px] font-bold uppercase tracking-wide text-emerald-600 hover:text-emerald-700 flex items-center gap-1 not-italic"><Trophy size={12} /> Ganho</button>
+                        <button onClick={(e) => { e.stopPropagation(); setOutcome(deal, 'lost'); }} title="Marcar como Perdido" className="text-[9px] font-bold uppercase tracking-wide text-slate-400 hover:text-red-500 flex items-center gap-1 not-italic"><Ban size={12} /> Perdido</button>
+                        <button onClick={(e) => { e.stopPropagation(); removeDeal(deal); }} title="Excluir" className="ml-auto text-slate-300 hover:text-red-500 transition-colors"><Trash2 size={12} /></button>
                       </div>
                     </div>
                   ))}
