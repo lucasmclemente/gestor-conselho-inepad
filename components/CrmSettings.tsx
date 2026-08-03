@@ -21,6 +21,13 @@ export const CrmSettings: React.FC<Props> = ({ cid, addLog, onBack }) => {
   const [editStageName, setEditStageName] = useState('');
   const [editPipeName, setEditPipeName] = useState('');
   const [editingPipe, setEditingPipe] = useState(false);
+  // Campos personalizados
+  const [fields, setFields] = useState<any[]>([]);
+  const [nfLabel, setNfLabel] = useState('');
+  const [nfType, setNfType] = useState('text');
+  const [nfOptions, setNfOptions] = useState('');
+  const [editFieldId, setEditFieldId] = useState<string | null>(null);
+  const [editFieldLabel, setEditFieldLabel] = useState('');
 
   const loadPipelines = useCallback(async () => {
     const { data } = await supabase.from('crm_pipelines').select('*').eq('client_id', cid).eq('active', true).order('position');
@@ -36,10 +43,46 @@ export const CrmSettings: React.FC<Props> = ({ cid, addLog, onBack }) => {
     setStages(data || []);
   }, [pid]);
 
+  const loadFields = useCallback(async () => {
+    const { data } = await supabase.from('crm_field_defs').select('*').eq('client_id', cid).eq('active', true).order('position');
+    setFields(data || []);
+  }, [cid]);
+
   useEffect(() => { loadPipelines(); }, [loadPipelines]);
   useEffect(() => { loadStages(); }, [loadStages]);
+  useEffect(() => { loadFields(); }, [loadFields]);
 
   const currentPipe = pipelines.find(p => p.id === pid);
+
+  const TYPE_LABEL: Record<string, string> = { text: 'Texto', number: 'Número', select: 'Seleção', date: 'Data', checkbox: 'Sim/Não' };
+  const addField = async () => {
+    if (!nfLabel.trim()) return;
+    const pos = fields.length ? Math.max(...fields.map(f => f.position)) + 1 : 0;
+    const options = nfType === 'select' ? nfOptions.split(',').map(s => s.trim()).filter(Boolean) : [];
+    const { error } = await supabase.from('crm_field_defs').insert({ client_id: cid, label: nfLabel.trim(), type: nfType, options, position: pos });
+    if (error) { alert('Erro: ' + error.message); return; }
+    setNfLabel(''); setNfOptions(''); setNfType('text'); log('CRM', `Campo "${nfLabel.trim()}" criado`); loadFields();
+  };
+  const renameField = async (f: any) => {
+    if (!editFieldLabel.trim()) { setEditFieldId(null); return; }
+    const { error } = await supabase.from('crm_field_defs').update({ label: editFieldLabel.trim() }).eq('id', f.id);
+    if (error) { alert('Erro: ' + error.message); return; }
+    setEditFieldId(null); loadFields();
+  };
+  const deleteField = async (f: any) => {
+    if (!window.confirm(`Excluir o campo "${f.label}"? Os valores já preenchidos nos negócios deixam de aparecer.`)) return;
+    const { error } = await supabase.from('crm_field_defs').delete().eq('id', f.id);
+    if (error) { alert('Erro: ' + error.message); return; }
+    log('CRM', `Campo "${f.label}" excluído`); loadFields();
+  };
+  const moveField = async (idx: number, dir: -1 | 1) => {
+    const j = idx + dir;
+    if (j < 0 || j >= fields.length) return;
+    const arr = [...fields];
+    [arr[idx], arr[j]] = [arr[j], arr[idx]];
+    setFields(arr.map((f, i) => ({ ...f, position: i })));
+    await Promise.all(arr.map((f, i) => supabase.from('crm_field_defs').update({ position: i }).eq('id', f.id)));
+  };
 
   // ── Etapas ──────────────────────────────────────────────
   const addStage = async () => {
@@ -196,6 +239,51 @@ export const CrmSettings: React.FC<Props> = ({ cid, addLog, onBack }) => {
             <input type="text" placeholder="Nova etapa" className="flex-1 p-2.5 border border-slate-200 rounded-lg text-sm outline-none focus:border-amber-500" value={newStage} onChange={e => setNewStage(e.target.value)} onKeyDown={e => e.key === 'Enter' && addStage()} />
             <button onClick={addStage} className="px-5 py-2.5 bg-amber-600 hover:bg-amber-700 text-white rounded-lg font-bold text-[10px] uppercase tracking-widest flex items-center gap-2 transition-all"><Plus size={14} /> Adicionar</button>
           </div>
+        </div>
+      </div>
+
+      {/* Campos personalizados */}
+      <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm space-y-3">
+        <h3 className="text-[10px] font-bold uppercase text-slate-400 tracking-widest">Campos personalizados do negócio</h3>
+        <p className="text-[11px] text-slate-500">Ex.: Lead Score, faturamento, respostas de qualificação. Aparecem no card de cada negócio.</p>
+        <div className="space-y-2">
+          {fields.map((f, idx) => (
+            <div key={f.id} className="flex items-center gap-2 bg-slate-50 rounded-lg border border-slate-200 p-2">
+              <div className="flex flex-col">
+                <button onClick={() => moveField(idx, -1)} disabled={idx === 0} className="text-slate-300 hover:text-slate-600 disabled:opacity-30"><ChevronUp size={14} /></button>
+                <button onClick={() => moveField(idx, 1)} disabled={idx === fields.length - 1} className="text-slate-300 hover:text-slate-600 disabled:opacity-30"><ChevronDown size={14} /></button>
+              </div>
+              {editFieldId === f.id ? (
+                <>
+                  <input autoFocus type="text" className="flex-1 p-2 border border-slate-200 rounded-lg text-sm font-bold outline-none focus:border-amber-500" value={editFieldLabel} onChange={e => setEditFieldLabel(e.target.value)} onKeyDown={e => e.key === 'Enter' && renameField(f)} />
+                  <button onClick={() => renameField(f)} className="p-2 bg-amber-600 text-white rounded-lg"><Check size={14} /></button>
+                  <button onClick={() => setEditFieldId(null)} className="p-2 bg-slate-100 text-slate-500 rounded-lg"><X size={14} /></button>
+                </>
+              ) : (
+                <>
+                  <span className="flex-1 text-sm font-bold text-slate-700 italic truncate">{f.label}</span>
+                  <span className="text-[9px] font-bold uppercase tracking-wide text-slate-400 bg-white border border-slate-200 rounded px-1.5 py-0.5 not-italic">{TYPE_LABEL[f.type]}{f.type === 'select' && Array.isArray(f.options) ? ` (${f.options.length})` : ''}</span>
+                  <button onClick={() => { setEditFieldId(f.id); setEditFieldLabel(f.label); }} className="text-slate-300 hover:text-amber-600 p-1"><Edit2 size={14} /></button>
+                  <button onClick={() => deleteField(f)} className="text-slate-300 hover:text-red-500 p-1"><Trash2 size={14} /></button>
+                </>
+              )}
+            </div>
+          ))}
+          {fields.length === 0 && <p className="text-xs text-slate-400 italic">Nenhum campo personalizado.</p>}
+        </div>
+        <div className="flex flex-col sm:flex-row gap-2 pt-2 border-t border-slate-100">
+          <input type="text" placeholder="Nome do campo (ex: Lead Score)" className="flex-1 p-2.5 border border-slate-200 rounded-lg text-sm outline-none focus:border-amber-500" value={nfLabel} onChange={e => setNfLabel(e.target.value)} />
+          <select value={nfType} onChange={e => setNfType(e.target.value)} className="p-2.5 border border-slate-200 rounded-lg text-sm font-bold outline-none focus:border-amber-500 bg-white">
+            <option value="text">Texto</option>
+            <option value="number">Número</option>
+            <option value="select">Seleção</option>
+            <option value="date">Data</option>
+            <option value="checkbox">Sim/Não</option>
+          </select>
+          {nfType === 'select' && (
+            <input type="text" placeholder="Opções, separadas por vírgula" className="flex-1 p-2.5 border border-slate-200 rounded-lg text-sm outline-none focus:border-amber-500" value={nfOptions} onChange={e => setNfOptions(e.target.value)} />
+          )}
+          <button onClick={addField} className="px-5 py-2.5 bg-amber-600 hover:bg-amber-700 text-white rounded-lg font-bold text-[10px] uppercase tracking-widest flex items-center gap-2 transition-all shrink-0"><Plus size={14} /> Adicionar</button>
         </div>
       </div>
     </div>

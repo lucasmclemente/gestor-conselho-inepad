@@ -42,6 +42,9 @@ export const CrmDeal: React.FC<Props> = ({ dealId, cid, currentUser, isAdmin, me
   const [org, setOrg] = useState<any>(null);
   const [acts, setActs] = useState<any[]>([]);
   const [events, setEvents] = useState<any[]>([]);
+  const [fieldDefs, setFieldDefs] = useState<any[]>([]);
+  const [customForm, setCustomForm] = useState<Record<string, any>>({});
+  const [savingCustom, setSavingCustom] = useState(false);
 
   const [dForm, setDForm] = useState<any>({ title: '', value: '', expected_close_date: '', source: '', owner_member_id: '' });
   const [savingDeal, setSavingDeal] = useState(false);
@@ -58,13 +61,15 @@ export const CrmDeal: React.FC<Props> = ({ dealId, cid, currentUser, isAdmin, me
       title: d?.title || '', value: d?.value ?? '', expected_close_date: d?.expected_close_date || '',
       source: d?.source || '', owner_member_id: d?.owner_member_id || '',
     });
-    const [ct, og, ac, ev] = await Promise.all([
+    const [ct, og, ac, ev, fd] = await Promise.all([
       d?.contact_id ? supabase.from('crm_contacts').select('*').eq('id', d.contact_id).maybeSingle() : Promise.resolve({ data: null }),
       d?.organization_id ? supabase.from('crm_organizations').select('*').eq('id', d.organization_id).maybeSingle() : Promise.resolve({ data: null }),
       supabase.from('crm_activities').select('*').eq('deal_id', dealId).order('created_at', { ascending: false }),
       supabase.from('crm_deal_events').select('*').eq('deal_id', dealId).order('created_at', { ascending: false }),
+      supabase.from('crm_field_defs').select('*').eq('client_id', cid).eq('active', true).order('position'),
     ]);
     setContact(ct.data); setOrg(og.data); setActs(ac.data || []); setEvents(ev.data || []);
+    setFieldDefs(fd.data || []); setCustomForm(d?.custom || {});
     setLoading(false);
   }, [dealId]);
   useEffect(() => { load(); }, [load]);
@@ -134,6 +139,15 @@ export const CrmDeal: React.FC<Props> = ({ dealId, cid, currentUser, isAdmin, me
       await supabase.from('crm_deals').update({ organization_id: data.id }).eq('id', dealId);
     }
     setOForm(null); await load();
+  };
+
+  const setCustom = (id: string, val: any) => setCustomForm(prev => ({ ...prev, [id]: val }));
+  const saveCustom = async () => {
+    setSavingCustom(true);
+    const { error } = await supabase.from('crm_deals').update({ custom: customForm }).eq('id', dealId);
+    setSavingCustom(false);
+    if (error) { alert('Erro ao salvar campos: ' + error.message); return; }
+    log('CRM', 'Campos personalizados atualizados');
   };
 
   const addActivity = async () => {
@@ -293,6 +307,8 @@ export const CrmDeal: React.FC<Props> = ({ dealId, cid, currentUser, isAdmin, me
                   <p className="font-bold italic">{org.name}</p>
                   {org.phone && <p className="text-xs flex items-center gap-1.5 text-slate-500"><Phone size={11} /> {org.phone}</p>}
                   {org.address && <p className="text-xs text-slate-500">{org.address}</p>}
+                  {(org.city || org.uf) && <p className="text-xs text-slate-500">{[org.city, org.uf].filter(Boolean).join(' / ')}</p>}
+                  {org.cnpj && <p className="text-[11px] text-slate-400 font-bold not-italic">CNPJ: {org.cnpj}</p>}
                 </div>
               ) : <p className="text-xs text-slate-400 italic">Nenhuma empresa vinculada.</p>
             ) : (
@@ -307,6 +323,35 @@ export const CrmDeal: React.FC<Props> = ({ dealId, cid, currentUser, isAdmin, me
               </div>
             )}
           </div>
+
+          {/* Campos personalizados */}
+          {fieldDefs.length > 0 && (
+            <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm space-y-3">
+              <h3 className="text-[10px] font-bold uppercase text-slate-400 tracking-widest">Informações adicionais</h3>
+              {fieldDefs.map(f => (
+                <div key={f.id} className="space-y-1">
+                  {f.type !== 'checkbox' && <label className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">{f.label}</label>}
+                  {f.type === 'text' && <input type="text" className="w-full p-2.5 border border-slate-200 rounded-lg text-sm outline-none focus:border-amber-500" value={customForm[f.id] ?? ''} onChange={e => setCustom(f.id, e.target.value)} />}
+                  {f.type === 'number' && <input type="number" className="w-full p-2.5 border border-slate-200 rounded-lg text-sm outline-none focus:border-amber-500" value={customForm[f.id] ?? ''} onChange={e => setCustom(f.id, e.target.value)} />}
+                  {f.type === 'date' && <input type="date" className="w-full p-2.5 border border-slate-200 rounded-lg text-sm outline-none focus:border-amber-500" value={customForm[f.id] ?? ''} onChange={e => setCustom(f.id, e.target.value)} />}
+                  {f.type === 'select' && (
+                    <select className="w-full p-2.5 border border-slate-200 rounded-lg text-sm font-bold outline-none focus:border-amber-500 bg-white" value={customForm[f.id] ?? ''} onChange={e => setCustom(f.id, e.target.value)}>
+                      <option value="">—</option>
+                      {(Array.isArray(f.options) ? f.options : []).map((o: string) => <option key={o} value={o}>{o}</option>)}
+                    </select>
+                  )}
+                  {f.type === 'checkbox' && (
+                    <label className="flex items-center gap-2 text-sm text-slate-600 cursor-pointer">
+                      <input type="checkbox" checked={!!customForm[f.id]} onChange={e => setCustom(f.id, e.target.checked)} className="w-4 h-4 accent-amber-600" /> {f.label}
+                    </label>
+                  )}
+                </div>
+              ))}
+              <button disabled={savingCustom} onClick={saveCustom} className="w-full px-6 py-2.5 bg-amber-600 hover:bg-amber-700 text-white rounded-lg font-bold text-[10px] uppercase tracking-widest flex items-center justify-center gap-2 transition-all disabled:opacity-50">
+                <Save size={14} /> {savingCustom ? 'Salvando...' : 'Salvar campos'}
+              </button>
+            </div>
+          )}
         </div>
 
         {/* PAINEL DIREITO — ATIVIDADES / HISTÓRICO */}
