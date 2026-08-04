@@ -261,10 +261,10 @@ export const Crm: React.FC<Props> = ({ currentUser, activeClientId, isAdmin, mem
               {pipelines.map((p: any) => <option key={p.id} value={p.id}>{p.name}</option>)}
             </select>
           )}
-          <button onClick={gotoConnected ? undefined : connectPhone} disabled={gotoBusy || gotoConnected === true}
-            title={gotoConnected ? 'Telefonia GoTo conectada' : 'Conectar telefonia GoTo'}
-            className={`p-2.5 rounded-lg transition-all flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest ${gotoConnected ? 'bg-emerald-50 text-emerald-700 border border-emerald-200 cursor-default' : 'bg-slate-100 text-slate-700 hover:bg-slate-200'}`}>
-            <Phone size={16} /><span className="hidden sm:inline">{gotoConnected ? 'Telefonia ✓' : (gotoBusy ? 'Conectando...' : 'Conectar telefonia')}</span>
+          <button onClick={connectPhone} disabled={gotoBusy}
+            title={gotoConnected ? 'Telefonia conectada — clique para reconectar/atualizar permissões' : 'Conectar telefonia GoTo'}
+            className={`p-2.5 rounded-lg transition-all flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest ${gotoConnected ? 'bg-emerald-50 text-emerald-700 border border-emerald-200 hover:bg-emerald-100' : 'bg-slate-100 text-slate-700 hover:bg-slate-200'}`}>
+            <Phone size={16} /><span className="hidden sm:inline">{gotoBusy ? 'Conectando...' : (gotoConnected ? 'Telefonia ✓' : 'Conectar telefonia')}</span>
           </button>
           <button onClick={() => setImportOpen(true)} title="Importar leads e contatos"
             className="p-2.5 rounded-lg bg-amber-600 text-white hover:bg-amber-700 transition-all flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest">

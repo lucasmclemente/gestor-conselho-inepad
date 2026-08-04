@@ -77,7 +77,7 @@ serve(async (req) => {
 
   // ── Sondagem das gravações (endpoints CERTOS: call-events-report) ──
   if (action === 'recordings') {
-    const out: any = {};
+    const out: any = { tokenScope: conn.scope };
     const findFirst = (node: any, key: string): any => {
       if (!node || typeof node !== 'object') return null;
       if (Array.isArray(node)) { for (const n of node) { const f = findFirst(n, key); if (f) return f; } return null; }
@@ -86,7 +86,7 @@ serve(async (req) => {
       return null;
     };
     let accountKey = '';
-    try { const r = await gget('/users/v1/lines'); const b = await r.json().catch(() => null); accountKey = b?.items?.[0]?.organization?.accountKey || ''; } catch { /* */ }
+    try { const r = await gget('/users/v1/lines'); const b = await r.json().catch(() => null); out.linesRaw = { status: r.status, body: b }; accountKey = b?.items?.[0]?.organization?.accountKey || ''; } catch (e) { out.linesRaw = { error: String(e) }; }
     out.accountKey = accountKey;
     const end = new Date().toISOString();
     const start = new Date(Date.now() - 7 * 24 * 3600 * 1000).toISOString();
