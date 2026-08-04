@@ -193,13 +193,47 @@ serve(async (req) => {
       return cands;
     };
 
+    // ── Auto-criação de leads p/ números desconhecidos ──────────
+    // Trava anti-lixo: só liga atendida, com duração mínima, 1 lead por número.
+    const autoCreate = body.autoCreate !== false;
+    const MIN_DUR = Number(body.minDuration) || 30; // segundos
+    const MAX_NEW_LEADS = 400;
+    let pipeId: string | null = null, stageId: string | null = null;
+    if (autoCreate) {
+      const { data: pipe } = await admin.from('crm_pipelines').select('id').eq('client_id', cid).order('is_default', { ascending: false }).order('position').limit(1).maybeSingle();
+      if (pipe) {
+        pipeId = pipe.id;
+        const { data: st } = await admin.from('crm_stages').select('id').eq('pipeline_id', pipe.id).order('position').limit(1).maybeSingle();
+        stageId = st?.id || null;
+      }
+    }
+    const canCreate = autoCreate && !!pipeId && !!stageId;
+
+    const matchAny = (nums: string[]) => {
+      for (const c of nums) { for (const v of variants(norm(c))) { const m = phoneToDeal.get(v); if (m) return { hit: m, ext: c }; } }
+      return null;
+    };
+
     const rows: any[] = [];
-    let matched = 0;
+    let matched = 0, leadsCreated = 0;
     for (const call of calls) {
-      let hit: any = null; let ext = '';
-      for (const c of extNums(call)) {
-        for (const v of variants(norm(c))) { const m = phoneToDeal.get(v); if (m) { hit = m; ext = c; break; } }
-        if (hit) break;
+      const nums = extNums(call);
+      const dur = call.callEnded && call.callCreated ? Math.round((new Date(call.callEnded).getTime() - new Date(call.callCreated).getTime()) / 1000) : 0;
+      const answered = call.callerOutcome !== 'MISSED';
+
+      let m = matchAny(nums);
+      let hit: any = m?.hit || null; let ext = m?.ext || '';
+
+      // não achou lead: cria um (se passar na trava e ainda dentro do teto)
+      if (!hit && canCreate && answered && dur >= MIN_DUR && nums.length && leadsCreated < MAX_NEW_LEADS) {
+        ext = nums[0];
+        const orgName = `Lead ${ext}`;
+        const { data: org } = await admin.from('crm_organizations').insert({ client_id: cid, name: orgName, phone: ext }).select('id').single();
+        if (org) {
+          const { data: ct } = await admin.from('crm_contacts').insert({ client_id: cid, organization_id: org.id, name: 'Contato (telefonia)', phone: ext }).select('id').single();
+          const { data: dl } = await admin.from('crm_deals').insert({ client_id: cid, pipeline_id: pipeId, stage_id: stageId, title: orgName, organization_id: org.id, contact_id: ct?.id || null, status: 'open', source: 'Telefonia (GoTo)' }).select('id, owner_member_id').single();
+          if (dl) { hit = { deal: dl, contactId: ct?.id || null }; addPhone(ext, dl, ct?.id || null); leadsCreated++; }
+        }
       }
       if (!hit) continue;
       matched++;
@@ -208,8 +242,7 @@ serve(async (req) => {
       if (seen.has(key)) continue;
       seen.add(key);
       const dir = call.direction === 'OUTBOUND' ? 'saída' : 'entrada';
-      const dur = call.callEnded && call.callCreated ? Math.round((new Date(call.callEnded).getTime() - new Date(call.callCreated).getTime()) / 1000) : 0;
-      const outcome = call.callerOutcome === 'MISSED' ? 'não atendida' : 'atendida';
+      const outcome = answered ? 'atendida' : 'não atendida';
       const recorded = !!(call.caller?.recordingId || (call.participants || []).some((p: any) => p.recordingId));
       const mm = Math.floor(dur / 60), ss = dur % 60;
       rows.push({
@@ -244,7 +277,7 @@ serve(async (req) => {
       samplePhoneKeys: [...phoneToDeal.keys()].slice(0, 12),
       sampleCalledNumbers: [...calledNorms].slice(0, 20),
     };
-    return json({ fetched: calls.length, matched, created, debug });
+    return json({ fetched: calls.length, matched, created, leadsCreated, debug });
   }
 
   // ── Diagnóstico da linha ────────────────────────────────────

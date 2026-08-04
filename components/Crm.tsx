@@ -107,9 +107,9 @@ export const Crm: React.FC<Props> = ({ currentUser, activeClientId, isAdmin, mem
 
   // Sincroniza o registro de ligações da GoTo → atividades nos negócios
   const syncCalls = async () => {
-    if (!window.confirm('Buscar as ligações da GoTo dos últimos 7 dias e registrar nos negócios correspondentes (pelo telefone do contato)?')) return;
+    if (!window.confirm('Buscar as ligações da GoTo dos últimos 7 dias e registrar nos negócios?\n\nLigações atendidas (≥30s) para números ainda não cadastrados viram um novo lead automaticamente.')) return;
     setGotoBusy(true);
-    const { data, error } = await supabase.functions.invoke('goto-call', { body: { action: 'sync', days: 7 } });
+    const { data, error } = await supabase.functions.invoke('goto-call', { body: { action: 'sync', days: 7, autoCreate: true } });
     setGotoBusy(false);
     if (error) {
       let msg = error.message;
@@ -118,14 +118,14 @@ export const Crm: React.FC<Props> = ({ currentUser, activeClientId, isAdmin, mem
       return;
     }
     const d = data as any;
-    const resumo = `Sincronização concluída!\n\n• ${d.fetched} ligações analisadas\n• ${d.matched} casadas com negócios\n• ${d.created} novas registradas`;
-    if (d.matched === 0 && d.debug) {
-      try { await navigator.clipboard.writeText(JSON.stringify(d.debug, null, 2)); alert(resumo + '\n\n(Nada casou — diagnóstico COPIADO. Cole aqui no chat para eu ajustar o casamento de telefones.)'); }
+    const resumo = `Sincronização concluída!\n\n• ${d.fetched} ligações analisadas\n• ${d.created} ligações registradas\n• ${d.leadsCreated || 0} novos leads criados`;
+    if ((d.created || 0) === 0 && (d.leadsCreated || 0) === 0 && d.debug) {
+      try { await navigator.clipboard.writeText(JSON.stringify(d.debug, null, 2)); alert(resumo + '\n\n(Nada foi registrado — diagnóstico COPIADO. Cole aqui no chat.)'); }
       catch { alert(resumo); }
       return;
     }
     alert(resumo);
-    if (d.created > 0) loadBoard();
+    if ((d.created || 0) > 0 || (d.leadsCreated || 0) > 0) loadBoard();
   };
 
   // Campos exigidos pela etapa (compara contra os valores salvos em deal.custom)
