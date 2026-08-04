@@ -59,19 +59,15 @@ serve(async (req) => {
   }
   const gget = (path: string) => fetch(`${API}${path}`, { headers: { Authorization: `Bearer ${accessToken}`, Accept: 'application/json' } });
 
-  // varre qualquer estrutura procurando arrays "lines" com ids
-  const collectLines = (node: any, acc: any[]) => {
-    if (!node || typeof node !== 'object') return;
-    if (Array.isArray(node)) { node.forEach(n => collectLines(n, acc)); return; }
-    if (Array.isArray(node.lines)) node.lines.forEach((l: any) => { if (l && (l.id || l.lineId)) acc.push({ id: l.id || l.lineId, number: l.number ?? l.phoneNumber ?? null, name: l.name ?? null }); });
-    for (const k of Object.keys(node)) collectLines(node[k], acc);
-  };
+  // A linha do usuário vem de GET /users/v1/lines → items[]
   const findLines = async () => {
-    const raw: any = {}; const cands: any[] = [];
-    for (const path of ['/users/v1/me', '/identity/v1/me', '/users/v1/lines', '/users/v1/me/lines']) {
-      try { const r = await gget(path); const b = await r.json().catch(() => null); raw[path] = { status: r.status, body: b }; collectLines(b, cands); }
-      catch (e) { raw[path] = { error: String(e) }; }
-    }
+    const raw: any = {}; let cands: any[] = [];
+    try {
+      const r = await gget('/users/v1/lines');
+      const b = await r.json().catch(() => null);
+      raw['/users/v1/lines'] = { status: r.status, body: b };
+      if (Array.isArray(b?.items)) cands = b.items.filter((i: any) => i?.id).map((i: any) => ({ id: i.id, number: i.number ?? null, name: i.name ?? null }));
+    } catch (e) { raw['/users/v1/lines'] = { error: String(e) }; }
     const seen = new Set<string>(); const candidates = cands.filter(c => c.id && !seen.has(c.id) && seen.add(c.id));
     return { candidates, raw };
   };
