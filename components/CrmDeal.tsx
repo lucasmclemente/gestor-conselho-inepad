@@ -175,6 +175,16 @@ export const CrmDeal: React.FC<Props> = ({ dealId, cid, currentUser, isAdmin, me
     onMutated();
   };
 
+  const callContact = async () => {
+    if (!contact?.phone) return;
+    const d = String(contact.phone).replace(/\D/g, '');
+    const dial = '+' + (d.length <= 11 ? '55' + d : d);
+    const { data, error } = await supabase.functions.invoke('goto-call', { body: { dial, dealId, contactName: contact.name } });
+    if (error || (data as any)?.error) { alert('Erro ao ligar: ' + (error?.message || (data as any)?.error)); return; }
+    alert('☎️ Ligação iniciada! Atenda no seu telefone/app GoTo — ele conecta com o contato.');
+    load();
+  };
+
   const setCustom = (id: string, val: any) => setCustomForm(prev => ({ ...prev, [id]: val }));
   const saveCustom = async () => {
     setSavingCustom(true);
@@ -325,6 +335,7 @@ export const CrmDeal: React.FC<Props> = ({ dealId, cid, currentUser, isAdmin, me
                   {contact.email && <a href={mailtoLink(contact.email)} className="text-xs flex items-center gap-1.5 text-slate-500 hover:text-amber-600 w-fit transition-colors"><Mail size={11} /> {contact.email}</a>}
                   {(contact.email || contact.phone) && (
                     <div className="flex gap-3 pt-1">
+                      {contact.phone && <button onClick={callContact} className="text-[9px] font-bold uppercase tracking-wide text-sky-600 hover:text-sky-700 flex items-center gap-1 not-italic"><Phone size={12} /> Ligar</button>}
                       {contact.email && <a href={mailtoLink(contact.email)} className="text-[9px] font-bold uppercase tracking-wide text-amber-600 hover:text-amber-700 flex items-center gap-1 not-italic"><Mail size={12} /> E-mail</a>}
                       {contact.phone && <a href={waLink(contact.phone)} target="_blank" rel="noreferrer" className="text-[9px] font-bold uppercase tracking-wide text-emerald-600 hover:text-emerald-700 flex items-center gap-1 not-italic"><MessageSquare size={12} /> WhatsApp</a>}
                     </div>
