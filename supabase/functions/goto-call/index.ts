@@ -86,7 +86,7 @@ serve(async (req) => {
       return null;
     };
     let accountKey = '';
-    try { const r = await gget('/users/v1/lines'); const b = await r.json().catch(() => null); out.linesRaw = { status: r.status, body: b }; accountKey = b?.items?.[0]?.organization?.accountKey || ''; } catch (e) { out.linesRaw = { error: String(e) }; }
+    try { const r = await gget('/users/v1/lines'); const b = await r.json().catch(() => null); out.linesRaw = { status: r.status, body: b }; accountKey = b?.items?.[0]?.accountKey || b?.items?.[0]?.organization?.accountKey || ''; } catch (e) { out.linesRaw = { error: String(e) }; }
     out.accountKey = accountKey;
     const end = new Date().toISOString();
     const start = new Date(Date.now() - 7 * 24 * 3600 * 1000).toISOString();
