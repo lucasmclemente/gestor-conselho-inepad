@@ -75,22 +75,31 @@ serve(async (req) => {
   const body = await req.json().catch(() => ({}));
   const action = body.action || 'call';
 
-  // ── Sondagem das gravações (descobrir os endpoints certos) ──
+  // ── Sondagem das gravações (endpoints CERTOS: call-events-report) ──
   if (action === 'recordings') {
     const out: any = {};
-    const candidates = [
-      '/call-reports/v1/reports',
-      '/reports/v1/calls',
-      '/recording/v1/recordings',
-      '/recordings/v1/recordings',
-      '/call-events/v1/reports',
-      '/call-history/v1/calls',
-      '/voice-admin/v1/recordings',
-    ];
-    for (const p of candidates) {
-      try { const r = await gget(p); out[p] = { status: r.status, body: await r.json().catch(() => null) }; }
-      catch (e) { out[p] = { error: String(e) }; }
-    }
+    const findFirst = (node: any, key: string): any => {
+      if (!node || typeof node !== 'object') return null;
+      if (Array.isArray(node)) { for (const n of node) { const f = findFirst(n, key); if (f) return f; } return null; }
+      if (node[key]) return node[key];
+      for (const k of Object.keys(node)) { const f = findFirst(node[k], key); if (f) return f; }
+      return null;
+    };
+    let accountKey = '';
+    try { const r = await gget('/users/v1/lines'); const b = await r.json().catch(() => null); accountKey = b?.items?.[0]?.organization?.accountKey || ''; } catch { /* */ }
+    out.accountKey = accountKey;
+    const end = new Date().toISOString();
+    const start = new Date(Date.now() - 7 * 24 * 3600 * 1000).toISOString();
+    try {
+      const r = await gget(`/call-events-report/v1/report-summaries?accountKey=${accountKey}&startTime=${encodeURIComponent(start)}&endTime=${encodeURIComponent(end)}`);
+      const b = await r.json().catch(() => null);
+      out.summaries = { status: r.status, body: b };
+      const first = findFirst(b, 'conversationSpaceId');
+      if (first) {
+        const rr = await gget(`/call-events-report/v1/reports/${first}`);
+        out.sampleReport = { status: rr.status, body: await rr.json().catch(() => null) };
+      }
+    } catch (e) { out.summaries_error = String(e); }
     return json(out);
   }
 
