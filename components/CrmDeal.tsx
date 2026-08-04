@@ -179,15 +179,17 @@ export const CrmDeal: React.FC<Props> = ({ dealId, cid, currentUser, isAdmin, me
     if (!contact?.phone) return;
     const d = String(contact.phone).replace(/\D/g, '');
     const dial = '+' + (d.length <= 11 ? '55' + d : d);
-    const { data, error } = await supabase.functions.invoke('goto-call', { body: { dial, dealId, contactName: contact.name } });
-    if (error) {
-      let msg = error.message;
-      try { const b = await (error as any).context?.json?.(); if (b?.error) msg = b.error + (b.detail ? ' — ' + JSON.stringify(b.detail) : ''); } catch { /* noop */ }
-      alert('Erro ao ligar: ' + msg); return;
-    }
-    if ((data as any)?.error) { alert('Erro ao ligar: ' + (data as any).error); return; }
-    alert('☎️ Ligação iniciada! Atenda no seu telefone/app GoTo — ele conecta com o contato.');
-    load();
+    // registra a ligação como atividade (não bloqueia a discagem se falhar)
+    try {
+      const { data } = await supabase.from('crm_activities').insert({
+        client_id: cid, deal_id: dealId, type: 'call',
+        title: `Ligação para ${contact.name}`, notes: `Número: ${dial}`,
+        owner_member_id: currentUser?.id || null,
+      }).select().single();
+      if (data) setActs(prev => [data, ...prev]);
+    } catch { /* segue */ }
+    // abre o discador (app GoTo, se for o handler de tel: na máquina)
+    window.location.href = `tel:${dial}`;
   };
 
   const setCustom = (id: string, val: any) => setCustomForm(prev => ({ ...prev, [id]: val }));
