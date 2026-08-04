@@ -207,7 +207,21 @@ serve(async (req) => {
       if (error) return json({ error: 'Falha ao gravar as atividades.', detail: error.message }, 400);
       created = (data || []).length;
     }
-    return json({ fetched: calls.length, matched, created });
+
+    // diagnóstico (ajuda a entender por que algo não casou)
+    const debug = {
+      totalContacts: (contacts || []).length,
+      contactsWithPhone: (contacts || []).filter((c: any) => c.phone).length,
+      totalDeals: (deals || []).length,
+      dealsWithOrg: dealByOrg.size,
+      sampleContactPhones: (contacts || []).filter((c: any) => c.phone).slice(0, 8).map((c: any) => ({ raw: c.phone, norm: norm(c.phone) })),
+      sampleCalls: calls.slice(0, 5).map((call: any) => ({
+        direction: call.direction,
+        callerNumber: call.caller?.number, callerType: call.caller?.type?.value ?? call.caller?.type ?? null,
+        participants: (call.participants || []).map((p: any) => ({ number: p.number, type: p?.type?.value ?? p?.type ?? null })),
+      })),
+    };
+    return json({ fetched: calls.length, matched, created, debug });
   }
 
   // ── Diagnóstico da linha ────────────────────────────────────

@@ -118,7 +118,13 @@ export const Crm: React.FC<Props> = ({ currentUser, activeClientId, isAdmin, mem
       return;
     }
     const d = data as any;
-    alert(`Sincronização concluída!\n\n• ${d.fetched} ligações analisadas\n• ${d.matched} casadas com negócios\n• ${d.created} novas registradas`);
+    const resumo = `Sincronização concluída!\n\n• ${d.fetched} ligações analisadas\n• ${d.matched} casadas com negócios\n• ${d.created} novas registradas`;
+    if (d.matched === 0 && d.debug) {
+      try { await navigator.clipboard.writeText(JSON.stringify(d.debug, null, 2)); alert(resumo + '\n\n(Nada casou — diagnóstico COPIADO. Cole aqui no chat para eu ajustar o casamento de telefones.)'); }
+      catch { alert(resumo); }
+      return;
+    }
+    alert(resumo);
     if (d.created > 0) loadBoard();
   };
 
