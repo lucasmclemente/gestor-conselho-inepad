@@ -101,10 +101,14 @@ serve(async (req) => {
     }
     // tenta localizar/baixar a gravação pelo recordingId
     if (rec?.recordingId) {
-      const rid = rec.recordingId;
-      for (const p of [`/recording/v1/recordings/${rid}`, `/recordings/v1/recordings/${rid}`, `/call-recordings/v1/recordings/${rid}`, `/recording/v1/recordings/${rid}/media`, `/voice-admin/v1/recordings/${rid}`]) {
-        try { const r = await gget(p); const ct = r.headers.get('content-type') || ''; out['rec:' + p] = { status: r.status, contentType: ct, body: ct.includes('json') ? await r.json().catch(() => null) : `[binário: ${ct}]` }; }
-        catch (e) { out['rec:' + p] = { error: String(e) }; }
+      const base = `/recording/v1/recordings/${rec.recordingId}`;
+      for (const suffix of ['', '/download', '/content', '/file', '/audio', '/recording', '/media-content']) {
+        const p = base + suffix;
+        try {
+          const r = await fetch(`${API}${p}`, { headers: { Authorization: `Bearer ${accessToken}`, Accept: '*/*' }, redirect: 'manual' });
+          const ct = r.headers.get('content-type') || '';
+          out['rec:' + (suffix || '(base)')] = { status: r.status, contentType: ct, location: r.headers.get('location'), length: r.headers.get('content-length'), body: ct.includes('json') ? await r.json().catch(() => null) : `[${ct}]` };
+        } catch (e) { out['rec:' + (suffix || '(base)')] = { error: String(e) }; }
       }
     }
     return json(out);
