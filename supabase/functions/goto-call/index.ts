@@ -102,13 +102,26 @@ serve(async (req) => {
     // tenta localizar/baixar a gravação pelo recordingId
     if (rec?.recordingId) {
       const base = `/recording/v1/recordings/${rec.recordingId}`;
-      for (const suffix of ['', '/download', '/content', '/file', '/audio', '/recording', '/media-content']) {
-        const p = base + suffix;
+      let token = '';
+      try {
+        const r = await gget(base + '/content');
+        const b = await r.json().catch(() => null);
+        token = b?.token?.token || '';
+        out.contentToken = { has: !!token, expires: b?.token?.expires, preview: token.slice(0, 24) };
+      } catch (e) { out.content_error = String(e); }
+      const tryDl = async (label: string, url: string, headers: any) => {
         try {
-          const r = await fetch(`${API}${p}`, { headers: { Authorization: `Bearer ${accessToken}`, Accept: '*/*' }, redirect: 'manual' });
+          const r = await fetch(url, { headers, redirect: 'manual' });
           const ct = r.headers.get('content-type') || '';
-          out['rec:' + (suffix || '(base)')] = { status: r.status, contentType: ct, location: r.headers.get('location'), length: r.headers.get('content-length'), body: ct.includes('json') ? await r.json().catch(() => null) : `[${ct}]` };
-        } catch (e) { out['rec:' + (suffix || '(base)')] = { error: String(e) }; }
+          out[label] = { status: r.status, contentType: ct, location: r.headers.get('location'), length: r.headers.get('content-length'), body: ct.includes('json') ? await r.json().catch(() => null) : `[${ct}]` };
+        } catch (e) { out[label] = { error: String(e) }; }
+      };
+      if (token) {
+        const enc = encodeURIComponent(token);
+        await tryDl('dl:content?token', `${API}${base}/content?token=${enc}`, { Authorization: `Bearer ${accessToken}`, Accept: '*/*' });
+        await tryDl('dl:content?token(noBearer)', `${API}${base}/content?token=${enc}`, { Accept: '*/*' });
+        await tryDl('dl:content(acceptAudio)', `${API}${base}/content`, { Authorization: `Bearer ${accessToken}`, Accept: 'audio/mpeg,audio/wav,application/octet-stream' });
+        await tryDl('dl:?token', `${API}${base}?token=${enc}`, { Accept: '*/*' });
       }
     }
     return json(out);
