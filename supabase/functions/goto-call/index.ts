@@ -152,22 +152,32 @@ serve(async (req) => {
       marker = nm;
     }
 
-    // carrega contatos (telefone → org) e negócios (org → deal) do cliente
-    const [{ data: contacts }, { data: deals }] = await Promise.all([
+    // carrega contatos, negócios e empresas do cliente
+    const [{ data: contacts }, { data: deals }, { data: orgs }] = await Promise.all([
       admin.from('crm_contacts').select('id, phone, organization_id').eq('client_id', cid),
       admin.from('crm_deals').select('id, organization_id, owner_member_id').eq('client_id', cid),
+      admin.from('crm_organizations').select('id, phone').eq('client_id', cid),
     ]);
     const dealByOrg = new Map<string, any>();
     (deals || []).forEach((d: any) => { if (d.organization_id && !dealByOrg.has(d.organization_id)) dealByOrg.set(d.organization_id, d); });
     // normaliza telefone p/ nacional (tira +, tira DDI 55): "+5516988135491" → "16988135491"
     const norm = (s: string) => { let d = (s || '').replace(/\D/g, ''); if (d.length >= 12 && d.startsWith('55')) d = d.slice(2); return d; };
+    // variantes p/ tolerar o 9º dígito de celular (11 dígitos com 9 ↔ 10 sem 9)
+    const variants = (nat: string): string[] => {
+      if (!nat) return [];
+      const out = new Set<string>([nat]);
+      if (nat.length === 11) out.add(nat.slice(0, 2) + nat.slice(3)); // remove o 9º dígito
+      if (nat.length === 10) out.add(nat.slice(0, 2) + '9' + nat.slice(2)); // adiciona o 9º dígito
+      return [...out];
+    };
     const phoneToDeal = new Map<string, any>();
-    (contacts || []).forEach((c: any) => {
-      const n = norm(c.phone || '');
-      if (n && c.organization_id && dealByOrg.has(c.organization_id) && !phoneToDeal.has(n)) {
-        phoneToDeal.set(n, { deal: dealByOrg.get(c.organization_id), contactId: c.id });
-      }
-    });
+    const addPhone = (phone: string, deal: any, contactId: string | null) => {
+      for (const v of variants(norm(phone || ''))) { if (v && !phoneToDeal.has(v)) phoneToDeal.set(v, { deal, contactId }); }
+    };
+    // telefones dos contatos (sócios)
+    (contacts || []).forEach((c: any) => { if (c.organization_id && dealByOrg.has(c.organization_id)) addPhone(c.phone, dealByOrg.get(c.organization_id), c.id); });
+    // telefones das próprias empresas
+    (orgs || []).forEach((o: any) => { if (o.phone && dealByOrg.has(o.id)) addPhone(o.phone, dealByOrg.get(o.id), null); });
 
     // ids já importados (dedup)
     const { data: existing } = await admin.from('crm_activities').select('external_id').eq('client_id', cid).not('external_id', 'is', null);
@@ -187,7 +197,10 @@ serve(async (req) => {
     let matched = 0;
     for (const call of calls) {
       let hit: any = null; let ext = '';
-      for (const c of extNums(call)) { const m = phoneToDeal.get(norm(c)); if (m) { hit = m; ext = c; break; } }
+      for (const c of extNums(call)) {
+        for (const v of variants(norm(c))) { const m = phoneToDeal.get(v); if (m) { hit = m; ext = c; break; } }
+        if (hit) break;
+      }
       if (!hit) continue;
       matched++;
       // chave de dedup: qualquer id da GoTo; se não houver, telefone+início da chamada
@@ -215,23 +228,21 @@ serve(async (req) => {
       created = (data || []).length;
     }
 
-    // diagnóstico (ajuda a entender por que algo não casou)
+    // diagnóstico: sobreposição real entre números ligados e telefones cadastrados
+    const calledNorms = new Set<string>();
+    for (const call of calls) for (const n of extNums(call)) { const nn = norm(n); if (nn) calledNorms.add(nn); }
+    const overlap = [...calledNorms].filter((n) => variants(n).some((v) => phoneToDeal.has(v)));
     const debug = {
       totalContacts: (contacts || []).length,
       contactsWithPhone: (contacts || []).filter((c: any) => c.phone).length,
-      totalDeals: (deals || []).length,
+      totalOrgs: (orgs || []).length,
       dealsWithOrg: dealByOrg.size,
       phoneToDealSize: phoneToDeal.size,
-      samplePhoneKeys: [...phoneToDeal.keys()].slice(0, 10),
-      callKeys: calls[0] ? Object.keys(calls[0]) : [],
-      sampleCalls: calls.slice(0, 6).map((call: any) => {
-        const nums = extNums(call);
-        return {
-          idFields: { conversationSpaceId: call.conversationSpaceId ?? null, id: call.id ?? null, callId: call.callId ?? null, legId: call.legId ?? null },
-          extracted: nums.map((n: string) => ({ raw: n, norm: norm(n) })),
-          inMap: nums.map((n: string) => phoneToDeal.has(norm(n))),
-        };
-      }),
+      distinctCalledNumbers: calledNorms.size,
+      overlapCount: overlap.length,
+      sampleOverlap: overlap.slice(0, 10),
+      samplePhoneKeys: [...phoneToDeal.keys()].slice(0, 12),
+      sampleCalledNumbers: [...calledNorms].slice(0, 20),
     };
     return json({ fetched: calls.length, matched, created, debug });
   }
