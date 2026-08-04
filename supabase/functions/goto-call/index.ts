@@ -99,29 +99,32 @@ serve(async (req) => {
     if (rec?.conversationSpaceId) {
       try { const rr = await gget(`/call-events-report/v1/reports/${rec.conversationSpaceId}`); out.reportRecorded = { status: rr.status, body: await rr.json().catch(() => null) }; } catch (e) { out.reportRecorded = { error: String(e) }; }
     }
-    // tenta localizar/baixar a gravação pelo recordingId
+    // investiga a gravação pelo recordingId — despeja o CORPO COMPLETO
     if (rec?.recordingId) {
       const base = `/recording/v1/recordings/${rec.recordingId}`;
-      let token = '';
-      try {
-        const r = await gget(base + '/content');
-        const b = await r.json().catch(() => null);
-        token = b?.token?.token || '';
-        out.contentToken = { has: !!token, expires: b?.token?.expires, preview: token.slice(0, 24) };
-      } catch (e) { out.content_error = String(e); }
-      const tryDl = async (label: string, url: string, headers: any) => {
+      // 1) metadados completos (pode conter url/downloadUrl)
+      try { const r = await gget(base); out.meta = { status: r.status, body: await r.json().catch(() => null) }; } catch (e) { out.meta_error = String(e); }
+      // 2) /content completo (pode conter url + token lado a lado)
+      let contentBody: any = null;
+      try { const r = await gget(base + '/content'); contentBody = await r.json().catch(() => null); out.content = { status: r.status, body: contentBody }; } catch (e) { out.content_error = String(e); }
+
+      // procura qualquer URL de mídia na resposta
+      const mediaUrl = contentBody?.url || contentBody?.contentUrl || contentBody?.downloadUrl || contentBody?.mediaUrl || contentBody?.href || contentBody?.location || null;
+      const tok = contentBody?.token?.token || (typeof contentBody?.token === 'string' ? contentBody.token : '') || '';
+      out.foundMediaUrl = mediaUrl ? String(mediaUrl).slice(0, 80) + '…' : null;
+
+      const probe = async (label: string, url: string, headers?: any) => {
         try {
-          const r = await fetch(url, { headers, redirect: 'manual' });
+          const r = await fetch(url, { headers: headers || {}, redirect: 'manual' });
           const ct = r.headers.get('content-type') || '';
-          out[label] = { status: r.status, contentType: ct, location: r.headers.get('location'), length: r.headers.get('content-length'), body: ct.includes('json') ? await r.json().catch(() => null) : `[${ct}]` };
+          out[label] = { status: r.status, contentType: ct, length: r.headers.get('content-length'), location: r.headers.get('location'), body: ct.includes('json') ? await r.json().catch(() => null) : `[${ct}]` };
         } catch (e) { out[label] = { error: String(e) }; }
       };
-      if (token) {
-        // usa o TOKEN DA GRAVAÇÃO como Bearer (em vez do token OAuth)
-        await tryDl('dl:content+recToken', `${API}${base}/content`, { Authorization: `Bearer ${token}`, Accept: '*/*' });
-        await tryDl('dl:base+recToken', `${API}${base}`, { Authorization: `Bearer ${token}`, Accept: '*/*' });
-        await tryDl('dl:content+recToken+audio', `${API}${base}/content`, { Authorization: `Bearer ${token}`, Accept: 'audio/mpeg,audio/wav,application/octet-stream,*/*' });
-        await tryDl('dl:media+recToken', `${API}${base}/media`, { Authorization: `Bearer ${token}`, Accept: '*/*' });
+      if (mediaUrl) {
+        // a URL pode já vir assinada (querystring) — tenta crua
+        await probe('dl:url', mediaUrl);
+        // e com o token como query param
+        if (tok) await probe('dl:url+qtoken', mediaUrl + (mediaUrl.includes('?') ? '&' : '?') + 'access_token=' + encodeURIComponent(tok));
       }
     }
     return json(out);
