@@ -59,31 +59,44 @@ serve(async (req) => {
   }
   const gget = (path: string) => fetch(`${API}${path}`, { headers: { Authorization: `Bearer ${accessToken}`, Accept: 'application/json' } });
 
+  // varre qualquer estrutura procurando arrays "lines" com ids
+  const collectLines = (node: any, acc: any[]) => {
+    if (!node || typeof node !== 'object') return;
+    if (Array.isArray(node)) { node.forEach(n => collectLines(n, acc)); return; }
+    if (Array.isArray(node.lines)) node.lines.forEach((l: any) => { if (l && (l.id || l.lineId)) acc.push({ id: l.id || l.lineId, number: l.number ?? l.phoneNumber ?? null, name: l.name ?? null }); });
+    for (const k of Object.keys(node)) collectLines(node[k], acc);
+  };
+  const findLines = async () => {
+    const raw: any = {}; const cands: any[] = [];
+    for (const path of ['/users/v1/me', '/identity/v1/me', '/users/v1/lines', '/users/v1/me/lines']) {
+      try { const r = await gget(path); const b = await r.json().catch(() => null); raw[path] = { status: r.status, body: b }; collectLines(b, cands); }
+      catch (e) { raw[path] = { error: String(e) }; }
+    }
+    const seen = new Set<string>(); const candidates = cands.filter(c => c.id && !seen.has(c.id) && seen.add(c.id));
+    return { candidates, raw };
+  };
+
   const body = await req.json().catch(() => ({}));
   const action = body.action || 'call';
 
-  // ── Diagnóstico: mostra o que a GoTo retorna sobre a linha ──
+  // ── Diagnóstico da linha ────────────────────────────────────
   if (action === 'lines') {
-    const out: any = {};
-    for (const path of ['/users/v1/me', '/identity/v1/me', '/users/v1/lines']) {
-      try { const r = await gget(path); out[path] = { status: r.status, body: await r.json().catch(() => null) }; }
-      catch (e) { out[path] = { error: String(e) }; }
-    }
-    return json(out);
+    const { candidates, raw } = await findLines();
+    if (candidates.length === 1) await admin.from('crm_goto_connections').update({ goto_line_id: candidates[0].id, updated_at: new Date().toISOString() }).eq('member_id', user.id);
+    return json({ candidates, stored: candidates.length === 1 ? candidates[0].id : null, raw });
   }
 
-  // ── Resolve o lineId (usa o guardado; senão tenta detectar) ─
+  // ── Resolve o lineId (usa o guardado; senão detecta) ────────
   let lineId = conn.goto_line_id as string | null;
   if (!lineId) {
-    // tenta /users/v1/me → lines[0].id
-    try {
-      const r = await gget('/users/v1/me');
-      const me = await r.json().catch(() => null);
-      lineId = me?.lines?.[0]?.id || me?.lines?.[0]?.lineId || null;
-    } catch { /* segue */ }
-    if (lineId) await admin.from('crm_goto_connections').update({ goto_line_id: lineId, updated_at: new Date().toISOString() }).eq('member_id', user.id);
+    const { candidates, raw } = await findLines();
+    if (candidates.length >= 1) {
+      lineId = candidates[0].id;
+      await admin.from('crm_goto_connections').update({ goto_line_id: lineId, updated_at: new Date().toISOString() }).eq('member_id', user.id);
+    } else {
+      return json({ error: 'Não consegui detectar sua linha na GoTo.', detail: raw }, 400);
+    }
   }
-  if (!lineId) return json({ error: 'Não consegui detectar sua linha na GoTo automaticamente. Rode o diagnóstico (action=lines).' }, 400);
 
   // ── Origina a chamada ───────────────────────────────────────
   const dial = String(body.dial || '').trim();
