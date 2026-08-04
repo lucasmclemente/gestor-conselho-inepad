@@ -117,11 +117,11 @@ serve(async (req) => {
         } catch (e) { out[label] = { error: String(e) }; }
       };
       if (token) {
-        const enc = encodeURIComponent(token);
-        await tryDl('dl:content?token', `${API}${base}/content?token=${enc}`, { Authorization: `Bearer ${accessToken}`, Accept: '*/*' });
-        await tryDl('dl:content?token(noBearer)', `${API}${base}/content?token=${enc}`, { Accept: '*/*' });
-        await tryDl('dl:content(acceptAudio)', `${API}${base}/content`, { Authorization: `Bearer ${accessToken}`, Accept: 'audio/mpeg,audio/wav,application/octet-stream' });
-        await tryDl('dl:?token', `${API}${base}?token=${enc}`, { Accept: '*/*' });
+        // usa o TOKEN DA GRAVAÇÃO como Bearer (em vez do token OAuth)
+        await tryDl('dl:content+recToken', `${API}${base}/content`, { Authorization: `Bearer ${token}`, Accept: '*/*' });
+        await tryDl('dl:base+recToken', `${API}${base}`, { Authorization: `Bearer ${token}`, Accept: '*/*' });
+        await tryDl('dl:content+recToken+audio', `${API}${base}/content`, { Authorization: `Bearer ${token}`, Accept: 'audio/mpeg,audio/wav,application/octet-stream,*/*' });
+        await tryDl('dl:media+recToken', `${API}${base}/media`, { Authorization: `Bearer ${token}`, Accept: '*/*' });
       }
     }
     return json(out);
