@@ -103,6 +103,7 @@ serve(async (req) => {
     const state = await makeState(STATE_SECRET, { sub: user.id, cid, exp: Date.now() + 10 * 60 * 1000 });
     const params = new URLSearchParams({ client_id: CLIENT_ID, response_type: 'code', redirect_uri: REDIRECT_URI, state });
     if (SCOPES) params.set('scope', SCOPES);
+    params.set('prompt', 'consent'); // força re-consentimento (pega novos escopos ao reconectar)
     return json({ url: `${AUTH_BASE}/authorize?${params}` });
   }
 
