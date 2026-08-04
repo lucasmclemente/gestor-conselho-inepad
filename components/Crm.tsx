@@ -105,16 +105,6 @@ export const Crm: React.FC<Props> = ({ currentUser, activeClientId, isAdmin, mem
     window.location.href = (data as any).url;
   };
 
-  // TEMP: diagnóstico do download da gravação
-  const probeRecordings = async () => {
-    const { data, error } = await supabase.functions.invoke('goto-call', { body: { action: 'recordings' } });
-    let text = '';
-    if (error) { try { text = JSON.stringify(await (error as any).context?.json?.(), null, 2); } catch { text = error.message; } }
-    else text = JSON.stringify(data, null, 2);
-    try { await navigator.clipboard.writeText(text); alert('Diagnóstico de gravação COPIADO! Cole aqui no chat.'); }
-    catch { alert(text.slice(0, 2000)); }
-  };
-
   // Sincroniza o registro de ligações da GoTo → atividades nos negócios
   const syncCalls = async () => {
     if (!window.confirm('Buscar as ligações da GoTo dos últimos 7 dias e registrar nos negócios?\n\nLigações atendidas (≥30s) para números ainda não cadastrados viram um novo lead automaticamente.')) return;
@@ -301,12 +291,6 @@ export const Crm: React.FC<Props> = ({ currentUser, activeClientId, isAdmin, mem
             <button onClick={syncCalls} disabled={gotoBusy} title="Sincronizar ligações da GoTo nos negócios"
               className="p-2.5 rounded-lg bg-slate-100 text-slate-700 hover:bg-slate-200 transition-all flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest disabled:opacity-50">
               <RefreshCw size={16} /><span className="hidden sm:inline">{gotoBusy ? 'Sincronizando...' : 'Sincronizar ligações'}</span>
-            </button>
-          )}
-          {isAdmin && gotoConnected && (
-            <button onClick={probeRecordings} title="Diagnóstico de gravação (temporário)"
-              className="p-2.5 rounded-lg bg-slate-100 text-slate-500 hover:bg-slate-200 transition-all flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest">
-              🔍<span className="hidden sm:inline">Gravação</span>
             </button>
           )}
           {isAdmin && (
