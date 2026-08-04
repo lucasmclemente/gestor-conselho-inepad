@@ -178,10 +178,13 @@ serve(async (req) => {
     for (const call of calls) {
       const csid = call.conversationSpaceId;
       if (!csid || seen.has(csid)) continue;
-      // números externos (tipo PHONE_NUMBER) — nunca o DID interno
+      // números externos (tipo PHONE_NUMBER) — nunca o DID interno.
+      // Obs: na GoTo o "type" vem como string direta ("PHONE_NUMBER"/"LINE"),
+      // mas tratamos os dois formatos (string ou {value}) por segurança.
+      const typeOf = (x: any) => x?.type?.value ?? x?.type ?? '';
       const cands: string[] = [];
-      if (call.caller?.type?.value === 'PHONE_NUMBER' && call.caller.number) cands.push(call.caller.number);
-      (call.participants || []).forEach((p: any) => { if (p?.type?.value === 'PHONE_NUMBER' && p.number) cands.push(p.number); });
+      if (typeOf(call.caller) === 'PHONE_NUMBER' && call.caller?.number) cands.push(call.caller.number);
+      (call.participants || []).forEach((p: any) => { if (typeOf(p) === 'PHONE_NUMBER' && p.number) cands.push(p.number); });
       let hit: any = null; let ext = '';
       for (const c of cands) { const m = phoneToDeal.get(norm(c)); if (m) { hit = m; ext = c; break; } }
       if (!hit) continue;
