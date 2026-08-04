@@ -127,6 +127,89 @@ serve(async (req) => {
     return json(out);
   }
 
+  // ── Sincroniza o registro de ligações → atividades nos negócios ──
+  if (action === 'sync') {
+    const days = Math.min(Math.max(Number(body.days) || 7, 1), 90);
+    const start = new Date(Date.now() - days * 24 * 3600 * 1000).toISOString();
+    const end = new Date().toISOString();
+
+    // accountKey da conta
+    let accountKey = '';
+    try { const r = await gget('/users/v1/lines'); const b = await r.json().catch(() => null); accountKey = b?.items?.[0]?.accountKey || ''; } catch { /* */ }
+    if (!accountKey) return json({ error: 'Não consegui obter a conta na GoTo.' }, 400);
+
+    // busca as ligações do período (paginado)
+    const calls: any[] = [];
+    let marker = '';
+    for (let page = 0; page < 12; page++) {
+      const u = `/call-events-report/v1/report-summaries?accountKey=${accountKey}&startTime=${encodeURIComponent(start)}&endTime=${encodeURIComponent(end)}` + (marker ? `&pageMarker=${encodeURIComponent(marker)}` : '');
+      const r = await gget(u);
+      if (!r.ok) break;
+      const b = await r.json().catch(() => null);
+      calls.push(...(b?.items || []));
+      const nm = b?.nextPageMarker || '';
+      if (!nm || nm === marker) break;
+      marker = nm;
+    }
+
+    // carrega contatos (telefone → org) e negócios (org → deal) do cliente
+    const [{ data: contacts }, { data: deals }] = await Promise.all([
+      admin.from('crm_contacts').select('id, phone, organization_id').eq('client_id', cid),
+      admin.from('crm_deals').select('id, organization_id, owner_member_id').eq('client_id', cid),
+    ]);
+    const dealByOrg = new Map<string, any>();
+    (deals || []).forEach((d: any) => { if (d.organization_id && !dealByOrg.has(d.organization_id)) dealByOrg.set(d.organization_id, d); });
+    // normaliza telefone p/ nacional (tira +, tira DDI 55): "+5516988135491" → "16988135491"
+    const norm = (s: string) => { let d = (s || '').replace(/\D/g, ''); if (d.length >= 12 && d.startsWith('55')) d = d.slice(2); return d; };
+    const phoneToDeal = new Map<string, any>();
+    (contacts || []).forEach((c: any) => {
+      const n = norm(c.phone || '');
+      if (n && c.organization_id && dealByOrg.has(c.organization_id) && !phoneToDeal.has(n)) {
+        phoneToDeal.set(n, { deal: dealByOrg.get(c.organization_id), contactId: c.id });
+      }
+    });
+
+    // ids já importados (dedup)
+    const { data: existing } = await admin.from('crm_activities').select('external_id').eq('client_id', cid).not('external_id', 'is', null);
+    const seen = new Set<string>((existing || []).map((a: any) => a.external_id));
+
+    const rows: any[] = [];
+    let matched = 0;
+    for (const call of calls) {
+      const csid = call.conversationSpaceId;
+      if (!csid || seen.has(csid)) continue;
+      // números externos (tipo PHONE_NUMBER) — nunca o DID interno
+      const cands: string[] = [];
+      if (call.caller?.type?.value === 'PHONE_NUMBER' && call.caller.number) cands.push(call.caller.number);
+      (call.participants || []).forEach((p: any) => { if (p?.type?.value === 'PHONE_NUMBER' && p.number) cands.push(p.number); });
+      let hit: any = null; let ext = '';
+      for (const c of cands) { const m = phoneToDeal.get(norm(c)); if (m) { hit = m; ext = c; break; } }
+      if (!hit) continue;
+      matched++;
+      seen.add(csid);
+      const dir = call.direction === 'OUTBOUND' ? 'saída' : 'entrada';
+      const dur = call.callEnded && call.callCreated ? Math.round((new Date(call.callEnded).getTime() - new Date(call.callCreated).getTime()) / 1000) : 0;
+      const outcome = call.callerOutcome === 'MISSED' ? 'não atendida' : 'atendida';
+      const recorded = !!(call.caller?.recordingId || (call.participants || []).some((p: any) => p.recordingId));
+      const mm = Math.floor(dur / 60), ss = dur % 60;
+      rows.push({
+        client_id: cid, deal_id: hit.deal.id, contact_id: hit.contactId, type: 'call',
+        title: `Ligação (${dir}) — ${ext}`,
+        notes: `${outcome} · ${mm}m${String(ss).padStart(2, '0')}s${recorded ? ' · gravada' : ''} · via GoTo`,
+        due_at: call.callCreated, done: true, done_at: call.callEnded || call.callCreated,
+        owner_member_id: hit.deal.owner_member_id || null,
+        external_id: csid,
+      });
+    }
+    let created = 0;
+    if (rows.length) {
+      const { data, error } = await admin.from('crm_activities').insert(rows).select('id');
+      if (error) return json({ error: 'Falha ao gravar as atividades.', detail: error.message }, 400);
+      created = (data || []).length;
+    }
+    return json({ fetched: calls.length, matched, created });
+  }
+
   // ── Diagnóstico da linha ────────────────────────────────────
   if (action === 'lines') {
     const { candidates, raw } = await findLines();

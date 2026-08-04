@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { supabase } from '../services/supabaseClient';
-import { Filter, Plus, X, Save, Trash2, Trophy, Ban, Settings, Upload, Users, TrendingUp, Phone } from 'lucide-react';
+import { Filter, Plus, X, Save, Trash2, Trophy, Ban, Settings, Upload, Users, TrendingUp, Phone, RefreshCw } from 'lucide-react';
 import { CrmDeal } from './CrmDeal';
 import { CrmSettings } from './CrmSettings';
 import { CrmImport } from './CrmImport';
@@ -105,14 +105,21 @@ export const Crm: React.FC<Props> = ({ currentUser, activeClientId, isAdmin, mem
     window.location.href = (data as any).url;
   };
 
-  // TEMP: sondagem dos endpoints de gravação da GoTo
-  const testRecordings = async () => {
-    const { data, error } = await supabase.functions.invoke('goto-call', { body: { action: 'recordings' } });
-    let text = '';
-    if (error) { try { text = JSON.stringify(await (error as any).context?.json?.()); } catch { text = error.message; } }
-    else text = JSON.stringify(data, null, 2);
-    try { await navigator.clipboard.writeText(text); alert('Diagnóstico de gravações COPIADO! Cole aqui no chat pra eu analisar.'); }
-    catch { alert(text.slice(0, 1500)); }
+  // Sincroniza o registro de ligações da GoTo → atividades nos negócios
+  const syncCalls = async () => {
+    if (!window.confirm('Buscar as ligações da GoTo dos últimos 7 dias e registrar nos negócios correspondentes (pelo telefone do contato)?')) return;
+    setGotoBusy(true);
+    const { data, error } = await supabase.functions.invoke('goto-call', { body: { action: 'sync', days: 7 } });
+    setGotoBusy(false);
+    if (error) {
+      let msg = error.message;
+      try { const b = await (error as any).context?.json?.(); if (b?.error) msg = b.error; } catch { /* */ }
+      alert('Erro na sincronização: ' + msg);
+      return;
+    }
+    const d = data as any;
+    alert(`Sincronização concluída!\n\n• ${d.fetched} ligações analisadas\n• ${d.matched} casadas com negócios\n• ${d.created} novas registradas`);
+    if (d.created > 0) loadBoard();
   };
 
   // Campos exigidos pela etapa (compara contra os valores salvos em deal.custom)
@@ -275,9 +282,9 @@ export const Crm: React.FC<Props> = ({ currentUser, activeClientId, isAdmin, mem
             <TrendingUp size={16} /><span className="hidden sm:inline">Resultados</span>
           </button>
           {isAdmin && gotoConnected && (
-            <button onClick={testRecordings} title="Testar gravações (diagnóstico)"
-              className="p-2.5 rounded-lg bg-slate-100 text-slate-500 hover:bg-slate-200 transition-all flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest">
-              🔍<span className="hidden sm:inline">Gravações</span>
+            <button onClick={syncCalls} disabled={gotoBusy} title="Sincronizar ligações da GoTo nos negócios"
+              className="p-2.5 rounded-lg bg-slate-100 text-slate-700 hover:bg-slate-200 transition-all flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest disabled:opacity-50">
+              <RefreshCw size={16} /><span className="hidden sm:inline">{gotoBusy ? 'Sincronizando...' : 'Sincronizar ligações'}</span>
             </button>
           )}
           {isAdmin && (
