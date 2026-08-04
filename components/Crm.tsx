@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { supabase } from '../services/supabaseClient';
-import { Filter, Plus, X, Save, Trash2, Trophy, Ban, Settings, Upload, Users, TrendingUp } from 'lucide-react';
+import { Filter, Plus, X, Save, Trash2, Trophy, Ban, Settings, Upload, Users, TrendingUp, Phone } from 'lucide-react';
 import { CrmDeal } from './CrmDeal';
 import { CrmSettings } from './CrmSettings';
 import { CrmImport } from './CrmImport';
@@ -39,6 +39,8 @@ export const Crm: React.FC<Props> = ({ currentUser, activeClientId, isAdmin, mem
   const [resultsOpen, setResultsOpen] = useState(false);
   const [ownerFilter, setOwnerFilter] = useState('all');
   const [tagFilter, setTagFilter] = useState('all');
+  const [gotoConnected, setGotoConnected] = useState<boolean | null>(null);
+  const [gotoBusy, setGotoBusy] = useState(false);
   const [dealModal, setDealModal] = useState<any>(null); // { stage_id } ao criar
   const [lostDeal, setLostDeal] = useState<any>(null); // negócio sendo marcado como perdido
   const [form, setForm] = useState({ title: '', value: '', expected_close_date: '' });
@@ -84,6 +86,24 @@ export const Crm: React.FC<Props> = ({ currentUser, activeClientId, isAdmin, mem
     supabase.from('crm_tags').select('*').eq('client_id', cid).order('position')
       .then(({ data }) => setTags(data || []));
   }, [cid]);
+
+  // Telefonia GoTo: status + retorno do OAuth
+  useEffect(() => {
+    supabase.functions.invoke('goto-oauth', { body: { action: 'status' } })
+      .then(({ data }) => setGotoConnected(!!(data as any)?.connected))
+      .catch(() => setGotoConnected(false));
+    const p = new URLSearchParams(window.location.search);
+    if (p.get('goto') === 'connected') { setGotoConnected(true); alert('✅ Telefonia GoTo conectada!'); window.history.replaceState({}, '', window.location.pathname); }
+    else if (p.get('goto') === 'erro') { alert('Erro ao conectar a telefonia GoTo: ' + (p.get('msg') || '')); window.history.replaceState({}, '', window.location.pathname); }
+  }, []);
+
+  const connectPhone = async () => {
+    setGotoBusy(true);
+    const { data, error } = await supabase.functions.invoke('goto-oauth', { body: { action: 'start' } });
+    setGotoBusy(false);
+    if (error || !(data as any)?.url) { alert('Erro ao iniciar conexão: ' + (error?.message || 'sem URL')); return; }
+    window.location.href = (data as any).url;
+  };
 
   // Campos exigidos pela etapa (compara contra os valores salvos em deal.custom)
   const missingForStage = (deal: any, stage: any) => {
@@ -231,6 +251,11 @@ export const Crm: React.FC<Props> = ({ currentUser, activeClientId, isAdmin, mem
               {pipelines.map((p: any) => <option key={p.id} value={p.id}>{p.name}</option>)}
             </select>
           )}
+          <button onClick={gotoConnected ? undefined : connectPhone} disabled={gotoBusy || gotoConnected === true}
+            title={gotoConnected ? 'Telefonia GoTo conectada' : 'Conectar telefonia GoTo'}
+            className={`p-2.5 rounded-lg transition-all flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest ${gotoConnected ? 'bg-emerald-50 text-emerald-700 border border-emerald-200 cursor-default' : 'bg-slate-100 text-slate-700 hover:bg-slate-200'}`}>
+            <Phone size={16} /><span className="hidden sm:inline">{gotoConnected ? 'Telefonia ✓' : (gotoBusy ? 'Conectando...' : 'Conectar telefonia')}</span>
+          </button>
           <button onClick={() => setImportOpen(true)} title="Importar leads e contatos"
             className="p-2.5 rounded-lg bg-amber-600 text-white hover:bg-amber-700 transition-all flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest">
             <Upload size={16} /><span className="hidden sm:inline">Importar</span>
