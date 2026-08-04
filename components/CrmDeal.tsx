@@ -180,7 +180,12 @@ export const CrmDeal: React.FC<Props> = ({ dealId, cid, currentUser, isAdmin, me
     const d = String(contact.phone).replace(/\D/g, '');
     const dial = '+' + (d.length <= 11 ? '55' + d : d);
     const { data, error } = await supabase.functions.invoke('goto-call', { body: { dial, dealId, contactName: contact.name } });
-    if (error || (data as any)?.error) { alert('Erro ao ligar: ' + (error?.message || (data as any)?.error)); return; }
+    if (error) {
+      let msg = error.message;
+      try { const b = await (error as any).context?.json?.(); if (b?.error) msg = b.error + (b.detail ? ' — ' + JSON.stringify(b.detail) : ''); } catch { /* noop */ }
+      alert('Erro ao ligar: ' + msg); return;
+    }
+    if ((data as any)?.error) { alert('Erro ao ligar: ' + (data as any).error); return; }
     alert('☎️ Ligação iniciada! Atenda no seu telefone/app GoTo — ele conecta com o contato.');
     load();
   };
