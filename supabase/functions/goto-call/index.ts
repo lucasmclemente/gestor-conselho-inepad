@@ -75,6 +75,25 @@ serve(async (req) => {
   const body = await req.json().catch(() => ({}));
   const action = body.action || 'call';
 
+  // ── Sondagem das gravações (descobrir os endpoints certos) ──
+  if (action === 'recordings') {
+    const out: any = {};
+    const candidates = [
+      '/call-reports/v1/reports',
+      '/reports/v1/calls',
+      '/recording/v1/recordings',
+      '/recordings/v1/recordings',
+      '/call-events/v1/reports',
+      '/call-history/v1/calls',
+      '/voice-admin/v1/recordings',
+    ];
+    for (const p of candidates) {
+      try { const r = await gget(p); out[p] = { status: r.status, body: await r.json().catch(() => null) }; }
+      catch (e) { out[p] = { error: String(e) }; }
+    }
+    return json(out);
+  }
+
   // ── Diagnóstico da linha ────────────────────────────────────
   if (action === 'lines') {
     const { candidates, raw } = await findLines();

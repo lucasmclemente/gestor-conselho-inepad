@@ -105,6 +105,16 @@ export const Crm: React.FC<Props> = ({ currentUser, activeClientId, isAdmin, mem
     window.location.href = (data as any).url;
   };
 
+  // TEMP: sondagem dos endpoints de gravação da GoTo
+  const testRecordings = async () => {
+    const { data, error } = await supabase.functions.invoke('goto-call', { body: { action: 'recordings' } });
+    let text = '';
+    if (error) { try { text = JSON.stringify(await (error as any).context?.json?.()); } catch { text = error.message; } }
+    else text = JSON.stringify(data, null, 2);
+    try { await navigator.clipboard.writeText(text); alert('Diagnóstico de gravações COPIADO! Cole aqui no chat pra eu analisar.'); }
+    catch { alert(text.slice(0, 1500)); }
+  };
+
   // Campos exigidos pela etapa (compara contra os valores salvos em deal.custom)
   const missingForStage = (deal: any, stage: any) => {
     const reqIds = Array.isArray(stage?.required_field_ids) ? stage.required_field_ids : [];
@@ -264,6 +274,12 @@ export const Crm: React.FC<Props> = ({ currentUser, activeClientId, isAdmin, mem
             className="p-2.5 rounded-lg bg-slate-100 text-slate-700 hover:bg-slate-200 transition-all flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest">
             <TrendingUp size={16} /><span className="hidden sm:inline">Resultados</span>
           </button>
+          {isAdmin && gotoConnected && (
+            <button onClick={testRecordings} title="Testar gravações (diagnóstico)"
+              className="p-2.5 rounded-lg bg-slate-100 text-slate-500 hover:bg-slate-200 transition-all flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest">
+              🔍<span className="hidden sm:inline">Gravações</span>
+            </button>
+          )}
           {isAdmin && (
             <button onClick={() => setLeadsOpen(true)} title="Carteira de leads"
               className="p-2.5 rounded-lg bg-slate-100 text-slate-700 hover:bg-slate-200 transition-all flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest">
