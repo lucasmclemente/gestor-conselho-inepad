@@ -78,28 +78,35 @@ serve(async (req) => {
   // ── Sondagem das gravações (endpoints CERTOS: call-events-report) ──
   if (action === 'recordings') {
     const out: any = { tokenScope: conn.scope };
-    const findFirst = (node: any, key: string): any => {
-      if (!node || typeof node !== 'object') return null;
-      if (Array.isArray(node)) { for (const n of node) { const f = findFirst(n, key); if (f) return f; } return null; }
-      if (node[key]) return node[key];
-      for (const k of Object.keys(node)) { const f = findFirst(node[k], key); if (f) return f; }
-      return null;
-    };
     let accountKey = '';
-    try { const r = await gget('/users/v1/lines'); const b = await r.json().catch(() => null); out.linesRaw = { status: r.status, body: b }; accountKey = b?.items?.[0]?.accountKey || b?.items?.[0]?.organization?.accountKey || ''; } catch (e) { out.linesRaw = { error: String(e) }; }
+    try { const r = await gget('/users/v1/lines'); const b = await r.json().catch(() => null); accountKey = b?.items?.[0]?.accountKey || ''; } catch { /* */ }
     out.accountKey = accountKey;
     const end = new Date().toISOString();
     const start = new Date(Date.now() - 7 * 24 * 3600 * 1000).toISOString();
+    let rec: any = null;
     try {
       const r = await gget(`/call-events-report/v1/report-summaries?accountKey=${accountKey}&startTime=${encodeURIComponent(start)}&endTime=${encodeURIComponent(end)}`);
       const b = await r.json().catch(() => null);
-      out.summaries = { status: r.status, body: b };
-      const first = findFirst(b, 'conversationSpaceId');
-      if (first) {
-        const rr = await gget(`/call-events-report/v1/reports/${first}`);
-        out.sampleReport = { status: rr.status, body: await rr.json().catch(() => null) };
+      out.summariesStatus = r.status;
+      out.totalCalls = (b?.items || []).length;
+      for (const it of (b?.items || [])) {
+        const rid = it?.caller?.recordingId || (it?.participants || []).find((p: any) => p.recordingId)?.recordingId;
+        if (rid) { rec = { conversationSpaceId: it.conversationSpaceId, recordingId: rid }; break; }
       }
+      out.recordedCall = rec;
     } catch (e) { out.summaries_error = String(e); }
+    // relatório completo de uma chamada COM gravação (ver estrutura de recordings[])
+    if (rec?.conversationSpaceId) {
+      try { const rr = await gget(`/call-events-report/v1/reports/${rec.conversationSpaceId}`); out.reportRecorded = { status: rr.status, body: await rr.json().catch(() => null) }; } catch (e) { out.reportRecorded = { error: String(e) }; }
+    }
+    // tenta localizar/baixar a gravação pelo recordingId
+    if (rec?.recordingId) {
+      const rid = rec.recordingId;
+      for (const p of [`/recording/v1/recordings/${rid}`, `/recordings/v1/recordings/${rid}`, `/call-recordings/v1/recordings/${rid}`, `/recording/v1/recordings/${rid}/media`, `/voice-admin/v1/recordings/${rid}`]) {
+        try { const r = await gget(p); const ct = r.headers.get('content-type') || ''; out['rec:' + p] = { status: r.status, contentType: ct, body: ct.includes('json') ? await r.json().catch(() => null) : `[binário: ${ct}]` }; }
+        catch (e) { out['rec:' + p] = { error: String(e) }; }
+      }
+    }
     return json(out);
   }
 
