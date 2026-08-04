@@ -108,10 +108,8 @@ serve(async (req) => {
       let contentBody: any = null;
       try { const r = await gget(base + '/content'); contentBody = await r.json().catch(() => null); out.content = { status: r.status, body: contentBody }; } catch (e) { out.content_error = String(e); }
 
-      // procura qualquer URL de mídia na resposta
-      const mediaUrl = contentBody?.url || contentBody?.contentUrl || contentBody?.downloadUrl || contentBody?.mediaUrl || contentBody?.href || contentBody?.location || null;
       const tok = contentBody?.token?.token || (typeof contentBody?.token === 'string' ? contentBody.token : '') || '';
-      out.foundMediaUrl = mediaUrl ? String(mediaUrl).slice(0, 80) + '…' : null;
+      out.hasToken = !!tok;
 
       const probe = async (label: string, url: string, headers?: any) => {
         try {
@@ -120,11 +118,16 @@ serve(async (req) => {
           out[label] = { status: r.status, contentType: ct, length: r.headers.get('content-length'), location: r.headers.get('location'), body: ct.includes('json') ? await r.json().catch(() => null) : `[${ct}]` };
         } catch (e) { out[label] = { error: String(e) }; }
       };
-      if (mediaUrl) {
-        // a URL pode já vir assinada (querystring) — tenta crua
-        await probe('dl:url', mediaUrl);
-        // e com o token como query param
-        if (tok) await probe('dl:url+qtoken', mediaUrl + (mediaUrl.includes('?') ? '&' : '?') + 'access_token=' + encodeURIComponent(tok));
+      if (tok) {
+        const q = encodeURIComponent(tok);
+        // hipótese principal: token na URL, SEM Authorization (o token É a credencial)
+        await probe('A:content?token noauth', `${API}${base}/content?token=${q}`);
+        await probe('B:content?access_token noauth', `${API}${base}/content?access_token=${q}`);
+        await probe('C:base?token noauth', `${API}${base}?token=${q}`);
+        // negociação de conteúdo: OAuth Bearer mas pedindo áudio
+        await probe('D:content oauth+audio', `${API}${base}/content`, { Authorization: `Bearer ${accessToken}`, Accept: 'audio/mpeg,audio/wav,application/octet-stream' });
+        // token como Bearer num caminho /media
+        await probe('E:media?token noauth', `${API}${base}/media?token=${q}`);
       }
     }
     return json(out);
