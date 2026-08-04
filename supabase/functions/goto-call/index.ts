@@ -173,23 +173,27 @@ serve(async (req) => {
     const { data: existing } = await admin.from('crm_activities').select('external_id').eq('client_id', cid).not('external_id', 'is', null);
     const seen = new Set<string>((existing || []).map((a: any) => a.external_id));
 
-    const rows: any[] = [];
-    let matched = 0;
-    for (const call of calls) {
-      const csid = call.conversationSpaceId;
-      if (!csid || seen.has(csid)) continue;
-      // números externos (tipo PHONE_NUMBER) — nunca o DID interno.
-      // Obs: na GoTo o "type" vem como string direta ("PHONE_NUMBER"/"LINE"),
-      // mas tratamos os dois formatos (string ou {value}) por segurança.
-      const typeOf = (x: any) => x?.type?.value ?? x?.type ?? '';
+    // na GoTo o "type" vem como string direta ("PHONE_NUMBER"/"LINE"); tratamos os dois formatos
+    const typeOf = (x: any) => x?.type?.value ?? x?.type ?? '';
+    // extrai os números externos de uma ligação (nunca o DID interno)
+    const extNums = (call: any): string[] => {
       const cands: string[] = [];
       if (typeOf(call.caller) === 'PHONE_NUMBER' && call.caller?.number) cands.push(call.caller.number);
       (call.participants || []).forEach((p: any) => { if (typeOf(p) === 'PHONE_NUMBER' && p.number) cands.push(p.number); });
+      return cands;
+    };
+
+    const rows: any[] = [];
+    let matched = 0;
+    for (const call of calls) {
       let hit: any = null; let ext = '';
-      for (const c of cands) { const m = phoneToDeal.get(norm(c)); if (m) { hit = m; ext = c; break; } }
+      for (const c of extNums(call)) { const m = phoneToDeal.get(norm(c)); if (m) { hit = m; ext = c; break; } }
       if (!hit) continue;
       matched++;
-      seen.add(csid);
+      // chave de dedup: qualquer id da GoTo; se não houver, telefone+início da chamada
+      const key = String(call.conversationSpaceId || call.id || call.callId || call.legId || `${norm(ext)}|${call.callCreated || call.startTime || ''}`);
+      if (seen.has(key)) continue;
+      seen.add(key);
       const dir = call.direction === 'OUTBOUND' ? 'saída' : 'entrada';
       const dur = call.callEnded && call.callCreated ? Math.round((new Date(call.callEnded).getTime() - new Date(call.callCreated).getTime()) / 1000) : 0;
       const outcome = call.callerOutcome === 'MISSED' ? 'não atendida' : 'atendida';
@@ -199,9 +203,9 @@ serve(async (req) => {
         client_id: cid, deal_id: hit.deal.id, contact_id: hit.contactId, type: 'call',
         title: `Ligação (${dir}) — ${ext}`,
         notes: `${outcome} · ${mm}m${String(ss).padStart(2, '0')}s${recorded ? ' · gravada' : ''} · via GoTo`,
-        due_at: call.callCreated, done: true, done_at: call.callEnded || call.callCreated,
+        due_at: call.callCreated || call.startTime || null, done: true, done_at: call.callEnded || call.callCreated || null,
         owner_member_id: hit.deal.owner_member_id || null,
-        external_id: csid,
+        external_id: key,
       });
     }
     let created = 0;
@@ -217,12 +221,17 @@ serve(async (req) => {
       contactsWithPhone: (contacts || []).filter((c: any) => c.phone).length,
       totalDeals: (deals || []).length,
       dealsWithOrg: dealByOrg.size,
-      sampleContactPhones: (contacts || []).filter((c: any) => c.phone).slice(0, 8).map((c: any) => ({ raw: c.phone, norm: norm(c.phone) })),
-      sampleCalls: calls.slice(0, 5).map((call: any) => ({
-        direction: call.direction,
-        callerNumber: call.caller?.number, callerType: call.caller?.type?.value ?? call.caller?.type ?? null,
-        participants: (call.participants || []).map((p: any) => ({ number: p.number, type: p?.type?.value ?? p?.type ?? null })),
-      })),
+      phoneToDealSize: phoneToDeal.size,
+      samplePhoneKeys: [...phoneToDeal.keys()].slice(0, 10),
+      callKeys: calls[0] ? Object.keys(calls[0]) : [],
+      sampleCalls: calls.slice(0, 6).map((call: any) => {
+        const nums = extNums(call);
+        return {
+          idFields: { conversationSpaceId: call.conversationSpaceId ?? null, id: call.id ?? null, callId: call.callId ?? null, legId: call.legId ?? null },
+          extracted: nums.map((n: string) => ({ raw: n, norm: norm(n) })),
+          inMap: nums.map((n: string) => phoneToDeal.has(norm(n))),
+        };
+      }),
     };
     return json({ fetched: calls.length, matched, created, debug });
   }
