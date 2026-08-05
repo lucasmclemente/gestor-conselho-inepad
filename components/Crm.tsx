@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { supabase } from '../services/supabaseClient';
-import { Filter, Plus, X, Save, Trash2, Trophy, Ban, Settings, Upload, Users, TrendingUp, Phone, RefreshCw } from 'lucide-react';
+import { Filter, Plus, X, Save, Trash2, Trophy, Ban, Settings, Upload, Users, TrendingUp, Phone, RefreshCw, Mail } from 'lucide-react';
 import { CrmDeal } from './CrmDeal';
 import { CrmSettings } from './CrmSettings';
 import { CrmImport } from './CrmImport';
@@ -42,6 +42,9 @@ export const Crm: React.FC<Props> = ({ currentUser, activeClientId, isAdmin, mem
   const [ownerFilter, setOwnerFilter] = useState('all');
   const [tagFilter, setTagFilter] = useState('all');
   const [gotoConnected, setGotoConnected] = useState<boolean | null>(null);
+  const [emailConnected, setEmailConnected] = useState<boolean | null>(null);
+  const [emailAddr, setEmailAddr] = useState<string | null>(null);
+  const [emailBusy, setEmailBusy] = useState(false);
   const [gotoBusy, setGotoBusy] = useState(false);
   const [dealModal, setDealModal] = useState<any>(null); // { stage_id } ao criar
   const [lostDeal, setLostDeal] = useState<any>(null); // negócio sendo marcado como perdido
@@ -94,10 +97,23 @@ export const Crm: React.FC<Props> = ({ currentUser, activeClientId, isAdmin, mem
     supabase.functions.invoke('goto-oauth', { body: { action: 'status' } })
       .then(({ data }) => setGotoConnected(!!(data as any)?.connected))
       .catch(() => setGotoConnected(false));
+    supabase.functions.invoke('outlook-oauth', { body: { action: 'status' } })
+      .then(({ data }) => { setEmailConnected(!!(data as any)?.connected); setEmailAddr((data as any)?.email ?? null); })
+      .catch(() => setEmailConnected(false));
     const p = new URLSearchParams(window.location.search);
     if (p.get('goto') === 'connected') { setGotoConnected(true); alert('✅ Telefonia GoTo conectada!'); window.history.replaceState({}, '', window.location.pathname); }
     else if (p.get('goto') === 'erro') { alert('Erro ao conectar a telefonia GoTo: ' + (p.get('msg') || '')); window.history.replaceState({}, '', window.location.pathname); }
+    else if (p.get('outlook') === 'connected') { setEmailConnected(true); alert('✅ E-mail Outlook conectado!'); window.history.replaceState({}, '', window.location.pathname); }
+    else if (p.get('outlook') === 'erro') { alert('Erro ao conectar o e-mail: ' + (p.get('msg') || '')); window.history.replaceState({}, '', window.location.pathname); }
   }, []);
+
+  const connectEmail = async () => {
+    setEmailBusy(true);
+    const { data, error } = await supabase.functions.invoke('outlook-oauth', { body: { action: 'start' } });
+    setEmailBusy(false);
+    if (error || !(data as any)?.url) { alert('Erro ao iniciar conexão de e-mail: ' + (error?.message || 'sem URL')); return; }
+    window.location.href = (data as any).url;
+  };
 
   const connectPhone = async () => {
     setGotoBusy(true);
@@ -284,6 +300,11 @@ export const Crm: React.FC<Props> = ({ currentUser, activeClientId, isAdmin, mem
             title={gotoConnected ? 'Telefonia conectada — clique para reconectar/atualizar permissões' : 'Conectar telefonia GoTo'}
             className={`p-2.5 rounded-lg transition-all flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest ${gotoConnected ? 'bg-emerald-50 text-emerald-700 border border-emerald-200 hover:bg-emerald-100' : 'bg-slate-100 text-slate-700 hover:bg-slate-200'}`}>
             <Phone size={16} /><span className="hidden sm:inline">{gotoBusy ? 'Conectando...' : (gotoConnected ? 'Telefonia ✓' : 'Conectar telefonia')}</span>
+          </button>
+          <button onClick={connectEmail} disabled={emailBusy}
+            title={emailConnected ? `E-mail conectado${emailAddr ? ': ' + emailAddr : ''} — clique para reconectar` : 'Conectar e-mail Outlook'}
+            className={`p-2.5 rounded-lg transition-all flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest ${emailConnected ? 'bg-emerald-50 text-emerald-700 border border-emerald-200 hover:bg-emerald-100' : 'bg-slate-100 text-slate-700 hover:bg-slate-200'}`}>
+            <Mail size={16} /><span className="hidden sm:inline">{emailBusy ? 'Conectando...' : (emailConnected ? 'E-mail ✓' : 'Conectar e-mail')}</span>
           </button>
           <button onClick={() => setImportOpen(true)} title="Importar leads e contatos"
             className="p-2.5 rounded-lg bg-amber-600 text-white hover:bg-amber-700 transition-all flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest">
