@@ -75,64 +75,39 @@ serve(async (req) => {
   const body = await req.json().catch(() => ({}));
   const action = body.action || 'call';
 
-  // ── Sondagem das gravações (endpoints CERTOS: call-events-report) ──
-  if (action === 'recordings') {
-    const out: any = { tokenScope: conn.scope };
-    let accountKey = '';
-    try { const r = await gget('/users/v1/lines'); const b = await r.json().catch(() => null); accountKey = b?.items?.[0]?.accountKey || ''; } catch { /* */ }
-    out.accountKey = accountKey;
-    const end = new Date().toISOString();
-    const start = new Date(Date.now() - 7 * 24 * 3600 * 1000).toISOString();
-    let rec: any = null;
-    try {
-      const r = await gget(`/call-events-report/v1/report-summaries?accountKey=${accountKey}&startTime=${encodeURIComponent(start)}&endTime=${encodeURIComponent(end)}`);
-      const b = await r.json().catch(() => null);
-      out.summariesStatus = r.status;
-      out.totalCalls = (b?.items || []).length;
-      for (const it of (b?.items || [])) {
-        const rid = it?.caller?.recordingId || (it?.participants || []).find((p: any) => p.recordingId)?.recordingId;
-        if (rid) { rec = { conversationSpaceId: it.conversationSpaceId, recordingId: rid }; break; }
-      }
-      out.recordedCall = rec;
-    } catch (e) { out.summaries_error = String(e); }
-    // relatório completo de uma chamada COM gravação (ver estrutura de recordings[])
-    if (rec?.conversationSpaceId) {
-      try { const rr = await gget(`/call-events-report/v1/reports/${rec.conversationSpaceId}`); out.reportRecorded = { status: rr.status, body: await rr.json().catch(() => null) }; } catch (e) { out.reportRecorded = { error: String(e) }; }
-    }
-    // investiga a gravação pelo recordingId — despeja o CORPO COMPLETO
-    if (rec?.recordingId) {
-      const base = `/recording/v1/recordings/${rec.recordingId}`;
-      // 1) metadados completos (pode conter url/downloadUrl)
-      try { const r = await gget(base); out.meta = { status: r.status, body: await r.json().catch(() => null) }; } catch (e) { out.meta_error = String(e); }
-      // 2) /content completo (pode conter url + token lado a lado)
-      let contentBody: any = null;
-      try { const r = await gget(base + '/content'); contentBody = await r.json().catch(() => null); out.content = { status: r.status, body: contentBody }; } catch (e) { out.content_error = String(e); }
+  // ── Baixa a gravação (fluxo de 3 passos) e faz cache no Storage; devolve signed URL ──
+  if (action === 'recording') {
+    const recordingId = String(body.recordingId || '').trim();
+    if (!recordingId) return json({ error: 'recordingId não informado.' }, 400);
+    const path = `${cid}/${recordingId}.mp3`;
 
-      const tok = contentBody?.token?.token || (typeof contentBody?.token === 'string' ? contentBody.token : '') || '';
-      out.hasToken = !!tok;
+    // já baixado antes? devolve direto do Storage
+    const cached = await admin.storage.from('crm-recordings').createSignedUrl(path, 3600);
+    if (cached.data?.signedUrl) return json({ url: cached.data.signedUrl, cached: true });
 
-      const probe = async (label: string, url: string, headers?: any) => {
-        try {
-          const r = await fetch(url, { headers: headers || {}, redirect: 'manual' });
-          const ct = r.headers.get('content-type') || '';
-          out[label] = { status: r.status, contentType: ct, length: r.headers.get('content-length'), location: r.headers.get('location'), body: ct.includes('json') ? await r.json().catch(() => null) : `[${ct}]` };
-        } catch (e) { out[label] = { error: String(e) }; }
-      };
-      const oauth = { Authorization: `Bearer ${accessToken}`, Accept: '*/*' };
-      const rid = rec.recordingId;
+    // 1) obtém o token de acesso à gravação
+    const r1 = await gget(`/recording/v1/recordings/${recordingId}/content`);
+    const b1 = await r1.json().catch(() => null);
+    const token = b1?.token?.token;
+    if (!token) return json({ error: 'Gravação ainda não disponível na GoTo.' }, 400);
+    // 2) token NO PATH + Bearer → 302 para a URL assinada (CloudFront)
+    const r2 = await fetch(`${API}/recording/v1/recordings/${recordingId}/content/${encodeURIComponent(token)}`, {
+      headers: { Authorization: `Bearer ${accessToken}` }, redirect: 'manual',
+    });
+    const loc = r2.headers.get('location');
+    if (!loc) return json({ error: 'Não obtive o link de mídia da GoTo.', status: r2.status }, 400);
+    // 3) baixa os bytes do .mp3 (URL assinada, sem auth)
+    const r3 = await fetch(loc);
+    if (!r3.ok) return json({ error: 'Falha ao baixar o áudio.', status: r3.status }, 400);
+    const bytes = new Uint8Array(await r3.arrayBuffer());
 
-      // ── TESTE-CHAVE: token da gravação NO PATH (como o web player faz) ──
-      if (tok) {
-        const et = encodeURIComponent(tok);
-        await probe('P1:content/tok noauth', `${API}/recording/v1/recordings/${rid}/content/${et}`);
-        await probe('P2:content/tok bearer', `${API}/recording/v1/recordings/${rid}/content/${et}`, oauth);
-        await probe('P3:rec/tok noauth', `${API}/recording/v1/recordings/${rid}/${et}`);
-        await probe('P4:content/rawtok noauth', `${API}/recording/v1/recordings/${rid}/content/${tok}`);
-        // e no host api.jive.com (mesmo serviço, host antigo)
-        await probe('P5:jive content/tok noauth', `https://api.jive.com/recording/v1/recordings/${rid}/content/${et}`);
-      }
-    }
-    return json(out);
+    // salva no Storage (posse INEPAD + cache) e vincula à atividade
+    const up = await admin.storage.from('crm-recordings').upload(path, bytes, { contentType: 'audio/mpeg', upsert: true });
+    if (up.error) return json({ error: 'Falha ao salvar o áudio: ' + up.error.message }, 400);
+    if (body.activityId) await admin.from('crm_activities').update({ recording_path: path }).eq('id', body.activityId).eq('client_id', cid);
+
+    const signed = await admin.storage.from('crm-recordings').createSignedUrl(path, 3600);
+    return json({ url: signed.data?.signedUrl || null, cached: false });
   }
 
   // ── Sincroniza o registro de ligações → atividades nos negócios ──
@@ -251,7 +226,12 @@ serve(async (req) => {
       seen.add(key);
       const dir = call.direction === 'OUTBOUND' ? 'saída' : 'entrada';
       const outcome = answered ? 'atendida' : 'não atendida';
-      const recorded = !!(call.caller?.recordingId || (call.participants || []).some((p: any) => p.recordingId));
+      // recordingId do leg do trunk (o que o web player toca por padrão)
+      const recId = call.caller?.recordingId
+        || (call.participants || []).map((p: any) => p.recordingId).find(Boolean)
+        || (call.participants || []).flatMap((p: any) => p.recordings || []).map((rr: any) => rr.id).find(Boolean)
+        || null;
+      const recorded = !!recId;
       const mm = Math.floor(dur / 60), ss = dur % 60;
       rows.push({
         client_id: cid, deal_id: hit.deal.id, contact_id: hit.contactId, type: 'call',
@@ -259,7 +239,7 @@ serve(async (req) => {
         notes: `${outcome} · ${mm}m${String(ss).padStart(2, '0')}s${recorded ? ' · gravada' : ''} · via GoTo`,
         due_at: call.callCreated || call.startTime || null, done: true, done_at: call.callEnded || call.callCreated || null,
         owner_member_id: hit.deal.owner_member_id || null,
-        external_id: key,
+        external_id: key, recording_id: recId,
       });
     }
     let created = 0;

@@ -3,7 +3,7 @@ import { supabase } from '../services/supabaseClient';
 import {
   ChevronLeft, Trophy, Ban, RotateCcw, Save, Trash2, Plus, X,
   Phone, Mail, Calendar, MessageSquare, FileText, CheckSquare,
-  Building2, User, Clock, Check, History, Star, Pencil,
+  Building2, User, Clock, Check, History, Star, Pencil, Play,
 } from 'lucide-react';
 import { CrmLostModal } from './CrmLostModal';
 
@@ -49,6 +49,8 @@ export const CrmDeal: React.FC<Props> = ({ dealId, cid, currentUser, isAdmin, me
   const [fieldDefs, setFieldDefs] = useState<any[]>([]);
   const [customForm, setCustomForm] = useState<Record<string, any>>({});
   const [savingCustom, setSavingCustom] = useState(false);
+  const [recUrls, setRecUrls] = useState<Record<string, string>>({});
+  const [recLoading, setRecLoading] = useState<string>('');
   const [tags, setTags] = useState<any[]>([]);
   const [lostOpen, setLostOpen] = useState(false);
 
@@ -208,6 +210,23 @@ export const CrmDeal: React.FC<Props> = ({ dealId, cid, currentUser, isAdmin, me
     } catch { /* segue */ }
     // abre o discador (app GoTo, se for o handler de tel: na máquina)
     window.location.href = `tel:${dial}`;
+  };
+
+  // Baixa/reproduz a gravação da ligação (via GoTo → Storage), sob demanda
+  const playRecording = async (a: any) => {
+    if (recUrls[a.id]) return;
+    setRecLoading(a.id);
+    const { data, error } = await supabase.functions.invoke('goto-call', { body: { action: 'recording', recordingId: a.recording_id, activityId: a.id } });
+    setRecLoading('');
+    if (error) {
+      let m = error.message;
+      try { const b = await (error as any).context?.json?.(); if (b?.error) m = b.error; } catch { /* */ }
+      alert('Não foi possível carregar a gravação: ' + m);
+      return;
+    }
+    const url = (data as any)?.url;
+    if (url) setRecUrls(prev => ({ ...prev, [a.id]: url }));
+    else alert('Gravação indisponível.');
   };
 
   const setCustom = (id: string, val: any) => setCustomForm(prev => ({ ...prev, [id]: val }));
@@ -500,6 +519,13 @@ export const CrmDeal: React.FC<Props> = ({ dealId, cid, currentUser, isAdmin, me
                       {a.title && <p className={`text-sm font-bold text-slate-800 italic ${a.done ? 'line-through' : ''}`}>{a.title}</p>}
                     </div>
                     {a.notes && <p className="text-xs text-slate-500 mt-1 whitespace-pre-wrap">{a.notes}</p>}
+                    {a.recording_id && (
+                      <div className="mt-2">
+                        {recUrls[a.id]
+                          ? <audio controls preload="none" src={recUrls[a.id]} className="w-full h-9" />
+                          : <button onClick={() => playRecording(a)} disabled={recLoading === a.id} className="text-[9px] font-bold uppercase tracking-wide text-sky-600 hover:text-sky-700 flex items-center gap-1 not-italic disabled:opacity-50"><Play size={12} /> {recLoading === a.id ? 'Carregando áudio...' : 'Ouvir gravação'}</button>}
+                      </div>
+                    )}
                     <div className="flex items-center gap-3 mt-1.5 text-[10px] text-slate-400 font-bold uppercase tracking-wide">
                       {a.due_at && <span className="flex items-center gap-1"><Clock size={10} /> {fmtDateTime(a.due_at)}</span>}
                       {a.owner_member_id && <span>{ownerName(a.owner_member_id)}</span>}
