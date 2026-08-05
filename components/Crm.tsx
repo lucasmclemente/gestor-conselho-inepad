@@ -1,12 +1,14 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { supabase } from '../services/supabaseClient';
-import { Filter, Plus, X, Save, Trash2, Trophy, Ban, Settings, Upload, Users, TrendingUp, Phone, RefreshCw, Mail } from 'lucide-react';
+import { Filter, Plus, X, Save, Trash2, Trophy, Ban, Settings, Upload, Users, TrendingUp, Phone, RefreshCw, Mail, CheckSquare } from 'lucide-react';
 import { CrmDeal } from './CrmDeal';
 import { CrmSettings } from './CrmSettings';
 import { CrmImport } from './CrmImport';
 import { CrmLeads } from './CrmLeads';
 import { CrmResults } from './CrmResults';
 import { CrmCalls } from './CrmCalls';
+import { CrmTasks } from './CrmTasks';
+import { CrmBriefing } from './CrmBriefing';
 import { CrmLostModal } from './CrmLostModal';
 
 type Props = {
@@ -39,6 +41,9 @@ export const Crm: React.FC<Props> = ({ currentUser, activeClientId, isAdmin, mem
   const [leadsOpen, setLeadsOpen] = useState(false);
   const [resultsOpen, setResultsOpen] = useState(false);
   const [callsOpen, setCallsOpen] = useState(false);
+  const [tasksOpen, setTasksOpen] = useState(false);
+  const [brief, setBrief] = useState<{ overdue: any[]; today: any[] } | null>(null);
+  const [canNotify, setCanNotify] = useState<boolean>(typeof Notification !== 'undefined' && Notification.permission === 'granted');
   const [ownerFilter, setOwnerFilter] = useState('all');
   const [tagFilter, setTagFilter] = useState('all');
   const [gotoConnected, setGotoConnected] = useState<boolean | null>(null);
@@ -107,6 +112,37 @@ export const Crm: React.FC<Props> = ({ currentUser, activeClientId, isAdmin, mem
     else if (p.get('outlook') === 'connected') { setEmailConnected(true); alert('✅ E-mail Outlook conectado!'); window.history.replaceState({}, '', window.location.pathname); }
     else if (p.get('outlook') === 'erro') { alert('Erro ao conectar o e-mail: ' + (p.get('msg') || '')); window.history.replaceState({}, '', window.location.pathname); }
   }, []);
+
+  // Briefing do dia: no 1º acesso do dia, lembra as tarefas que vencem hoje / atrasadas
+  useEffect(() => {
+    if (!currentUser?.id) return;
+    const key = `crm_brief_${currentUser.id}_${new Date().toISOString().slice(0, 10)}`;
+    if (localStorage.getItem(key)) return;
+    const end = new Date(); end.setHours(23, 59, 59, 999);
+    const startToday = new Date(); startToday.setHours(0, 0, 0, 0);
+    supabase.from('crm_activities')
+      .select('id, deal_id, type, title, due_at')
+      .eq('client_id', cid).eq('owner_member_id', currentUser.id).eq('done', false)
+      .not('due_at', 'is', null).lte('due_at', end.toISOString())
+      .order('due_at', { ascending: true })
+      .then(({ data }: any) => {
+        localStorage.setItem(key, '1');
+        const rows = data || [];
+        if (!rows.length) return;
+        const overdue = rows.filter((t: any) => new Date(t.due_at) < startToday);
+        const today = rows.filter((t: any) => new Date(t.due_at) >= startToday);
+        setBrief({ overdue, today });
+        try {
+          if (typeof Notification !== 'undefined' && Notification.permission === 'granted') {
+            new Notification('Boardplan — tarefas de hoje', { body: `${today.length} para hoje${overdue.length ? ` · ${overdue.length} atrasada(s)` : ''}` });
+          }
+        } catch { /* */ }
+      });
+  }, [cid, currentUser?.id]);
+
+  const enableNotify = async () => {
+    try { const p = await Notification.requestPermission(); setCanNotify(p === 'granted'); } catch { /* */ }
+  };
 
   const syncEmails = async () => {
     setEmailSyncing(true);
@@ -277,6 +313,12 @@ export const Crm: React.FC<Props> = ({ currentUser, activeClientId, isAdmin, mem
     <CrmCalls cid={cid} currentUser={currentUser} members={members} onBack={() => setCallsOpen(false)} />
   );
 
+  if (tasksOpen) return (
+    <CrmTasks cid={cid} currentUser={currentUser} members={members}
+      onBack={() => setTasksOpen(false)}
+      onOpenDeal={(id) => { setTasksOpen(false); setDetailId(id); }} />
+  );
+
   // Detalhe do negócio (abre ao clicar num card). Antes do loading para não desmontar ao recarregar o board.
   if (detailId) return (
     <CrmDeal dealId={detailId} cid={cid} currentUser={currentUser} isAdmin={isAdmin} members={members}
@@ -288,6 +330,12 @@ export const Crm: React.FC<Props> = ({ currentUser, activeClientId, isAdmin, mem
 
   return (
     <div className="space-y-6 animate-in fade-in">
+      {brief && (
+        <CrmBriefing overdue={brief.overdue} today={brief.today} canNotify={canNotify}
+          onEnableNotify={enableNotify}
+          onOpenDeal={(id) => { setBrief(null); setDetailId(id); }}
+          onClose={() => setBrief(null)} />
+      )}
       <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex flex-wrap items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold text-slate-800 tracking-tight italic">CRM Comercial</h1>
@@ -345,6 +393,12 @@ export const Crm: React.FC<Props> = ({ currentUser, activeClientId, isAdmin, mem
             <button onClick={() => setCallsOpen(true)} title="Painel de ligações"
               className="p-2.5 rounded-lg bg-slate-100 text-slate-700 hover:bg-slate-200 transition-all flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest">
               <Phone size={16} /><span className="hidden sm:inline">Ligações</span>
+            </button>
+          )}
+          {isAdmin && (
+            <button onClick={() => setTasksOpen(true)} title="Tarefas da equipe"
+              className="p-2.5 rounded-lg bg-slate-100 text-slate-700 hover:bg-slate-200 transition-all flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest">
+              <CheckSquare size={16} /><span className="hidden sm:inline">Tarefas</span>
             </button>
           )}
           {isAdmin && gotoConnected && (

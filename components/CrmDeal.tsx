@@ -281,6 +281,14 @@ export const CrmDeal: React.FC<Props> = ({ dealId, cid, currentUser, isAdmin, me
     setAddingAct(false);
     if (error) { alert('Erro: ' + error.message); return; }
     setActs(prev => [data, ...prev]);
+    // aviso (toast do navegador) confirmando a tarefa agendada
+    if (payload.due_at) {
+      try {
+        if (typeof Notification !== 'undefined' && Notification.permission === 'granted') {
+          new Notification('Tarefa agendada', { body: `${payload.title || 'Tarefa'} — ${new Date(payload.due_at).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' })}` });
+        }
+      } catch { /* */ }
+    }
     setActForm({ type: 'call', title: '', notes: '', due_at: '' });
   };
 
