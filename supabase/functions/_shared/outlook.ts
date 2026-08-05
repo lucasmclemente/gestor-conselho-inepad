@@ -46,18 +46,24 @@ export async function syncMailbox(admin: any, conn: any, opts: { full?: boolean;
   const token = await outlookToken(admin, conn);
   const gget = (u: string) => fetch(u.startsWith('http') ? u : `${GRAPH}${u}`, { headers: { Authorization: `Bearer ${token}` } });
 
-  // e-mail do contato → negócio (via empresa)
+  // e-mail do contato → negócio (via empresa OU via contato direto do negócio)
   const [{ data: contacts }, { data: deals }] = await Promise.all([
     admin.from('crm_contacts').select('id, email, organization_id').eq('client_id', cid).not('email', 'is', null),
-    admin.from('crm_deals').select('id, organization_id').eq('client_id', cid),
+    admin.from('crm_deals').select('id, organization_id, contact_id').eq('client_id', cid),
   ]);
+  const contactById = new Map<string, any>();
+  (contacts || []).forEach((c: any) => contactById.set(c.id, c));
   const dealByOrg = new Map<string, any>();
   (deals || []).forEach((d: any) => { if (d.organization_id && !dealByOrg.has(d.organization_id)) dealByOrg.set(d.organization_id, d); });
   const emailToDeal = new Map<string, any>();
-  (contacts || []).forEach((c: any) => {
-    const e = String(c.email || '').trim().toLowerCase();
-    if (e && c.organization_id && dealByOrg.has(c.organization_id) && !emailToDeal.has(e)) emailToDeal.set(e, { deal: dealByOrg.get(c.organization_id), contactId: c.id });
-  });
+  const addEmail = (email: string, deal: any, contactId: string) => {
+    const e = String(email || '').trim().toLowerCase();
+    if (e && e.includes('@') && !emailToDeal.has(e)) emailToDeal.set(e, { deal, contactId });
+  };
+  // via empresa: contatos cuja empresa tem negócio
+  (contacts || []).forEach((c: any) => { if (c.organization_id && dealByOrg.has(c.organization_id)) addEmail(c.email, dealByOrg.get(c.organization_id), c.id); });
+  // via contato direto do negócio (cobre negócios sem empresa)
+  (deals || []).forEach((d: any) => { const c = d.contact_id && contactById.get(d.contact_id); if (c) addEmail(c.email, d, c.id); });
   if (emailToDeal.size === 0) return { fetched: 0, matched: 0, created: 0 };
 
   // dedup por internetMessageId
