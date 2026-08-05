@@ -81,10 +81,10 @@ export async function runSync(admin: any, accessToken: string, cid: string, body
   (orgs || []).forEach((o: any) => { if (o.phone && dealByOrg.has(o.id)) addPhone(o.phone, dealByOrg.get(o.id), null); });
 
   // ids já importados (dedup)
-  const { data: existing } = await admin.from('crm_activities').select('id, external_id, recording_id').eq('client_id', cid).not('external_id', 'is', null);
+  const { data: existing } = await admin.from('crm_activities').select('id, external_id, recording_id, call_seconds').eq('client_id', cid).not('external_id', 'is', null);
   const seen = new Set<string>((existing || []).map((a: any) => a.external_id));
   const existingByExt = new Map<string, any>((existing || []).map((a: any) => [a.external_id, a]));
-  const backfill: { id: string; recording_id: string }[] = [];
+  const backfill: { id: string; patch: any }[] = [];
 
   const typeOf = (x: any) => x?.type?.value ?? x?.type ?? '';
   const extNums = (call: any): string[] => {
@@ -141,9 +141,15 @@ export async function runSync(admin: any, accessToken: string, cid: string, body
       || (call.participants || []).map((p: any) => p.recordingId).find(Boolean)
       || (call.participants || []).flatMap((p: any) => p.recordings || []).map((rr: any) => rr.id).find(Boolean)
       || null;
+    const callDir = call.direction === 'OUTBOUND' ? 'out' : 'in';
     if (seen.has(key)) {
       const ex = existingByExt.get(key);
-      if (ex && !ex.recording_id && recId) { backfill.push({ id: ex.id, recording_id: recId }); ex.recording_id = recId; }
+      if (ex) {
+        const patch: any = {};
+        if (!ex.recording_id && recId) patch.recording_id = recId;
+        if (ex.call_seconds == null) { patch.call_seconds = dur; patch.call_answered = answered; patch.call_direction = callDir; }
+        if (Object.keys(patch).length) { backfill.push({ id: ex.id, patch }); Object.assign(ex, patch); }
+      }
       continue;
     }
     seen.add(key);
@@ -158,6 +164,7 @@ export async function runSync(admin: any, accessToken: string, cid: string, body
       due_at: call.callCreated || call.startTime || null, done: true, done_at: call.callEnded || call.callCreated || null,
       owner_member_id: hit.deal.owner_member_id || null,
       external_id: key, recording_id: recId,
+      call_seconds: dur, call_answered: answered, call_direction: callDir,
     });
   }
   let created = 0;
@@ -168,7 +175,7 @@ export async function runSync(admin: any, accessToken: string, cid: string, body
   }
   let backfilled = 0;
   for (const b of backfill.slice(0, 500)) {
-    const { error } = await admin.from('crm_activities').update({ recording_id: b.recording_id }).eq('id', b.id);
+    const { error } = await admin.from('crm_activities').update(b.patch).eq('id', b.id);
     if (!error) backfilled++;
   }
 

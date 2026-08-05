@@ -6,6 +6,7 @@ import { CrmSettings } from './CrmSettings';
 import { CrmImport } from './CrmImport';
 import { CrmLeads } from './CrmLeads';
 import { CrmResults } from './CrmResults';
+import { CrmCalls } from './CrmCalls';
 import { CrmLostModal } from './CrmLostModal';
 
 type Props = {
@@ -37,6 +38,7 @@ export const Crm: React.FC<Props> = ({ currentUser, activeClientId, isAdmin, mem
   const [importOpen, setImportOpen] = useState(false);
   const [leadsOpen, setLeadsOpen] = useState(false);
   const [resultsOpen, setResultsOpen] = useState(false);
+  const [callsOpen, setCallsOpen] = useState(false);
   const [ownerFilter, setOwnerFilter] = useState('all');
   const [tagFilter, setTagFilter] = useState('all');
   const [gotoConnected, setGotoConnected] = useState<boolean | null>(null);
@@ -234,6 +236,10 @@ export const Crm: React.FC<Props> = ({ currentUser, activeClientId, isAdmin, mem
       onOpenDeal={(id) => { setResultsOpen(false); setDetailId(id); }} />
   );
 
+  if (callsOpen) return (
+    <CrmCalls cid={cid} currentUser={currentUser} members={members} onBack={() => setCallsOpen(false)} />
+  );
+
   // Detalhe do negócio (abre ao clicar num card). Antes do loading para não desmontar ao recarregar o board.
   if (detailId) return (
     <CrmDeal dealId={detailId} cid={cid} currentUser={currentUser} isAdmin={isAdmin} members={members}
@@ -287,6 +293,12 @@ export const Crm: React.FC<Props> = ({ currentUser, activeClientId, isAdmin, mem
             className="p-2.5 rounded-lg bg-slate-100 text-slate-700 hover:bg-slate-200 transition-all flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest">
             <TrendingUp size={16} /><span className="hidden sm:inline">Resultados</span>
           </button>
+          {isAdmin && (
+            <button onClick={() => setCallsOpen(true)} title="Painel de ligações"
+              className="p-2.5 rounded-lg bg-slate-100 text-slate-700 hover:bg-slate-200 transition-all flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest">
+              <Phone size={16} /><span className="hidden sm:inline">Ligações</span>
+            </button>
+          )}
           {isAdmin && gotoConnected && (
             <button onClick={syncCalls} disabled={gotoBusy} title="Sincronizar ligações da GoTo nos negócios"
               className="p-2.5 rounded-lg bg-slate-100 text-slate-700 hover:bg-slate-200 transition-all flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest disabled:opacity-50">
