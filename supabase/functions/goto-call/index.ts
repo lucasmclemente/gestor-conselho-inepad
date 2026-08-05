@@ -163,8 +163,10 @@ serve(async (req) => {
     (orgs || []).forEach((o: any) => { if (o.phone && dealByOrg.has(o.id)) addPhone(o.phone, dealByOrg.get(o.id), null); });
 
     // ids já importados (dedup)
-    const { data: existing } = await admin.from('crm_activities').select('external_id').eq('client_id', cid).not('external_id', 'is', null);
+    const { data: existing } = await admin.from('crm_activities').select('id, external_id, recording_id').eq('client_id', cid).not('external_id', 'is', null);
     const seen = new Set<string>((existing || []).map((a: any) => a.external_id));
+    const existingByExt = new Map<string, any>((existing || []).map((a: any) => [a.external_id, a]));
+    const backfill: { id: string; recording_id: string }[] = [];
 
     // na GoTo o "type" vem como string direta ("PHONE_NUMBER"/"LINE"); tratamos os dois formatos
     const typeOf = (x: any) => x?.type?.value ?? x?.type ?? '';
@@ -222,15 +224,20 @@ serve(async (req) => {
       matched++;
       // chave de dedup: qualquer id da GoTo; se não houver, telefone+início da chamada
       const key = String(call.conversationSpaceId || call.id || call.callId || call.legId || `${norm(ext)}|${call.callCreated || call.startTime || ''}`);
-      if (seen.has(key)) continue;
-      seen.add(key);
-      const dir = call.direction === 'OUTBOUND' ? 'saída' : 'entrada';
-      const outcome = answered ? 'atendida' : 'não atendida';
       // recordingId do leg do trunk (o que o web player toca por padrão)
       const recId = call.caller?.recordingId
         || (call.participants || []).map((p: any) => p.recordingId).find(Boolean)
         || (call.participants || []).flatMap((p: any) => p.recordings || []).map((rr: any) => rr.id).find(Boolean)
         || null;
+      // já importada? preenche o recording_id se estiver faltando (backfill) e segue
+      if (seen.has(key)) {
+        const ex = existingByExt.get(key);
+        if (ex && !ex.recording_id && recId) { backfill.push({ id: ex.id, recording_id: recId }); ex.recording_id = recId; }
+        continue;
+      }
+      seen.add(key);
+      const dir = call.direction === 'OUTBOUND' ? 'saída' : 'entrada';
+      const outcome = answered ? 'atendida' : 'não atendida';
       const recorded = !!recId;
       const mm = Math.floor(dur / 60), ss = dur % 60;
       rows.push({
@@ -247,6 +254,12 @@ serve(async (req) => {
       const { data, error } = await admin.from('crm_activities').insert(rows).select('id');
       if (error) return json({ error: 'Falha ao gravar as atividades.', detail: error.message }, 400);
       created = (data || []).length;
+    }
+    // backfill do recording_id nas atividades já existentes
+    let backfilled = 0;
+    for (const b of backfill.slice(0, 500)) {
+      const { error } = await admin.from('crm_activities').update({ recording_id: b.recording_id }).eq('id', b.id);
+      if (!error) backfilled++;
     }
 
     // diagnóstico: sobreposição real entre números ligados e telefones cadastrados
@@ -265,7 +278,7 @@ serve(async (req) => {
       samplePhoneKeys: [...phoneToDeal.keys()].slice(0, 12),
       sampleCalledNumbers: [...calledNorms].slice(0, 20),
     };
-    return json({ fetched: calls.length, matched, created, leadsCreated, debug });
+    return json({ fetched: calls.length, matched, created, leadsCreated, backfilled, debug });
   }
 
   // ── Diagnóstico da linha ────────────────────────────────────

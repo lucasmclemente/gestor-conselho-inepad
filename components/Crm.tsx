@@ -118,8 +118,8 @@ export const Crm: React.FC<Props> = ({ currentUser, activeClientId, isAdmin, mem
       return;
     }
     const d = data as any;
-    const resumo = `Sincronização concluída!\n\n• ${d.fetched} ligações analisadas\n• ${d.created} ligações registradas\n• ${d.leadsCreated || 0} novos leads criados`;
-    if ((d.created || 0) === 0 && (d.leadsCreated || 0) === 0 && d.debug) {
+    const resumo = `Sincronização concluída!\n\n• ${d.fetched} ligações analisadas\n• ${d.created} ligações registradas\n• ${d.leadsCreated || 0} novos leads criados\n• ${d.backfilled || 0} gravações vinculadas ao histórico`;
+    if ((d.created || 0) === 0 && (d.leadsCreated || 0) === 0 && (d.backfilled || 0) === 0 && d.debug) {
       try { await navigator.clipboard.writeText(JSON.stringify(d.debug, null, 2)); alert(resumo + '\n\n(Nada foi registrado — diagnóstico COPIADO. Cole aqui no chat.)'); }
       catch { alert(resumo); }
       return;
