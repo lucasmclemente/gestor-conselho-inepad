@@ -45,6 +45,7 @@ export const Crm: React.FC<Props> = ({ currentUser, activeClientId, isAdmin, mem
   const [emailConnected, setEmailConnected] = useState<boolean | null>(null);
   const [emailAddr, setEmailAddr] = useState<string | null>(null);
   const [emailBusy, setEmailBusy] = useState(false);
+  const [emailSyncing, setEmailSyncing] = useState(false);
   const [gotoBusy, setGotoBusy] = useState(false);
   const [dealModal, setDealModal] = useState<any>(null); // { stage_id } ao criar
   const [lostDeal, setLostDeal] = useState<any>(null); // negócio sendo marcado como perdido
@@ -106,6 +107,20 @@ export const Crm: React.FC<Props> = ({ currentUser, activeClientId, isAdmin, mem
     else if (p.get('outlook') === 'connected') { setEmailConnected(true); alert('✅ E-mail Outlook conectado!'); window.history.replaceState({}, '', window.location.pathname); }
     else if (p.get('outlook') === 'erro') { alert('Erro ao conectar o e-mail: ' + (p.get('msg') || '')); window.history.replaceState({}, '', window.location.pathname); }
   }, []);
+
+  const syncEmails = async () => {
+    setEmailSyncing(true);
+    const { data, error } = await supabase.functions.invoke('outlook-sync', { body: {} });
+    setEmailSyncing(false);
+    if (error) {
+      let m = error.message;
+      try { const b = await (error as any).context?.json?.(); if (b?.error) m = b.error; } catch { /* */ }
+      alert('Erro ao sincronizar e-mails: ' + m);
+      return;
+    }
+    const d = data as any;
+    alert(`E-mails sincronizados!\n\n• ${d.fetched} analisados\n• ${d.matched} de contatos do CRM\n• ${d.created} novos no histórico`);
+  };
 
   const connectEmail = async () => {
     setEmailBusy(true);
@@ -306,6 +321,12 @@ export const Crm: React.FC<Props> = ({ currentUser, activeClientId, isAdmin, mem
             className={`p-2.5 rounded-lg transition-all flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest ${emailConnected ? 'bg-emerald-50 text-emerald-700 border border-emerald-200 hover:bg-emerald-100' : 'bg-slate-100 text-slate-700 hover:bg-slate-200'}`}>
             <Mail size={16} /><span className="hidden sm:inline">{emailBusy ? 'Conectando...' : (emailConnected ? 'E-mail ✓' : 'Conectar e-mail')}</span>
           </button>
+          {emailConnected && (
+            <button onClick={syncEmails} disabled={emailSyncing} title="Buscar respostas de e-mail e registrar no histórico"
+              className="p-2.5 rounded-lg bg-slate-100 text-slate-700 hover:bg-slate-200 transition-all flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest disabled:opacity-50">
+              <RefreshCw size={16} /><span className="hidden sm:inline">{emailSyncing ? 'Sincronizando...' : 'Sincronizar e-mails'}</span>
+            </button>
+          )}
           <button onClick={() => setImportOpen(true)} title="Importar leads e contatos"
             className="p-2.5 rounded-lg bg-amber-600 text-white hover:bg-amber-700 transition-all flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest">
             <Upload size={16} /><span className="hidden sm:inline">Importar</span>

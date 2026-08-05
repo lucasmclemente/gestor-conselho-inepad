@@ -37,3 +37,68 @@ export async function outlookToken(admin: any, conn: any): Promise<string> {
 export function esc(s: string): string {
   return String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
+
+// Sincroniza a caixa de entrada: e-mails RECEBIDOS de contatos do CRM viram
+// atividades type=email (direction='in') no negócio. Só guarda o que casa com
+// um contato cadastrado (privacidade). Cursor por tempo em conn.delta_link.
+export async function syncMailbox(admin: any, conn: any) {
+  const cid = conn.client_id as string;
+  const token = await outlookToken(admin, conn);
+  const gget = (u: string) => fetch(u.startsWith('http') ? u : `${GRAPH}${u}`, { headers: { Authorization: `Bearer ${token}` } });
+
+  // e-mail do contato → negócio (via empresa)
+  const [{ data: contacts }, { data: deals }] = await Promise.all([
+    admin.from('crm_contacts').select('id, email, organization_id').eq('client_id', cid).not('email', 'is', null),
+    admin.from('crm_deals').select('id, organization_id').eq('client_id', cid),
+  ]);
+  const dealByOrg = new Map<string, any>();
+  (deals || []).forEach((d: any) => { if (d.organization_id && !dealByOrg.has(d.organization_id)) dealByOrg.set(d.organization_id, d); });
+  const emailToDeal = new Map<string, any>();
+  (contacts || []).forEach((c: any) => {
+    const e = String(c.email || '').trim().toLowerCase();
+    if (e && c.organization_id && dealByOrg.has(c.organization_id) && !emailToDeal.has(e)) emailToDeal.set(e, { deal: dealByOrg.get(c.organization_id), contactId: c.id });
+  });
+  if (emailToDeal.size === 0) return { fetched: 0, matched: 0, created: 0 };
+
+  // dedup por internetMessageId
+  const { data: existing } = await admin.from('crm_activities').select('email_msg_id').eq('client_id', cid).not('email_msg_id', 'is', null);
+  const seen = new Set<string>((existing || []).map((a: any) => a.email_msg_id));
+
+  // janela desde o último cursor (ou 14 dias no 1º sync)
+  const since = conn.delta_link || new Date(Date.now() - 14 * 24 * 3600 * 1000).toISOString();
+  const filter = encodeURIComponent(`receivedDateTime ge ${since}`);
+  const select = 'subject,from,receivedDateTime,bodyPreview,internetMessageId';
+  let urlp = `${GRAPH}/me/mailFolders/inbox/messages?$filter=${filter}&$select=${select}&$orderby=receivedDateTime%20asc&$top=50`;
+
+  const rows: any[] = [];
+  let fetched = 0, matched = 0, maxTs = since;
+  for (let page = 0; page < 20 && urlp; page++) {
+    const r = await gget(urlp);
+    if (!r.ok) break;
+    const b = await r.json().catch(() => null);
+    const items = b?.value || [];
+    fetched += items.length;
+    for (const msg of items) {
+      const ts = msg.receivedDateTime;
+      if (ts && ts > maxTs) maxTs = ts;
+      const from = String(msg.from?.emailAddress?.address || '').trim().toLowerCase();
+      const hit = emailToDeal.get(from);
+      if (!hit) continue;
+      matched++;
+      const mid = msg.internetMessageId || null;
+      if (!mid || seen.has(mid)) continue;
+      seen.add(mid);
+      rows.push({
+        client_id: cid, deal_id: hit.deal.id, contact_id: hit.contactId, type: 'email',
+        title: msg.subject || '(sem assunto)', notes: msg.bodyPreview || '',
+        owner_member_id: conn.member_id, done: true, done_at: ts || null,
+        email_direction: 'in', email_msg_id: mid,
+      });
+    }
+    urlp = b?.['@odata.nextLink'] || '';
+  }
+  let created = 0;
+  if (rows.length) { const { data } = await admin.from('crm_activities').insert(rows).select('id'); created = (data || []).length; }
+  await admin.from('crm_outlook_connections').update({ delta_link: maxTs, updated_at: new Date().toISOString() }).eq('member_id', conn.member_id);
+  return { fetched, matched, created };
+}
