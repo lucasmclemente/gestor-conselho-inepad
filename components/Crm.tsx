@@ -119,7 +119,13 @@ export const Crm: React.FC<Props> = ({ currentUser, activeClientId, isAdmin, mem
       return;
     }
     const d = data as any;
-    alert(`E-mails sincronizados!\n\n• ${d.fetched} analisados\n• ${d.matched} de contatos do CRM\n• ${d.created} novos no histórico`);
+    const resumo = `E-mails sincronizados!\n\n• ${d.fetched} analisados\n• ${d.matched} de contatos do CRM\n• ${d.created} novos no histórico`;
+    if ((d.created || 0) === 0 && d.debug) {
+      try { await navigator.clipboard.writeText(JSON.stringify(d.debug, null, 2)); alert(resumo + '\n\n(Nada novo — diagnóstico COPIADO. Cole aqui no chat.)'); }
+      catch { alert(resumo); }
+      return;
+    }
+    alert(resumo);
   };
 
   const connectEmail = async () => {

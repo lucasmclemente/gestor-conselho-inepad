@@ -49,6 +49,7 @@ serve(async (req) => {
   const { data: conn } = await admin.from('crm_outlook_connections').select('*').eq('member_id', user.id).maybeSingle();
   if (!conn) return json({ error: 'E-mail não conectado. Clique em "Conectar e-mail" primeiro.' }, 400);
 
-  try { return json({ ok: true, ...(await syncMailbox(admin, conn)) }); }
+  // botão manual: revê 14 dias completos (idempotente via dedup) + diagnóstico
+  try { return json({ ok: true, ...(await syncMailbox(admin, conn, { full: true, debug: true })) }); }
   catch (e) { return json({ error: String((e as any)?.message || e) }, 400); }
 });

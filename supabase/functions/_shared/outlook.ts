@@ -41,7 +41,7 @@ export function esc(s: string): string {
 // Sincroniza a caixa de entrada: e-mails RECEBIDOS de contatos do CRM viram
 // atividades type=email (direction='in') no negócio. Só guarda o que casa com
 // um contato cadastrado (privacidade). Cursor por tempo em conn.delta_link.
-export async function syncMailbox(admin: any, conn: any) {
+export async function syncMailbox(admin: any, conn: any, opts: { full?: boolean; debug?: boolean } = {}) {
   const cid = conn.client_id as string;
   const token = await outlookToken(admin, conn);
   const gget = (u: string) => fetch(u.startsWith('http') ? u : `${GRAPH}${u}`, { headers: { Authorization: `Bearer ${token}` } });
@@ -64,8 +64,9 @@ export async function syncMailbox(admin: any, conn: any) {
   const { data: existing } = await admin.from('crm_activities').select('email_msg_id').eq('client_id', cid).not('email_msg_id', 'is', null);
   const seen = new Set<string>((existing || []).map((a: any) => a.email_msg_id));
 
-  // janela desde o último cursor (ou 14 dias no 1º sync)
-  const since = conn.delta_link || new Date(Date.now() - 14 * 24 * 3600 * 1000).toISOString();
+  // janela desde o último cursor (ou 14 dias). full=ignora o cursor e revê 14 dias.
+  const since = (!opts.full && conn.delta_link) ? conn.delta_link : new Date(Date.now() - 14 * 24 * 3600 * 1000).toISOString();
+  const senders: string[] = [];
   const filter = encodeURIComponent(`receivedDateTime ge ${since}`);
   const select = 'subject,from,receivedDateTime,bodyPreview,internetMessageId';
   let urlp = `${GRAPH}/me/mailFolders/inbox/messages?$filter=${filter}&$select=${select}&$orderby=receivedDateTime%20asc&$top=50`;
@@ -82,6 +83,7 @@ export async function syncMailbox(admin: any, conn: any) {
       const ts = msg.receivedDateTime;
       if (ts && ts > maxTs) maxTs = ts;
       const from = String(msg.from?.emailAddress?.address || '').trim().toLowerCase();
+      if (opts.debug && senders.length < 15 && from) senders.push(from);
       const hit = emailToDeal.get(from);
       if (!hit) continue;
       matched++;
@@ -100,5 +102,10 @@ export async function syncMailbox(admin: any, conn: any) {
   let created = 0;
   if (rows.length) { const { data } = await admin.from('crm_activities').insert(rows).select('id'); created = (data || []).length; }
   await admin.from('crm_outlook_connections').update({ delta_link: maxTs, updated_at: new Date().toISOString() }).eq('member_id', conn.member_id);
-  return { fetched, matched, created };
+  const debug = opts.debug ? {
+    since, emailToDealSize: emailToDeal.size,
+    sampleContactEmails: [...emailToDeal.keys()].slice(0, 10),
+    sampleSenders: senders,
+  } : undefined;
+  return { fetched, matched, created, debug };
 }
