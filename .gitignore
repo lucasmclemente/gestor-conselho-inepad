@@ -23,3 +23,9 @@ dist-ssr
 *.sln
 *.sw?
 .env
+# Arquivos locais (docs/artefatos e config do Claude Code)
+.claude/
+*.docx
+GovCorp_*.pdf
+GovCorp_*.html
+Boardplan_*.docx
