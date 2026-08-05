@@ -118,17 +118,21 @@ serve(async (req) => {
           out[label] = { status: r.status, contentType: ct, length: r.headers.get('content-length'), location: r.headers.get('location'), body: ct.includes('json') ? await r.json().catch(() => null) : `[${ct}]` };
         } catch (e) { out[label] = { error: String(e) }; }
       };
-      if (tok) {
-        const q = encodeURIComponent(tok);
-        // hipótese principal: token na URL, SEM Authorization (o token É a credencial)
-        await probe('A:content?token noauth', `${API}${base}/content?token=${q}`);
-        await probe('B:content?access_token noauth', `${API}${base}/content?access_token=${q}`);
-        await probe('C:base?token noauth', `${API}${base}?token=${q}`);
-        // negociação de conteúdo: OAuth Bearer mas pedindo áudio
-        await probe('D:content oauth+audio', `${API}${base}/content`, { Authorization: `Bearer ${accessToken}`, Accept: 'audio/mpeg,audio/wav,application/octet-stream' });
-        // token como Bearer num caminho /media
-        await probe('E:media?token noauth', `${API}${base}/media?token=${q}`);
-      }
+      // ── Varredura da API cr/v1 (escopo cr.v1.read) e outros namespaces ──
+      const rid = rec.recordingId;
+      const oauth = { Authorization: `Bearer ${accessToken}`, Accept: '*/*' };
+      const eps: [string, string][] = [
+        ['cr1:list', `/cr/v1/recordings?accountKey=${accountKey}`],
+        ['cr1:meta', `/cr/v1/recordings/${rid}`],
+        ['cr1:content', `/cr/v1/recordings/${rid}/content`],
+        ['cr1:download', `/cr/v1/recordings/${rid}/download`],
+        ['cr1:media', `/cr/v1/recordings/${rid}/media`],
+        ['crs:content', `/call-recordings/v1/recordings/${rid}/content`],
+        ['rec:download', `/recording/v1/recordings/${rid}/download`],
+        ['rec:audio', `/recording/v1/recordings/${rid}/audio`],
+        ['rec:file', `/recording/v1/recordings/${rid}/file`],
+      ];
+      for (const [label, ep] of eps) await probe(label, `${API}${ep}`, oauth);
     }
     return json(out);
   }
