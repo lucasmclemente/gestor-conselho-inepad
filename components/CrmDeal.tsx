@@ -285,7 +285,7 @@ export const CrmDeal: React.FC<Props> = ({ dealId, cid, currentUser, isAdmin, me
     if (payload.due_at) {
       try {
         if (typeof Notification !== 'undefined' && Notification.permission === 'granted') {
-          new Notification('Tarefa agendada', { body: `${payload.title || 'Tarefa'} — ${new Date(payload.due_at).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' })}` });
+          new Notification('Tarefa agendada', { body: `${payload.title || 'Tarefa'}${deal?.title ? ' • ' + deal.title : ''} — ${new Date(payload.due_at).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' })}` });
         }
       } catch { /* */ }
     }

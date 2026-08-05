@@ -19,7 +19,7 @@ export const CrmBriefing: React.FC<Props> = ({ overdue, today, canNotify, onEnab
     <button onClick={() => t.deal_id && onOpenDeal(t.deal_id)} className="w-full px-4 py-2.5 flex items-center justify-between gap-3 hover:bg-slate-50 transition-all text-left rounded-lg">
       <div className="min-w-0">
         <p className="text-sm font-bold text-slate-800 italic truncate">{t.title || ACT_LABEL[t.type] || 'Tarefa'}</p>
-        <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wide">{ACT_LABEL[t.type] || t.type}</p>
+        <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wide truncate">{ACT_LABEL[t.type] || t.type}{t.deal?.title ? ` • ${t.deal.title}` : ''}</p>
       </div>
       <span className={`text-[11px] font-bold shrink-0 ${late ? 'text-red-500' : 'text-amber-600'}`}>{late ? fmtDate(t.due_at) : fmtTime(t.due_at)}</span>
     </button>

@@ -121,7 +121,7 @@ export const Crm: React.FC<Props> = ({ currentUser, activeClientId, isAdmin, mem
     const end = new Date(); end.setHours(23, 59, 59, 999);
     const startToday = new Date(); startToday.setHours(0, 0, 0, 0);
     supabase.from('crm_activities')
-      .select('id, deal_id, type, title, due_at')
+      .select('id, deal_id, type, title, due_at, deal:crm_deals(title)')
       .eq('client_id', cid).eq('owner_member_id', currentUser.id).eq('done', false)
       .not('due_at', 'is', null).lte('due_at', end.toISOString())
       .order('due_at', { ascending: true })

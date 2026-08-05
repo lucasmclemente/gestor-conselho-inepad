@@ -21,6 +21,7 @@ export const CrmTasks: React.FC<Props> = ({ cid, currentUser, members, onBack, o
   const [openTasks, setOpenTasks] = useState<any[]>([]);
   const [doneTasks, setDoneTasks] = useState<any[]>([]);
   const [period, setPeriod] = useState('month');
+  const [ownerFilter, setOwnerFilter] = useState('all');
 
   const now = new Date();
   const startToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
@@ -33,7 +34,7 @@ export const CrmTasks: React.FC<Props> = ({ cid, currentUser, members, onBack, o
   const load = useCallback(async () => {
     setLoading(true);
     const [open, done] = await Promise.all([
-      supabase.from('crm_activities').select('id, deal_id, type, title, due_at, owner_member_id').eq('client_id', cid).eq('done', false).not('due_at', 'is', null).limit(5000),
+      supabase.from('crm_activities').select('id, deal_id, type, title, due_at, owner_member_id, deal:crm_deals(title)').eq('client_id', cid).eq('done', false).not('due_at', 'is', null).limit(5000),
       supabase.from('crm_activities').select('id, owner_member_id, done_at').eq('client_id', cid).eq('done', true).not('due_at', 'is', null).limit(20000),
     ]);
     setOpenTasks(open.data || []);
@@ -48,6 +49,9 @@ export const CrmTasks: React.FC<Props> = ({ cid, currentUser, members, onBack, o
 
   const overdue = openTasks.filter(t => isOverdue(t.due_at)).sort((a, b) => (a.due_at < b.due_at ? -1 : 1));
   const today = openTasks.filter(t => isToday(t.due_at));
+
+  const ownerOk = (t: any) => ownerFilter === 'all' ? true : ownerFilter === 'none' ? !t.owner_member_id : t.owner_member_id === ownerFilter;
+  const pending = openTasks.filter(ownerOk).sort((a, b) => (a.due_at < b.due_at ? -1 : 1));
 
   const byUser = (() => {
     const m = new Map<string, { open: number; overdue: number; today: number; done: number }>();
@@ -71,11 +75,23 @@ export const CrmTasks: React.FC<Props> = ({ cid, currentUser, members, onBack, o
           <h1 className="text-2xl font-bold text-slate-800 tracking-tight italic flex items-center gap-2"><CheckSquare size={22} className="text-amber-600" /> Tarefas da Equipe</h1>
           <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1">Acompanhamento por responsável</p>
         </div>
-        <div className="space-y-1">
-          <label className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">Concluídas em</label>
-          <select value={period} onChange={e => setPeriod(e.target.value)} className="p-2.5 border border-slate-200 rounded-lg text-sm font-bold outline-none focus:border-amber-500 bg-white">
-            {PERIODS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
-          </select>
+        <div className="flex flex-wrap items-end gap-3">
+          {crmUsers.length > 1 && (
+            <div className="space-y-1">
+              <label className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">Responsável</label>
+              <select value={ownerFilter} onChange={e => setOwnerFilter(e.target.value)} className="p-2.5 border border-slate-200 rounded-lg text-sm font-bold outline-none focus:border-amber-500 bg-white">
+                <option value="all">Todos</option>
+                <option value="none">Sem responsável</option>
+                {crmUsers.map((m: any) => <option key={m.id} value={m.id}>{m.name}</option>)}
+              </select>
+            </div>
+          )}
+          <div className="space-y-1">
+            <label className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">Concluídas em</label>
+            <select value={period} onChange={e => setPeriod(e.target.value)} className="p-2.5 border border-slate-200 rounded-lg text-sm font-bold outline-none focus:border-amber-500 bg-white">
+              {PERIODS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+            </select>
+          </div>
         </div>
       </div>
 
@@ -120,7 +136,8 @@ export const CrmTasks: React.FC<Props> = ({ cid, currentUser, members, onBack, o
               </thead>
               <tbody className="divide-y divide-slate-50">
                 {byUser.map(u => (
-                  <tr key={u.id || 'none'} className="hover:bg-slate-50 transition-colors">
+                  <tr key={u.id || 'none'} onClick={() => setOwnerFilter(u.id || 'none')} title="Ver tarefas pendentes deste responsável"
+                    className={`hover:bg-amber-50 transition-colors cursor-pointer ${(ownerFilter === (u.id || 'none')) ? 'bg-amber-50' : ''}`}>
                     <td className="px-5 py-3 font-bold text-slate-700 italic">{u.name}</td>
                     <td className="px-3 py-3 text-right font-bold text-slate-700">{u.open}</td>
                     <td className={`px-3 py-3 text-right font-bold ${u.overdue ? 'text-red-600' : 'text-slate-300'}`}>{u.overdue}</td>
@@ -134,26 +151,32 @@ export const CrmTasks: React.FC<Props> = ({ cid, currentUser, members, onBack, o
         )}
       </div>
 
-      {/* Atrasadas (lista clicável) */}
-      {overdue.length > 0 && (
-        <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-          <div className="px-5 py-3 border-b border-slate-100 flex items-center justify-between">
-            <h3 className="text-[11px] font-bold uppercase text-slate-600 tracking-widest flex items-center gap-1.5"><AlertTriangle size={13} className="text-red-500" /> Tarefas atrasadas</h3>
-            <span className="text-[11px] font-bold text-red-500">{overdue.length}</span>
-          </div>
-          <div className="divide-y divide-slate-100 max-h-[420px] overflow-y-auto">
-            {overdue.map(t => (
+      {/* Tarefas pendentes (filtradas por responsável) */}
+      <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+        <div className="px-5 py-3 border-b border-slate-100 flex items-center justify-between">
+          <h3 className="text-[11px] font-bold uppercase text-slate-600 tracking-widest flex items-center gap-1.5">
+            <CheckSquare size={13} className="text-amber-600" /> Tarefas pendentes{ownerFilter !== 'all' ? ` — ${ownerFilter === 'none' ? 'Sem responsável' : nameOf(ownerFilter)}` : ''}
+          </h3>
+          <span className="text-[11px] font-bold text-slate-400">{pending.length}</span>
+        </div>
+        <div className="divide-y divide-slate-100 max-h-[480px] overflow-y-auto">
+          {pending.length === 0 && <p className="px-5 py-8 text-center text-sm text-slate-400 italic">Nenhuma tarefa pendente.</p>}
+          {pending.map(t => {
+            const late = isOverdue(t.due_at);
+            return (
               <button key={t.id} onClick={() => t.deal_id && onOpenDeal(t.deal_id)} className="w-full px-5 py-3 flex items-center justify-between gap-3 hover:bg-slate-50 transition-all text-left">
                 <div className="min-w-0">
                   <p className="text-sm font-bold text-slate-800 italic truncate">{t.title || ACT_LABEL[t.type] || 'Tarefa'}</p>
-                  <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wide">{ACT_LABEL[t.type] || t.type} • {nameOf(t.owner_member_id)}</p>
+                  <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wide truncate">
+                    {ACT_LABEL[t.type] || t.type}{t.deal?.title ? ` • ${t.deal.title}` : ''}{ownerFilter === 'all' ? ` • ${nameOf(t.owner_member_id)}` : ''}
+                  </p>
                 </div>
-                <span className="text-[11px] font-bold text-red-500 shrink-0">{fmtDateTime(t.due_at)}</span>
+                <span className={`text-[11px] font-bold shrink-0 ${late ? 'text-red-500' : 'text-slate-500'}`}>{late ? '⚠ ' : ''}{fmtDateTime(t.due_at)}</span>
               </button>
-            ))}
-          </div>
+            );
+          })}
         </div>
-      )}
+      </div>
     </div>
   );
 };
