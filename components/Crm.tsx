@@ -259,7 +259,7 @@ export const Crm: React.FC<Props> = ({ currentUser, activeClientId, isAdmin, mem
   // Detalhe do negócio (abre ao clicar num card). Antes do loading para não desmontar ao recarregar o board.
   if (detailId) return (
     <CrmDeal dealId={detailId} cid={cid} currentUser={currentUser} isAdmin={isAdmin} members={members}
-      stages={stages} addLog={addLog}
+      stages={stages} emailConnected={!!emailConnected} addLog={addLog}
       onBack={() => setDetailId(null)} onMutated={loadBoard} />
   );
 

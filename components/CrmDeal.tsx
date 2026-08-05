@@ -28,12 +28,13 @@ type Props = {
   isAdmin: boolean;
   members: any[];
   stages: any[];
+  emailConnected?: boolean;
   addLog?: (action: string, details: string) => Promise<void> | void;
   onBack: () => void;
   onMutated: () => void;
 };
 
-export const CrmDeal: React.FC<Props> = ({ dealId, cid, currentUser, isAdmin, members, stages, addLog, onBack, onMutated }) => {
+export const CrmDeal: React.FC<Props> = ({ dealId, cid, currentUser, isAdmin, members, stages, emailConnected, addLog, onBack, onMutated }) => {
   const log = async (a: string, d: string) => { try { await addLog?.(a, d); } catch { /* noop */ } };
   const ownerName = (id: string) => (members.find((m: any) => m.id === id)?.name) || (id === currentUser?.id ? currentUser?.name : '—');
   const digitsOnly = (s: string) => (s || '').replace(/\D/g, '');
@@ -51,6 +52,8 @@ export const CrmDeal: React.FC<Props> = ({ dealId, cid, currentUser, isAdmin, me
   const [savingCustom, setSavingCustom] = useState(false);
   const [recUrls, setRecUrls] = useState<Record<string, string>>({});
   const [recLoading, setRecLoading] = useState<string>('');
+  const [compose, setCompose] = useState<any>(null); // {to, subject, body} | null
+  const [sendingEmail, setSendingEmail] = useState(false);
   const [tags, setTags] = useState<any[]>([]);
   const [lostOpen, setLostOpen] = useState(false);
 
@@ -229,6 +232,32 @@ export const CrmDeal: React.FC<Props> = ({ dealId, cid, currentUser, isAdmin, me
     else alert('Gravação indisponível.');
   };
 
+  // Abre o compositor de e-mail (Outlook) ou cai no mailto se não conectado
+  const openEmail = (c: any) => {
+    if (!c?.email) return;
+    if (emailConnected) setCompose({ to: c.email, subject: `Contato — ${deal?.title || ''}`, body: '', contactId: c.id, contactName: c.name });
+    else window.location.href = mailtoLink(c.email);
+  };
+  const sendEmail = async () => {
+    if (!compose?.to) return;
+    if (!compose.subject?.trim() && !compose.body?.trim()) return alert('Escreva o assunto ou a mensagem.');
+    setSendingEmail(true);
+    const { data, error } = await supabase.functions.invoke('outlook-send', {
+      body: { to: compose.to, subject: compose.subject, body: compose.body, dealId, contactId: compose.contactId || null },
+    });
+    setSendingEmail(false);
+    if (error) {
+      let m = error.message;
+      try { const b = await (error as any).context?.json?.(); if (b?.error) m = b.error; } catch { /* */ }
+      alert('Não foi possível enviar: ' + m);
+      return;
+    }
+    const act = (data as any)?.activity;
+    if (act) setActs(prev => [act, ...prev]);
+    setCompose(null);
+    log('CRM', `E-mail enviado para ${compose.to}`);
+  };
+
   const setCustom = (id: string, val: any) => setCustomForm(prev => ({ ...prev, [id]: val }));
   const saveCustom = async () => {
     setSavingCustom(true);
@@ -405,7 +434,7 @@ export const CrmDeal: React.FC<Props> = ({ dealId, cid, currentUser, isAdmin, me
                     {c.email && <a href={mailtoLink(c.email)} className="text-xs flex items-center gap-1.5 text-slate-500 hover:text-amber-600 w-fit transition-colors"><Mail size={11} /> {c.email}</a>}
                     <div className="flex flex-wrap gap-3 pt-1">
                       {c.phone && <button onClick={() => callContact(c)} className="text-[9px] font-bold uppercase tracking-wide text-sky-600 hover:text-sky-700 flex items-center gap-1 not-italic"><Phone size={12} /> Ligar</button>}
-                      {c.email && <a href={mailtoLink(c.email)} className="text-[9px] font-bold uppercase tracking-wide text-amber-600 hover:text-amber-700 flex items-center gap-1 not-italic"><Mail size={12} /> E-mail</a>}
+                      {c.email && <button onClick={() => openEmail(c)} title={emailConnected ? 'Enviar e-mail pelo Outlook' : 'Abrir no cliente de e-mail'} className="text-[9px] font-bold uppercase tracking-wide text-amber-600 hover:text-amber-700 flex items-center gap-1 not-italic"><Mail size={12} /> E-mail</button>}
                       {c.phone && <a href={waLink(c.phone)} target="_blank" rel="noreferrer" className="text-[9px] font-bold uppercase tracking-wide text-emerald-600 hover:text-emerald-700 flex items-center gap-1 not-italic"><MessageSquare size={12} /> WhatsApp</a>}
                       {!isPrimary && <button onClick={() => setPrimaryContact(c.id)} className="text-[9px] font-bold uppercase tracking-wide text-slate-400 hover:text-amber-600 flex items-center gap-1 not-italic"><Star size={12} /> Tornar principal</button>}
                     </div>
@@ -516,6 +545,7 @@ export const CrmDeal: React.FC<Props> = ({ dealId, cid, currentUser, isAdmin, me
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 flex-wrap">
                       <span className="text-[9px] font-bold uppercase tracking-wide text-amber-600 bg-amber-50 border border-amber-100 rounded px-1.5 py-0.5">{meta.label}</span>
+                      {a.type === 'email' && a.email_direction && <span className={`text-[8px] font-bold uppercase tracking-wide ${a.email_direction === 'in' ? 'text-emerald-600' : 'text-sky-600'}`}>{a.email_direction === 'in' ? '← recebido' : '→ enviado'}</span>}
                       {a.title && <p className={`text-sm font-bold text-slate-800 italic ${a.done ? 'line-through' : ''}`}>{a.title}</p>}
                     </div>
                     {a.notes && <p className="text-xs text-slate-500 mt-1 whitespace-pre-wrap">{a.notes}</p>}
@@ -561,6 +591,36 @@ export const CrmDeal: React.FC<Props> = ({ dealId, cid, currentUser, isAdmin, me
 
       {lostOpen && (
         <CrmLostModal dealTitle={deal.title} onConfirm={confirmLost} onClose={() => setLostOpen(false)} />
+      )}
+
+      {compose && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4" onClick={() => !sendingEmail && setCompose(null)}>
+          <div className="bg-white rounded-xl shadow-xl w-full max-w-lg p-5 space-y-3" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between">
+              <h3 className="text-[11px] font-bold uppercase text-slate-600 tracking-widest flex items-center gap-1.5"><Mail size={14} className="text-amber-600" /> Enviar e-mail</h3>
+              <button onClick={() => setCompose(null)} className="text-slate-300 hover:text-slate-600"><X size={16} /></button>
+            </div>
+            <div className="space-y-1">
+              <label className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">Para</label>
+              <input type="email" className="w-full p-2.5 border border-slate-200 rounded-lg text-sm outline-none focus:border-amber-500" value={compose.to} onChange={e => setCompose({ ...compose, to: e.target.value })} />
+            </div>
+            <div className="space-y-1">
+              <label className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">Assunto</label>
+              <input type="text" className="w-full p-2.5 border border-slate-200 rounded-lg text-sm outline-none focus:border-amber-500" value={compose.subject} onChange={e => setCompose({ ...compose, subject: e.target.value })} />
+            </div>
+            <div className="space-y-1">
+              <label className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">Mensagem</label>
+              <textarea rows={7} className="w-full p-2.5 border border-slate-200 rounded-lg text-sm outline-none focus:border-amber-500 resize-y" value={compose.body} onChange={e => setCompose({ ...compose, body: e.target.value })} />
+            </div>
+            <div className="flex items-center justify-between gap-2 pt-1">
+              <span className="text-[10px] text-slate-400 italic">Sai do seu Outlook e fica no histórico.</span>
+              <div className="flex gap-2">
+                <button onClick={() => setCompose(null)} className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-500 rounded-lg font-bold text-[10px] uppercase tracking-widest">Cancelar</button>
+                <button disabled={sendingEmail} onClick={sendEmail} className="px-5 py-2 bg-amber-600 hover:bg-amber-700 text-white rounded-lg font-bold text-[10px] uppercase tracking-widest flex items-center gap-1.5 disabled:opacity-50"><Mail size={13} /> {sendingEmail ? 'Enviando...' : 'Enviar'}</button>
+              </div>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );
