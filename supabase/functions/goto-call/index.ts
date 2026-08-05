@@ -119,19 +119,18 @@ serve(async (req) => {
         } catch (e) { out[label] = { error: String(e) }; }
       };
       const oauth = { Authorization: `Bearer ${accessToken}`, Accept: '*/*' };
+      const rid = rec.recordingId;
 
-      // ── TESTE-CHAVE: contact-center-reports em api.jive.com (fluxo do web player) ──
-      // orgId e um recordingId conhecido (capturados do navegador); permite override pelo body
-      const JIVE = 'https://api.jive.com';
-      const orgId = body.orgId || '559d3b2f-c583-4f50-945d-16c516c85656';
-      const ccRid = body.ccRecordingId || '25899cbc-5647-40c9-a811-74fc7a802181';
-      const ccBase = `${JIVE}/contact-center-reports/v1/organizations/${orgId}/recordings/${ccRid}`;
-      out.ccTest = { orgId, ccRid };
-      // meu token OAuth acessa esse serviço?
-      await probe('cc:meta', ccBase, oauth);
-      await probe('cc:content', `${ccBase}/content`, oauth);           // pode 302 ou devolver o token
-      await probe('cc:contentSlash', `${ccBase}/content/`, oauth);
-      await probe('cc:list', `${JIVE}/contact-center-reports/v1/organizations/${orgId}/recordings?pageSize=3`, oauth);
+      // ── TESTE-CHAVE: token da gravação NO PATH (como o web player faz) ──
+      if (tok) {
+        const et = encodeURIComponent(tok);
+        await probe('P1:content/tok noauth', `${API}/recording/v1/recordings/${rid}/content/${et}`);
+        await probe('P2:content/tok bearer', `${API}/recording/v1/recordings/${rid}/content/${et}`, oauth);
+        await probe('P3:rec/tok noauth', `${API}/recording/v1/recordings/${rid}/${et}`);
+        await probe('P4:content/rawtok noauth', `${API}/recording/v1/recordings/${rid}/content/${tok}`);
+        // e no host api.jive.com (mesmo serviço, host antigo)
+        await probe('P5:jive content/tok noauth', `https://api.jive.com/recording/v1/recordings/${rid}/content/${et}`);
+      }
     }
     return json(out);
   }
