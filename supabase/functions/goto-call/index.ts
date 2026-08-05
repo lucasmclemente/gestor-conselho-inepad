@@ -118,21 +118,20 @@ serve(async (req) => {
           out[label] = { status: r.status, contentType: ct, length: r.headers.get('content-length'), location: r.headers.get('location'), body: ct.includes('json') ? await r.json().catch(() => null) : `[${ct}]` };
         } catch (e) { out[label] = { error: String(e) }; }
       };
-      // ── Varredura da API cr/v1 (escopo cr.v1.read) e outros namespaces ──
-      const rid = rec.recordingId;
       const oauth = { Authorization: `Bearer ${accessToken}`, Accept: '*/*' };
-      const eps: [string, string][] = [
-        ['cr1:list', `/cr/v1/recordings?accountKey=${accountKey}`],
-        ['cr1:meta', `/cr/v1/recordings/${rid}`],
-        ['cr1:content', `/cr/v1/recordings/${rid}/content`],
-        ['cr1:download', `/cr/v1/recordings/${rid}/download`],
-        ['cr1:media', `/cr/v1/recordings/${rid}/media`],
-        ['crs:content', `/call-recordings/v1/recordings/${rid}/content`],
-        ['rec:download', `/recording/v1/recordings/${rid}/download`],
-        ['rec:audio', `/recording/v1/recordings/${rid}/audio`],
-        ['rec:file', `/recording/v1/recordings/${rid}/file`],
-      ];
-      for (const [label, ep] of eps) await probe(label, `${API}${ep}`, oauth);
+
+      // ── TESTE-CHAVE: contact-center-reports em api.jive.com (fluxo do web player) ──
+      // orgId e um recordingId conhecido (capturados do navegador); permite override pelo body
+      const JIVE = 'https://api.jive.com';
+      const orgId = body.orgId || '559d3b2f-c583-4f50-945d-16c516c85656';
+      const ccRid = body.ccRecordingId || '25899cbc-5647-40c9-a811-74fc7a802181';
+      const ccBase = `${JIVE}/contact-center-reports/v1/organizations/${orgId}/recordings/${ccRid}`;
+      out.ccTest = { orgId, ccRid };
+      // meu token OAuth acessa esse serviço?
+      await probe('cc:meta', ccBase, oauth);
+      await probe('cc:content', `${ccBase}/content`, oauth);           // pode 302 ou devolver o token
+      await probe('cc:contentSlash', `${ccBase}/content/`, oauth);
+      await probe('cc:list', `${JIVE}/contact-center-reports/v1/organizations/${orgId}/recordings?pageSize=3`, oauth);
     }
     return json(out);
   }
