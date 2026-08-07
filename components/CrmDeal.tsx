@@ -38,7 +38,14 @@ export const CrmDeal: React.FC<Props> = ({ dealId, cid, currentUser, isAdmin, me
   const log = async (a: string, d: string) => { try { await addLog?.(a, d); } catch { /* noop */ } };
   const ownerName = (id: string) => (members.find((m: any) => m.id === id)?.name) || (id === currentUser?.id ? currentUser?.name : '—');
   const digitsOnly = (s: string) => (s || '').replace(/\D/g, '');
-  const waLink = (phone: string) => { let d = digitsOnly(phone); if (d.length <= 11) d = '55' + d; return `https://wa.me/${d}`; };
+  // Padroniza para E.164 BR: +55 + DDD + número. Deixa como está se não reconhecer.
+  const toE164 = (s: string) => {
+    const d = digitsOnly(s);
+    if (d.length >= 12 && d.startsWith('55')) return '+' + d;
+    if (d.length === 10 || d.length === 11) return '+55' + d;
+    return (s || '').trim();
+  };
+  const waLink = (phone: string) => `https://wa.me/${toE164(phone).replace(/\D/g, '')}`;
   const mailtoLink = (email: string) => `mailto:${email}?subject=${encodeURIComponent('Contato — ' + (deal?.title || ''))}`;
 
   const [loading, setLoading] = useState(true);
@@ -148,7 +155,7 @@ export const CrmDeal: React.FC<Props> = ({ dealId, cid, currentUser, isAdmin, me
 
   const saveContact = async () => {
     if (!cForm.name?.trim()) return alert('Informe o nome do contato.');
-    const payload: any = { client_id: cid, name: cForm.name.trim(), role_title: cForm.role_title?.trim() || null, email: cForm.email?.trim() || null, phone: cForm.phone?.trim() || null, organization_id: deal?.organization_id || null };
+    const payload: any = { client_id: cid, name: cForm.name.trim(), role_title: cForm.role_title?.trim() || null, email: cForm.email?.trim() || null, phone: cForm.phone?.trim() ? toE164(cForm.phone.trim()) : null, organization_id: deal?.organization_id || null };
     if (cForm.id) {
       const { error } = await supabase.from('crm_contacts').update(payload).eq('id', cForm.id);
       if (error) { alert('Erro: ' + error.message); return; }
@@ -200,8 +207,7 @@ export const CrmDeal: React.FC<Props> = ({ dealId, cid, currentUser, isAdmin, me
 
   const callContact = async (c: any) => {
     if (!c?.phone) return;
-    const d = String(c.phone).replace(/\D/g, '');
-    const dial = '+' + (d.length <= 11 ? '55' + d : d);
+    const dial = toE164(c.phone);
     // registra a ligação como atividade (não bloqueia a discagem se falhar)
     try {
       const { data } = await supabase.from('crm_activities').insert({
@@ -438,7 +444,7 @@ export const CrmDeal: React.FC<Props> = ({ dealId, cid, currentUser, isAdmin, me
                         <button onClick={() => delContact(c)} title="Excluir contato" className="text-slate-300 hover:text-red-500 transition-colors"><Trash2 size={13} /></button>
                       </div>
                     </div>
-                    {c.phone && <a href={waLink(c.phone)} target="_blank" rel="noreferrer" className="text-xs flex items-center gap-1.5 text-slate-500 hover:text-emerald-600 w-fit transition-colors"><Phone size={11} /> {c.phone}</a>}
+                    {c.phone && <a href={waLink(c.phone)} target="_blank" rel="noreferrer" className="text-xs flex items-center gap-1.5 text-slate-500 hover:text-emerald-600 w-fit transition-colors"><Phone size={11} /> {toE164(c.phone)}</a>}
                     {c.email && <a href={mailtoLink(c.email)} className="text-xs flex items-center gap-1.5 text-slate-500 hover:text-amber-600 w-fit transition-colors"><Mail size={11} /> {c.email}</a>}
                     <div className="flex flex-wrap gap-3 pt-1">
                       {c.phone && <button onClick={() => callContact(c)} className="text-[9px] font-bold uppercase tracking-wide text-sky-600 hover:text-sky-700 flex items-center gap-1 not-italic"><Phone size={12} /> Ligar</button>}

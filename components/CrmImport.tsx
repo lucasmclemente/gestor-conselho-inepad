@@ -15,6 +15,8 @@ type Props = {
 
 const digits = (s: string) => (s || '').replace(/\D/g, '');
 const firstOf = (row: any, keys: string[]) => { for (const k of keys) { if (row[k]) return row[k]; } return ''; };
+// Padroniza telefone para E.164 BR (+55 + DDD + número); vazio se não reconhecer
+const toE164 = (s: string) => { const d = digits(s); if (d.length >= 12 && d.startsWith('55')) return '+' + d; if (d.length === 10 || d.length === 11) return '+55' + d; return ''; };
 const chunk = (arr: any[], n: number) => { const out: any[][] = []; for (let i = 0; i < arr.length; i += n) out.push(arr.slice(i, i + n)); return out; };
 const isDecisor = (occ: string) => /ADMINISTRADOR|DIRETOR|PRESIDENTE|TITULAR/.test((occ || '').toUpperCase());
 
@@ -59,7 +61,7 @@ export const CrmImport: React.FC<Props> = ({ cid, currentUser, members = [], pip
       cnpj,
       name: (r['RAZAO'] || r['NOME_FANTASIA'] || '').trim(),
       segment: (r['DESCRICAO_CNAE'] || r['ATIVIDADE'] || '').trim(),
-      phone: firstOf(r, ['DDDFONEMOVEL1', 'DDDFONEFIXO1']),
+      phone: toE164(firstOf(r, ['DDDFONEMOVEL1', 'DDDFONEFIXO1'])),
       email: (r['EMAIL1'] || '').trim(),
       address: [r['LOGRADOURO'], r['NUMERO'], r['BAIRRO']].filter(Boolean).join(', '),
       city: (r['CIDADE'] || '').trim(),
@@ -136,7 +138,7 @@ export const CrmImport: React.FC<Props> = ({ cid, currentUser, members = [], pip
           newContacts.push({
             client_id: cid, organization_id: orgId, name,
             role_title: (s['OCUPACAO'] || '').trim() || null,
-            phone: firstOf(s, ['DDDFONEMOVEL1', 'DDDFONEMOVEL2', 'DDDFONEMOVEL3']) || null,
+            phone: toE164(firstOf(s, ['DDDFONEMOVEL1', 'DDDFONEMOVEL2', 'DDDFONEMOVEL3'])) || null,
             email: (s['EMAILCORPORATIVO'] || '').trim() || null,
             owner_member_id: ownerId || currentUser?.id || null,
           });
