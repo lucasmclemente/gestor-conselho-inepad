@@ -151,6 +151,8 @@ const App = () => {
   const [timeElapsed, setTimeElapsed] = useState(0);
   const [isSessionActive, setIsSessionActive] = useState(false);
   const currentMeetingRef = useRef<any>(null);
+  const pautaStartRef = useRef<number | null>(null);   // relógio real (ms) do início da pauta ativa
+  const overshootAlertedRef = useRef(false);           // evita repetir o alerta de estouro
   const [noteAutoSaved, setNoteAutoSaved] = useState(false);
   // Ata com IA: sobe a transcrição do Teams/Meet e rascunha a discussão de cada pauta
   const transcriptRef = useRef<HTMLInputElement>(null);
@@ -388,24 +390,42 @@ const App = () => {
   }, [currentUser, isSuper, allClientsList]);
 
   // --- LOGICA DO CRONÔMETRO ---
+  // Ancorado no RELÓGIO REAL (Date.now): o tempo exibido é sempre "agora − início",
+  // então não atrasa quando a aba vai para segundo plano (o navegador desacelera o
+  // setInterval, mas o cálculo por timestamp se autocorrige a cada tick e ao voltar o foco).
+  // Depende só de [isSessionActive, activePautaIndex] — editar notas durante a sessão
+  // (que altera currentMeeting.pautas) NÃO reinicia o cronômetro. Lê a pauta via ref.
   useEffect(() => {
-    let timer: any;
-    if (isSessionActive && activePautaIndex !== null) {
-      timer = setInterval(() => {
-        setTimeElapsed(prev => {
-          const newVal = prev + 1;
-          const pautas = currentMeeting.pautas || [];
-          const pautaAtual = pautas[activePautaIndex];
-          const limiteSegundos = (parseInt(pautaAtual?.dur) || 0) * 60;
-          if (newVal === limiteSegundos) {
-            alert(`⚠️ TEMPO ESGOTADO: A pauta "${pautaAtual?.title}" ultrapassou o limite planejado.`);
-          }
-          return newVal;
-        });
-      }, 1000);
+    if (!isSessionActive || activePautaIndex === null) {
+      pautaStartRef.current = null;
+      overshootAlertedRef.current = false;
+      return;
     }
-    return () => clearInterval(timer);
-  }, [isSessionActive, activePautaIndex, currentMeeting.pautas]);
+    const startAt = Date.now();
+    pautaStartRef.current = startAt;
+    overshootAlertedRef.current = false;
+    setTimeElapsed(0);
+
+    const tick = () => {
+      const secs = Math.max(0, Math.floor((Date.now() - startAt) / 1000));
+      setTimeElapsed(secs);
+      const pautas = currentMeetingRef.current?.pautas || [];
+      const pautaAtual = pautas[activePautaIndex];
+      const limite = (parseInt(pautaAtual?.dur) || 0) * 60;
+      if (limite > 0 && secs >= limite && !overshootAlertedRef.current) {
+        overshootAlertedRef.current = true;
+        // fora do loop do intervalo: alert bloqueia o event loop e não pode atrasar a contagem
+        setTimeout(() => alert(`⚠️ TEMPO ESGOTADO: A pauta "${pautaAtual?.title}" ultrapassou o limite planejado.`), 0);
+      }
+    };
+    tick(); // atualização imediata
+    const timer = setInterval(tick, 1000);
+    // ao voltar o foco para a aba, recalcula na hora (corrige a desaceleração do 2º plano)
+    const onVis = () => { if (!document.hidden) tick(); };
+    document.addEventListener('visibilitychange', onVis);
+    return () => { clearInterval(timer); document.removeEventListener('visibilitychange', onVis); };
+    /* eslint-disable-next-line */
+  }, [isSessionActive, activePautaIndex]);
 
   // Mantém uma referência sempre atualizada da reunião (para o autosave evitar estado obsoleto)
   useEffect(() => { currentMeetingRef.current = currentMeeting; }, [currentMeeting]);
@@ -502,7 +522,9 @@ const App = () => {
   };
 
   const handleFinalizePauta = (index: number) => {
-    const minutesSpent = Math.ceil(timeElapsed / 60);
+    // Tempo gasto pelo relógio real (evita a defasagem de até 1s do estado timeElapsed)
+    const secs = pautaStartRef.current ? Math.max(0, Math.floor((Date.now() - pautaStartRef.current) / 1000)) : timeElapsed;
+    const minutesSpent = Math.ceil(secs / 60);
     const newPautas = [...(currentMeeting.pautas || [])];
     newPautas[index] = { ...newPautas[index], realDur: minutesSpent, completed: true };
     setCurrentMeeting({ ...currentMeeting, pautas: newPautas });
