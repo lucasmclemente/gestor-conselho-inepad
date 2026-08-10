@@ -35,16 +35,20 @@ serve(async (req) => {
   console.log('[telnyx-webhook] matched activity:', act?.id || null);
   if (!act || act.recording_id) return ok();
 
-  // baixa o áudio (URL da Telnyx; manda o Bearer caso exija)
-  const r = await fetch(mp3, { headers: { Authorization: `Bearer ${Deno.env.get('TELNYX_API_KEY') ?? ''}` } });
+  // baixa o áudio — tenta SEM auth (URLs da Telnyx costumam ser assinadas); com Bearer se precisar
+  let r = await fetch(mp3);
+  if (!r.ok) r = await fetch(mp3, { headers: { Authorization: `Bearer ${Deno.env.get('TELNYX_API_KEY') ?? ''}` } });
+  console.log('[telnyx-webhook] download', r.status, String(mp3).slice(0, 70));
   if (!r.ok) return ok();
   const bytes = new Uint8Array(await r.arrayBuffer());
 
-  const recId = `tnx-${sid}`;
+  const recId = `tnx-${String(sid || to).replace(/[^a-zA-Z0-9-]/g, '')}`;
   const path = `${act.client_id}/${recId}.mp3`;
   const up = await admin.storage.from('crm-recordings').upload(path, bytes, { contentType: 'audio/mpeg', upsert: true });
+  console.log('[telnyx-webhook] upload', up.error ? up.error.message : `ok ${bytes.length}b`);
   if (up.error) return ok();
 
   await admin.from('crm_activities').update({ recording_id: recId, recording_path: path }).eq('id', act.id);
+  console.log('[telnyx-webhook] linked', act.id);
   return ok();
 });
