@@ -6,6 +6,7 @@ import {
   Building2, User, Clock, Check, History, Star, Pencil, Play,
 } from 'lucide-react';
 import { CrmLostModal } from './CrmLostModal';
+import { CrmWebphone } from './CrmWebphone';
 
 const BRL = (n: any) => (Number(n) || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 const fmtDateTime = (s: string) => { try { return new Date(s).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' }); } catch { return s; } };
@@ -61,6 +62,7 @@ export const CrmDeal: React.FC<Props> = ({ dealId, cid, currentUser, isAdmin, me
   const [recLoading, setRecLoading] = useState<string>('');
   const [compose, setCompose] = useState<any>(null); // {to, subject, body} | null
   const [sendingEmail, setSendingEmail] = useState(false);
+  const [webphone, setWebphone] = useState<any>(null); // {number, name} | null
   const [tags, setTags] = useState<any[]>([]);
   const [lostOpen, setLostOpen] = useState(false);
 
@@ -219,6 +221,21 @@ export const CrmDeal: React.FC<Props> = ({ dealId, cid, currentUser, isAdmin, me
     } catch { /* segue */ }
     // abre o discador (app GoTo, se for o handler de tel: na máquina)
     window.location.href = `tel:${dial}`;
+  };
+
+  // Liga pelo webphone nativo (Telnyx WebRTC) — áudio no navegador
+  const webCall = async (c: any) => {
+    if (!c?.phone) return;
+    const dial = toE164(c.phone);
+    try {
+      const { data } = await supabase.from('crm_activities').insert({
+        client_id: cid, deal_id: dealId, contact_id: c.id, type: 'call',
+        title: `Ligação (webphone) — ${c.name}`, notes: `Número: ${dial}`,
+        owner_member_id: currentUser?.id || null,
+      }).select().single();
+      if (data) setActs(prev => [data, ...prev]);
+    } catch { /* segue mesmo se o log falhar */ }
+    setWebphone({ number: dial, name: c.name });
   };
 
   // Baixa/reproduz a gravação da ligação (via GoTo → Storage), sob demanda
@@ -447,7 +464,8 @@ export const CrmDeal: React.FC<Props> = ({ dealId, cid, currentUser, isAdmin, me
                     {c.phone && <a href={waLink(c.phone)} target="_blank" rel="noreferrer" className="text-xs flex items-center gap-1.5 text-slate-500 hover:text-emerald-600 w-fit transition-colors"><Phone size={11} /> {toE164(c.phone)}</a>}
                     {c.email && <a href={mailtoLink(c.email)} className="text-xs flex items-center gap-1.5 text-slate-500 hover:text-amber-600 w-fit transition-colors"><Mail size={11} /> {c.email}</a>}
                     <div className="flex flex-wrap gap-3 pt-1">
-                      {c.phone && <button onClick={() => callContact(c)} className="text-[9px] font-bold uppercase tracking-wide text-sky-600 hover:text-sky-700 flex items-center gap-1 not-italic"><Phone size={12} /> Ligar</button>}
+                      {c.phone && <button onClick={() => webCall(c)} title="Ligar pelo navegador (webphone)" className="text-[9px] font-bold uppercase tracking-wide text-white bg-sky-600 hover:bg-sky-700 rounded px-1.5 py-0.5 flex items-center gap-1 not-italic"><Phone size={12} /> Webphone</button>}
+                      {c.phone && <button onClick={() => callContact(c)} title="Abrir no discador do sistema (tel:)" className="text-[9px] font-bold uppercase tracking-wide text-sky-600 hover:text-sky-700 flex items-center gap-1 not-italic"><Phone size={12} /> Ligar</button>}
                       {c.email && <button onClick={() => openEmail(c)} title={emailConnected ? 'Enviar e-mail pelo Outlook' : 'Abrir no cliente de e-mail'} className="text-[9px] font-bold uppercase tracking-wide text-amber-600 hover:text-amber-700 flex items-center gap-1 not-italic"><Mail size={12} /> E-mail</button>}
                       {c.phone && <a href={waLink(c.phone)} target="_blank" rel="noreferrer" className="text-[9px] font-bold uppercase tracking-wide text-emerald-600 hover:text-emerald-700 flex items-center gap-1 not-italic"><MessageSquare size={12} /> WhatsApp</a>}
                       {!isPrimary && <button onClick={() => setPrimaryContact(c.id)} className="text-[9px] font-bold uppercase tracking-wide text-slate-400 hover:text-amber-600 flex items-center gap-1 not-italic"><Star size={12} /> Tornar principal</button>}
@@ -605,6 +623,10 @@ export const CrmDeal: React.FC<Props> = ({ dealId, cid, currentUser, isAdmin, me
 
       {lostOpen && (
         <CrmLostModal dealTitle={deal.title} onConfirm={confirmLost} onClose={() => setLostOpen(false)} />
+      )}
+
+      {webphone && (
+        <CrmWebphone number={webphone.number} contactName={webphone.name} onClose={() => setWebphone(null)} />
       )}
 
       {compose && (
