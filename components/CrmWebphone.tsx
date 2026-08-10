@@ -6,12 +6,13 @@ import { PhoneOff, Mic, MicOff, Phone } from 'lucide-react';
 type Props = {
   number: string;        // destino em E.164 (+55...)
   contactName?: string;
+  activityId?: string | null;  // atividade da ligação (p/ casar a gravação)
   onClose: () => void;
 };
 
 const fmt = (s: number) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
 
-export const CrmWebphone: React.FC<Props> = ({ number, contactName, onClose }) => {
+export const CrmWebphone: React.FC<Props> = ({ number, contactName, activityId, onClose }) => {
   const [status, setStatus] = useState('Conectando…');
   const [live, setLive] = useState(false);   // ligação ativa (áudio)
   const [muted, setMuted] = useState(false);
@@ -60,7 +61,15 @@ export const CrmWebphone: React.FC<Props> = ({ number, contactName, onClose }) =
         if (n?.type === 'callUpdate' && n.call) {
           const st = n.call.state;
           if (st === 'ringing' || st === 'early' || st === 'requesting' || st === 'trying') setStatus('Chamando…');
-          else if (st === 'active') { setStatus('Em ligação'); setLive(true); startTimer(); }
+          else if (st === 'active') {
+            setStatus('Em ligação'); setLive(true); startTimer();
+            // guarda o call_session_id da Telnyx na atividade → o webhook casa a gravação
+            try {
+              const ids = (callRef.current as any)?.telnyxIDs || n.call?.telnyxIDs;
+              const sid = ids?.telnyxSessionId;
+              if (sid && activityId) supabase.from('crm_activities').update({ external_id: sid }).eq('id', activityId).then(() => {}, () => {});
+            } catch { /* */ }
+          }
           else if (st === 'hangup' || st === 'destroy' || st === 'purge') {
             const cause = n.call?.cause || n.call?.causeCode || n.call?.sipCode || '';
             console.log('[webphone] hangup', { cause, causeCode: n.call?.causeCode, sipCode: n.call?.sipCode, call: n.call });

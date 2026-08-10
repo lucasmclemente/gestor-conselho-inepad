@@ -233,9 +233,9 @@ export const CrmDeal: React.FC<Props> = ({ dealId, cid, currentUser, isAdmin, me
         title: `Ligação (webphone) — ${c.name}`, notes: `Número: ${dial}`,
         owner_member_id: currentUser?.id || null,
       }).select().single();
-      if (data) setActs(prev => [data, ...prev]);
-    } catch { /* segue mesmo se o log falhar */ }
-    setWebphone({ number: dial, name: c.name });
+      if (data) { setActs(prev => [data, ...prev]); setWebphone({ number: dial, name: c.name, activityId: data.id }); }
+      else setWebphone({ number: dial, name: c.name, activityId: null });
+    } catch { setWebphone({ number: dial, name: c.name, activityId: null }); }
   };
 
   // Baixa/reproduz a gravação da ligação (via GoTo → Storage), sob demanda
@@ -626,7 +626,7 @@ export const CrmDeal: React.FC<Props> = ({ dealId, cid, currentUser, isAdmin, me
       )}
 
       {webphone && (
-        <CrmWebphone number={webphone.number} contactName={webphone.name} onClose={() => setWebphone(null)} />
+        <CrmWebphone number={webphone.number} contactName={webphone.name} activityId={webphone.activityId} onClose={() => setWebphone(null)} />
       )}
 
       {compose && (
