@@ -10,17 +10,30 @@ serve(async (req) => {
 
   const body = await req.json().catch(() => null);
   const ev = body?.data;
+  console.log('[telnyx-webhook] event:', ev?.event_type);
   if (ev?.event_type !== 'call.recording.saved') return ok();
 
   const p = ev.payload || {};
   const sid = p.call_session_id;
-  const mp3 = p?.recording_urls?.mp3 || p?.public_recording_urls?.mp3 || p?.recording_urls?.wav;
-  if (!sid || !mp3) return ok();
+  const to = p.to || p.callee || '';
+  const mp3 = p?.recording_urls?.mp3 || p?.public_recording_urls?.mp3 || p?.recording_urls?.wav || p?.public_recording_urls?.wav;
+  console.log('[telnyx-webhook] recording saved:', { sid, to, hasMp3: !!mp3 });
+  if (!mp3) return ok();
 
   const admin = createClient(Deno.env.get('SUPABASE_URL') ?? '', Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '', { auth: { persistSession: false } });
 
-  const { data: act } = await admin.from('crm_activities').select('id, client_id, recording_id').eq('external_id', sid).maybeSingle();
-  if (!act || act.recording_id) return ok(); // não achou ou já processada
+  // 1) casa pelo call_session_id (guardado em external_id)
+  let act: any = null;
+  if (sid) { const r = await admin.from('crm_activities').select('id, client_id, recording_id').eq('external_id', sid).maybeSingle(); act = r.data; }
+  // 2) fallback: casa pelo número de destino (ligação de webphone recente sem gravação)
+  if (!act && to) {
+    const r = await admin.from('crm_activities').select('id, client_id, recording_id')
+      .eq('type', 'call').is('recording_id', null).ilike('notes', `%${to}%`).ilike('title', '%webphone%')
+      .order('created_at', { ascending: false }).limit(1).maybeSingle();
+    act = r.data;
+  }
+  console.log('[telnyx-webhook] matched activity:', act?.id || null);
+  if (!act || act.recording_id) return ok();
 
   // baixa o áudio (URL da Telnyx; manda o Bearer caso exija)
   const r = await fetch(mp3, { headers: { Authorization: `Bearer ${Deno.env.get('TELNYX_API_KEY') ?? ''}` } });
