@@ -61,7 +61,12 @@ export const CrmWebphone: React.FC<Props> = ({ number, contactName, onClose }) =
           const st = n.call.state;
           if (st === 'ringing' || st === 'early' || st === 'requesting' || st === 'trying') setStatus('Chamando…');
           else if (st === 'active') { setStatus('Em ligação'); setLive(true); startTimer(); }
-          else if (st === 'hangup' || st === 'destroy' || st === 'purge') { setStatus('Encerrada'); setLive(false); stopTimer(); }
+          else if (st === 'hangup' || st === 'destroy' || st === 'purge') {
+            const cause = n.call?.cause || n.call?.causeCode || n.call?.sipCode || '';
+            console.log('[webphone] hangup', { cause, causeCode: n.call?.causeCode, sipCode: n.call?.sipCode, call: n.call });
+            setStatus(cause ? `Encerrada — ${cause}` : 'Encerrada');
+            setLive(false); stopTimer();
+          }
         }
       });
       client.connect();
