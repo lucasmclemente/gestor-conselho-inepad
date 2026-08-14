@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { supabase } from '../services/supabaseClient';
-import { ChevronLeft, ArrowRight, Users } from 'lucide-react';
+import { ChevronLeft, ArrowRight, Users, Trash2 } from 'lucide-react';
 
 type Props = {
   cid: string;
@@ -27,6 +27,7 @@ export const CrmLeads: React.FC<Props> = ({ cid, members, addLog, onBack, onMuta
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [targetOwner, setTargetOwner] = useState('');
   const [transferring, setTransferring] = useState(false);
+  const [deleting, setDeleting] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -70,6 +71,31 @@ export const CrmLeads: React.FC<Props> = ({ cid, members, addLog, onBack, onMuta
     log('CRM', `${ids.length} lead(s) transferidos para ${nameOf(targetOwner)}`);
     setDeals(prev => prev.map(d => ids.includes(d.id) ? { ...d, owner_member_id: targetOwner } : d));
     setSelected(new Set()); setTargetOwner('');
+    onMutated();
+  };
+
+  const removeLeads = async () => {
+    const ids = [...selected].filter(id => filtered.some(d => d.id === id));
+    if (!ids.length) return alert('Selecione ao menos um lead.');
+    if (!window.confirm(`Excluir ${ids.length} lead(s) DEFINITIVAMENTE?\n\nRemove o negócio, o histórico e as empresas/contatos que não tiverem outros negócios. Esta ação NÃO pode ser desfeita.`)) return;
+    setDeleting(true);
+    const orgIds = [...new Set(deals.filter(d => ids.includes(d.id)).map(d => d.organization_id).filter(Boolean))];
+    const { error } = await supabase.from('crm_deals').delete().in('id', ids);
+    if (error) { setDeleting(false); alert('Erro ao excluir: ' + error.message); return; }
+    // remove empresas órfãs (sem outros negócios) + seus contatos
+    if (orgIds.length) {
+      const { data: still } = await supabase.from('crm_deals').select('organization_id').in('organization_id', orgIds);
+      const stillSet = new Set((still || []).map((d: any) => d.organization_id));
+      const orphan = orgIds.filter(o => !stillSet.has(o));
+      if (orphan.length) {
+        await supabase.from('crm_contacts').delete().in('organization_id', orphan);
+        await supabase.from('crm_organizations').delete().in('id', orphan);
+      }
+    }
+    setDeleting(false);
+    log('CRM', `${ids.length} lead(s) excluídos em massa`);
+    setDeals(prev => prev.filter(d => !ids.includes(d.id)));
+    setSelected(new Set());
     onMutated();
   };
 
@@ -117,6 +143,9 @@ export const CrmLeads: React.FC<Props> = ({ cid, members, addLog, onBack, onMuta
           </select>
           <button disabled={transferring || !targetOwner} onClick={transfer} className="px-5 py-2 bg-amber-600 hover:bg-amber-700 rounded-lg font-bold text-[10px] uppercase tracking-widest flex items-center gap-2 transition-all disabled:opacity-50">
             <ArrowRight size={14} /> {transferring ? 'Transferindo...' : 'Transferir'}
+          </button>
+          <button disabled={deleting} onClick={removeLeads} title="Excluir os leads selecionados" className="px-5 py-2 bg-red-600 hover:bg-red-700 rounded-lg font-bold text-[10px] uppercase tracking-widest flex items-center gap-2 transition-all disabled:opacity-50">
+            <Trash2 size={14} /> {deleting ? 'Excluindo...' : 'Excluir'}
           </button>
           <button onClick={() => setSelected(new Set())} className="text-[10px] font-bold uppercase tracking-wide text-slate-400 hover:text-white ml-auto">Limpar</button>
         </div>
