@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { supabase } from '../services/supabaseClient';
-import { Filter, Plus, X, Save, Trash2, Trophy, Ban, Settings, Upload, Users, TrendingUp, Phone, RefreshCw, Mail, CheckSquare } from 'lucide-react';
+import { Filter, Plus, X, Save, Trash2, Trophy, Ban, Settings, Upload, Users, TrendingUp, Phone, RefreshCw, Mail, CheckSquare, Search, User, Building2 } from 'lucide-react';
 import { CrmDeal } from './CrmDeal';
 import { CrmSettings } from './CrmSettings';
 import { CrmImport } from './CrmImport';
@@ -42,6 +42,8 @@ export const Crm: React.FC<Props> = ({ currentUser, activeClientId, isAdmin, mem
   const [resultsOpen, setResultsOpen] = useState(false);
   const [callsOpen, setCallsOpen] = useState(false);
   const [tasksOpen, setTasksOpen] = useState(false);
+  const [searchQ, setSearchQ] = useState('');
+  const [searchRes, setSearchRes] = useState<any>(null); // {deals, contacts, orgs} | null
   const [brief, setBrief] = useState<{ overdue: any[]; today: any[] } | null>(null);
   const [canNotify, setCanNotify] = useState<boolean>(typeof Notification !== 'undefined' && Notification.permission === 'granted');
   const [ownerFilter, setOwnerFilter] = useState('all');
@@ -142,6 +144,31 @@ export const Crm: React.FC<Props> = ({ currentUser, activeClientId, isAdmin, mem
 
   const enableNotify = async () => {
     try { const p = await Notification.requestPermission(); setCanNotify(p === 'granted'); } catch { /* */ }
+  };
+
+  // Busca global: negócios, contatos e empresas
+  useEffect(() => {
+    const q = searchQ.trim();
+    if (q.length < 2) { setSearchRes(null); return; }
+    const t = setTimeout(async () => {
+      const safe = q.replace(/[,%()]/g, ' ').trim();
+      const like = `%${safe}%`;
+      const [d, c, o] = await Promise.all([
+        supabase.from('crm_deals').select('id, title, organization_id').eq('client_id', cid).ilike('title', like).limit(6),
+        supabase.from('crm_contacts').select('id, name, email, phone, organization_id').eq('client_id', cid).or(`name.ilike.${like},email.ilike.${like},phone.ilike.${like}`).limit(6),
+        supabase.from('crm_organizations').select('id, name, cnpj, phone').eq('client_id', cid).or(`name.ilike.${like},cnpj.ilike.${like},phone.ilike.${like}`).limit(6),
+      ]);
+      setSearchRes({ deals: d.data || [], contacts: c.data || [], orgs: o.data || [] });
+    }, 300);
+    return () => clearTimeout(t);
+  }, [searchQ, cid]);
+
+  const clearSearch = () => { setSearchQ(''); setSearchRes(null); };
+  const openSearchDeal = (id: string) => { clearSearch(); setDetailId(id); };
+  const openFromOrg = async (orgId: string | null) => {
+    if (!orgId) return;
+    const { data } = await supabase.from('crm_deals').select('id').eq('client_id', cid).eq('organization_id', orgId).order('created_at', { ascending: false }).limit(1).maybeSingle();
+    if (data) openSearchDeal(data.id); else alert('Este contato/empresa não tem um negócio vinculado.');
   };
 
   const syncEmails = async () => {
@@ -336,6 +363,48 @@ export const Crm: React.FC<Props> = ({ currentUser, activeClientId, isAdmin, mem
           onOpenDeal={(id) => { setBrief(null); setDetailId(id); }}
           onClose={() => setBrief(null)} />
       )}
+
+      {/* Busca global */}
+      <div className="relative">
+        <div className="flex items-center gap-2 bg-white rounded-xl border border-slate-200 shadow-sm px-4 py-2.5 focus-within:border-amber-400 transition-colors">
+          <Search size={16} className="text-slate-400 shrink-0" />
+          <input value={searchQ} onChange={e => setSearchQ(e.target.value)} placeholder="Pesquisar negócio, contato, empresa, telefone, e-mail, CNPJ..."
+            className="flex-1 text-sm outline-none bg-transparent placeholder:text-slate-400" />
+          {searchQ && <button onClick={clearSearch} className="text-slate-400 hover:text-slate-600 shrink-0"><X size={15} /></button>}
+        </div>
+        {searchRes && (
+          <div className="absolute z-30 mt-1 w-full bg-white rounded-xl border border-slate-200 shadow-xl max-h-[26rem] overflow-y-auto">
+            {(searchRes.deals.length + searchRes.contacts.length + searchRes.orgs.length) === 0 ? (
+              <p className="px-4 py-3 text-sm text-slate-400 italic">Nada encontrado para "{searchQ}".</p>
+            ) : (
+              <div className="divide-y divide-slate-50">
+                {searchRes.deals.map((d: any) => (
+                  <button key={'d' + d.id} onClick={() => openSearchDeal(d.id)} className="w-full text-left px-4 py-2.5 hover:bg-slate-50 flex items-center gap-2.5 transition-colors">
+                    <Filter size={14} className="text-amber-600 shrink-0" />
+                    <span className="text-sm font-bold text-slate-700 italic truncate">{d.title}</span>
+                    <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wide ml-auto shrink-0">Negócio</span>
+                  </button>
+                ))}
+                {searchRes.contacts.map((c: any) => (
+                  <button key={'c' + c.id} onClick={() => openFromOrg(c.organization_id)} className="w-full text-left px-4 py-2.5 hover:bg-slate-50 flex items-center gap-2.5 transition-colors">
+                    <User size={14} className="text-sky-600 shrink-0" />
+                    <span className="min-w-0"><span className="text-sm font-bold text-slate-700 italic block truncate">{c.name}</span><span className="text-[10px] text-slate-400 block truncate">{c.email || c.phone || ''}</span></span>
+                    <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wide ml-auto shrink-0">Contato</span>
+                  </button>
+                ))}
+                {searchRes.orgs.map((o: any) => (
+                  <button key={'o' + o.id} onClick={() => openFromOrg(o.id)} className="w-full text-left px-4 py-2.5 hover:bg-slate-50 flex items-center gap-2.5 transition-colors">
+                    <Building2 size={14} className="text-amber-600 shrink-0" />
+                    <span className="min-w-0"><span className="text-sm font-bold text-slate-700 italic block truncate">{o.name}</span>{o.cnpj && <span className="text-[10px] text-slate-400 block">CNPJ {o.cnpj}</span>}</span>
+                    <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wide ml-auto shrink-0">Empresa</span>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
       <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex flex-wrap items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold text-slate-800 tracking-tight italic">CRM Comercial</h1>

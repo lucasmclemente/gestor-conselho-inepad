@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { supabase } from '../services/supabaseClient';
 import { TelnyxRTC } from '@telnyx/webrtc';
-import { PhoneOff, Mic, MicOff, Phone } from 'lucide-react';
+import { PhoneOff, Mic, MicOff, Phone, Grid3x3 } from 'lucide-react';
 
 type Props = {
   number: string;        // destino em E.164 (+55...)
@@ -16,6 +16,8 @@ export const CrmWebphone: React.FC<Props> = ({ number, contactName, activityId, 
   const [status, setStatus] = useState('Conectando…');
   const [live, setLive] = useState(false);   // ligação ativa (áudio)
   const [muted, setMuted] = useState(false);
+  const [showPad, setShowPad] = useState(false);
+  const [dtmfLog, setDtmfLog] = useState('');
   const [seconds, setSeconds] = useState(0);
   const clientRef = useRef<any>(null);
   const callRef = useRef<any>(null);
@@ -84,6 +86,9 @@ export const CrmWebphone: React.FC<Props> = ({ number, contactName, activityId, 
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  const sendDtmf = (d: string) => {
+    try { (callRef.current as any)?.dtmf(d); setDtmfLog(prev => (prev + d).slice(-16)); } catch { /* */ }
+  };
   const hangup = () => { cleanup(); onClose(); };
   const toggleMute = () => {
     const c = callRef.current; if (!c) return;
@@ -99,11 +104,25 @@ export const CrmWebphone: React.FC<Props> = ({ number, contactName, activityId, 
         {live && <span className="ml-auto text-sm font-bold tabular-nums">{fmt(seconds)}</span>}
       </div>
       <p className="text-sm font-bold italic truncate">{contactName || 'Contato'}</p>
-      <p className="text-xs text-slate-400 mb-4">{number}</p>
-      <div className="flex items-center justify-center gap-3">
+      <p className="text-xs text-slate-400">{number}</p>
+      {dtmfLog && <p className="text-[11px] text-amber-400 font-bold tabular-nums mt-1 flex items-center gap-1"><Grid3x3 size={11} /> {dtmfLog}</p>}
+
+      {showPad && (
+        <div className="grid grid-cols-3 gap-1.5 my-3">
+          {['1', '2', '3', '4', '5', '6', '7', '8', '9', '*', '0', '#'].map(k => (
+            <button key={k} onClick={() => sendDtmf(k)} className="py-2.5 rounded-lg bg-slate-700 hover:bg-slate-600 active:bg-amber-600 text-white text-lg font-bold transition-all">{k}</button>
+          ))}
+        </div>
+      )}
+
+      <div className="flex items-center justify-center gap-3 mt-4">
         <button onClick={toggleMute} disabled={!live} title={muted ? 'Reativar microfone' : 'Mudo'}
           className={`w-11 h-11 rounded-full flex items-center justify-center transition-all disabled:opacity-40 ${muted ? 'bg-amber-500 text-white' : 'bg-slate-700 hover:bg-slate-600 text-slate-200'}`}>
           {muted ? <MicOff size={18} /> : <Mic size={18} />}
+        </button>
+        <button onClick={() => setShowPad(p => !p)} title="Teclado (menus/ramais)"
+          className={`w-11 h-11 rounded-full flex items-center justify-center transition-all ${showPad ? 'bg-amber-500 text-white' : 'bg-slate-700 hover:bg-slate-600 text-slate-200'}`}>
+          <Grid3x3 size={18} />
         </button>
         <button onClick={hangup} title="Encerrar"
           className="w-14 h-14 rounded-full bg-red-600 hover:bg-red-700 text-white flex items-center justify-center transition-all shadow-lg">
