@@ -445,12 +445,16 @@ export const Crm: React.FC<Props> = ({ currentUser, activeClientId, isAdmin, mem
                 onDragLeave={() => setOverStage(prev => prev === stage.id ? null : prev)}
                 onDrop={() => { if (dragId) moveDeal(dragId, stage.id); setDragId(null); setOverStage(null); }}
                 className={`w-72 shrink-0 flex flex-col rounded-xl border transition-colors ${isOver ? 'bg-amber-50 border-amber-300' : 'bg-slate-50 border-slate-200'}`}>
-                <div className="p-3 border-b border-slate-200">
+                <div className="p-3 border-b border-slate-200 space-y-2">
                   <div className="flex items-center justify-between gap-2">
                     <h3 className="text-[11px] font-bold uppercase tracking-wide text-slate-600 truncate italic">{stage.name}</h3>
                     <span className="text-[10px] font-bold text-slate-500 bg-white rounded-full px-2 py-0.5 border border-slate-200 shrink-0">{stageDeals.length}</span>
                   </div>
-                  {total > 0 && <p className="text-[10px] font-bold text-amber-600 mt-1">{BRL(total)}</p>}
+                  {total > 0 && <p className="text-[10px] font-bold text-amber-600">{BRL(total)}</p>}
+                  <button onClick={() => openNew(stage.id)} title="Adicionar negócio nesta etapa"
+                    className="w-full text-[10px] font-bold uppercase tracking-wide text-slate-500 hover:text-amber-600 bg-white hover:bg-amber-50 border border-slate-200 hover:border-amber-300 flex items-center justify-center gap-1 py-1.5 rounded-lg transition-all">
+                    <Plus size={12} /> Negócio
+                  </button>
                 </div>
 
                 <div className="flex-1 p-2 space-y-2 min-h-[120px]">
@@ -476,11 +480,6 @@ export const Crm: React.FC<Props> = ({ currentUser, activeClientId, isAdmin, mem
                     </div>
                   ))}
                 </div>
-
-                <button onClick={() => openNew(stage.id)}
-                  className="m-2 text-[10px] font-bold uppercase tracking-wide text-slate-400 hover:text-amber-600 hover:bg-white flex items-center justify-center gap-1 py-2 rounded-lg transition-all">
-                  <Plus size={12} /> Negócio
-                </button>
               </div>
             );
           })}
