@@ -529,19 +529,15 @@ export const Crm: React.FC<Props> = ({ currentUser, activeClientId, isAdmin, mem
       ) : (
         <div className="relative">
           {canScrollL && (
-            <div className="hidden md:flex absolute left-0 top-0 bottom-4 w-14 z-20 items-center justify-center pointer-events-none">
-              <div onMouseEnter={() => startScroll(-1)} onMouseLeave={stopScroll}
-                className="pointer-events-auto w-10 h-10 rounded-full bg-white border border-slate-200 shadow-lg flex items-center justify-center text-slate-500 hover:bg-amber-600 hover:text-white cursor-pointer transition-all">
-                <ChevronLeft size={22} />
-              </div>
+            <div onMouseEnter={() => startScroll(-1)} onMouseLeave={stopScroll}
+              className="hidden md:flex absolute left-1 top-24 z-20 w-10 h-10 rounded-full bg-white border border-slate-200 shadow-lg items-center justify-center text-slate-500 hover:bg-amber-600 hover:text-white cursor-pointer transition-all">
+              <ChevronLeft size={22} />
             </div>
           )}
           {canScrollR && (
-            <div className="hidden md:flex absolute right-0 top-0 bottom-4 w-14 z-20 items-center justify-center pointer-events-none">
-              <div onMouseEnter={() => startScroll(1)} onMouseLeave={stopScroll}
-                className="pointer-events-auto w-10 h-10 rounded-full bg-white border border-slate-200 shadow-lg flex items-center justify-center text-slate-500 hover:bg-amber-600 hover:text-white cursor-pointer transition-all">
-                <ChevronRight size={22} />
-              </div>
+            <div onMouseEnter={() => startScroll(1)} onMouseLeave={stopScroll}
+              className="hidden md:flex absolute right-1 top-24 z-20 w-10 h-10 rounded-full bg-white border border-slate-200 shadow-lg items-center justify-center text-slate-500 hover:bg-amber-600 hover:text-white cursor-pointer transition-all">
+              <ChevronRight size={22} />
             </div>
           )}
           <div ref={boardRef} onScroll={updateArrows} className="flex gap-4 overflow-x-auto pb-4">
