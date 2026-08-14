@@ -1,6 +1,6 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { supabase } from '../services/supabaseClient';
-import { Filter, Plus, X, Save, Trash2, Trophy, Ban, Settings, Upload, Users, TrendingUp, Phone, RefreshCw, Mail, CheckSquare, Search, User, Building2 } from 'lucide-react';
+import { Filter, Plus, X, Save, Trash2, Trophy, Ban, Settings, Upload, Users, TrendingUp, Phone, RefreshCw, Mail, CheckSquare, Search, User, Building2, ChevronLeft, ChevronRight } from 'lucide-react';
 import { CrmDeal } from './CrmDeal';
 import { CrmSettings } from './CrmSettings';
 import { CrmImport } from './CrmImport';
@@ -44,6 +44,10 @@ export const Crm: React.FC<Props> = ({ currentUser, activeClientId, isAdmin, mem
   const [tasksOpen, setTasksOpen] = useState(false);
   const [searchQ, setSearchQ] = useState('');
   const [searchRes, setSearchRes] = useState<any>(null); // {deals, contacts, orgs} | null
+  const boardRef = useRef<HTMLDivElement>(null);
+  const scrollTimer = useRef<any>(null);
+  const [canScrollL, setCanScrollL] = useState(false);
+  const [canScrollR, setCanScrollR] = useState(false);
   const [brief, setBrief] = useState<{ overdue: any[]; today: any[] } | null>(null);
   const [canNotify, setCanNotify] = useState<boolean>(typeof Notification !== 'undefined' && Notification.permission === 'granted');
   const [ownerFilter, setOwnerFilter] = useState('all');
@@ -170,6 +174,23 @@ export const Crm: React.FC<Props> = ({ currentUser, activeClientId, isAdmin, mem
     const { data } = await supabase.from('crm_deals').select('id').eq('client_id', cid).eq('organization_id', orgId).order('created_at', { ascending: false }).limit(1).maybeSingle();
     if (data) openSearchDeal(data.id); else alert('Este contato/empresa não tem um negócio vinculado.');
   };
+
+  // Rolagem horizontal do kanban ao passar o mouse nas setas laterais (estilo Bitrix)
+  const updateArrows = () => {
+    const el = boardRef.current; if (!el) return;
+    setCanScrollL(el.scrollLeft > 8);
+    setCanScrollR(el.scrollLeft + el.clientWidth < el.scrollWidth - 8);
+  };
+  const stopScroll = () => { if (scrollTimer.current) { clearInterval(scrollTimer.current); scrollTimer.current = null; } };
+  const startScroll = (dir: number) => { stopScroll(); scrollTimer.current = setInterval(() => { boardRef.current?.scrollBy({ left: dir * 22 }); updateArrows(); }, 16); };
+  useEffect(() => {
+    updateArrows();
+    const onR = () => updateArrows();
+    window.addEventListener('resize', onR);
+    const t = setTimeout(updateArrows, 250);
+    return () => { window.removeEventListener('resize', onR); clearTimeout(t); };
+  }, [stages]);
+  useEffect(() => () => stopScroll(), []);
 
   const syncEmails = async () => {
     setEmailSyncing(true);
@@ -503,7 +524,20 @@ export const Crm: React.FC<Props> = ({ currentUser, activeClientId, isAdmin, mem
       ) : stages.length === 0 ? (
         <div className="bg-white p-12 rounded-xl border border-slate-200 shadow-sm text-center text-sm text-slate-400 italic">Este funil não tem etapas.</div>
       ) : (
-        <div className="flex gap-4 overflow-x-auto pb-4">
+        <div className="relative">
+          {canScrollL && (
+            <div onMouseEnter={() => startScroll(-1)} onMouseLeave={stopScroll}
+              className="hidden md:flex absolute left-0 top-0 bottom-4 w-14 z-20 items-center justify-start pl-1 cursor-pointer bg-gradient-to-r from-slate-100 via-slate-100/70 to-transparent opacity-60 hover:opacity-100 transition-opacity">
+              <ChevronLeft size={30} className="text-slate-500" />
+            </div>
+          )}
+          {canScrollR && (
+            <div onMouseEnter={() => startScroll(1)} onMouseLeave={stopScroll}
+              className="hidden md:flex absolute right-0 top-0 bottom-4 w-14 z-20 items-center justify-end pr-1 cursor-pointer bg-gradient-to-l from-slate-100 via-slate-100/70 to-transparent opacity-60 hover:opacity-100 transition-opacity">
+              <ChevronRight size={30} className="text-slate-500" />
+            </div>
+          )}
+          <div ref={boardRef} onScroll={updateArrows} className="flex gap-4 overflow-x-auto pb-4">
           {stages.map((stage: any) => {
             const stageDeals = visibleDeals.filter(d => d.stage_id === stage.id);
             const total = stageDeals.reduce((s, d) => s + (Number(d.value) || 0), 0);
@@ -552,6 +586,7 @@ export const Crm: React.FC<Props> = ({ currentUser, activeClientId, isAdmin, mem
               </div>
             );
           })}
+          </div>
         </div>
       )}
 
