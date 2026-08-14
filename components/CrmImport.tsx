@@ -59,17 +59,19 @@ export const CrmImport: React.FC<Props> = ({ cid, currentUser, members = [], pip
     const cnpj = digits(r['CNPJ']); if (!cnpj) continue;
     compByCnpj.set(cnpj, {
       cnpj,
-      name: (r['RAZAO'] || r['NOME_FANTASIA'] || '').trim(),
-      segment: (r['DESCRICAO_CNAE'] || r['ATIVIDADE'] || '').trim(),
-      phone: toE164(firstOf(r, ['DDDFONEMOVEL1', 'DDDFONEFIXO1'])),
-      email: (r['EMAIL1'] || '').trim(),
-      address: [r['LOGRADOURO'], r['NUMERO'], r['BAIRRO']].filter(Boolean).join(', '),
-      city: (r['CIDADE'] || '').trim(),
-      uf: (r['UF'] || '').trim(),
+      name: firstOf(r, ['RAZAO', 'NOME_FANTASIA', 'NOME FANTASIA']).trim(),
+      segment: firstOf(r, ['DESCRICAO_CNAE', 'DESCRICAO CNAE', 'ATIVIDADE', 'PERSONA ATIVIDADE']).trim(),
+      phone: toE164(firstOf(r, ['DDDFONEMOVEL1', 'FONEMOVEL1', 'DDDFONEFIXO1', 'FONEFIXO1'])),
+      email: firstOf(r, ['EMAIL1', 'EMAIL']).trim(),
+      address: [firstOf(r, ['LOGRADOURO']), firstOf(r, ['NUMERO']), firstOf(r, ['BAIRRO'])].filter(Boolean).join(', '),
+      city: firstOf(r, ['CIDADE']).trim(),
+      uf: firstOf(r, ['UF']).trim(),
     });
   }
-  const sociosPF = socios.filter(r => (r['TIPO'] || '').toUpperCase() === 'PF');
-  const sociosFiltered = onlyDecisores ? sociosPF.filter(r => isDecisor(r['OCUPACAO'])) : sociosPF;
+  // aceita arquivos sem coluna TIPO (já são contatos/pessoas); se houver, mantém só PF
+  const cargoOf = (r: any) => firstOf(r, ['OCUPACAO', 'CARGO']);
+  const sociosPF = socios.filter(r => { const t = (r['TIPO'] || '').toUpperCase(); return !t || t === 'PF'; });
+  const sociosFiltered = onlyDecisores ? sociosPF.filter(r => isDecisor(cargoOf(r))) : sociosPF;
 
   const runImport = async () => {
     if (!empresas.length) return alert('Envie ao menos o arquivo de Empresas.');
@@ -129,17 +131,17 @@ export const CrmImport: React.FC<Props> = ({ cid, currentUser, members = [], pip
         const newContacts: any[] = [];
         for (const s of sociosFiltered) {
           const orgId = orgIdByCnpj.get(digits(s['CNPJ']));
-          if (!orgId) continue; // sócio de empresa fora da lista de empresas
-          const name = (s['NOME'] || '').trim();
+          if (!orgId) continue; // contato de empresa fora da lista de empresas
+          const name = firstOf(s, ['NOME', 'NOME COMPLETO', 'PRIMEIRO NOME']).trim();
           if (!name) continue;
           const k = keyOf(orgId, name);
           if (seen.has(k)) continue;
           seen.add(k);
           newContacts.push({
             client_id: cid, organization_id: orgId, name,
-            role_title: (s['OCUPACAO'] || '').trim() || null,
-            phone: toE164(firstOf(s, ['DDDFONEMOVEL1', 'DDDFONEMOVEL2', 'DDDFONEMOVEL3'])) || null,
-            email: (s['EMAILCORPORATIVO'] || '').trim() || null,
+            role_title: cargoOf(s).trim() || null,
+            phone: toE164(firstOf(s, ['DDDFONEMOVEL1', 'FONEMOVEL1', 'DDDFONEMOVEL2', 'FONEMOVEL2', 'DDDFONEMOVEL3', 'FONEMOVEL3'])) || null,
+            email: firstOf(s, ['EMAILCORPORATIVO', 'EMAIL']).trim() || null,
             owner_member_id: ownerId || currentUser?.id || null,
           });
         }
