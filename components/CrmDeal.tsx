@@ -213,7 +213,7 @@ export const CrmDeal: React.FC<Props> = ({ dealId, cid, currentUser, isAdmin, me
     // registra a ligação como atividade (não bloqueia a discagem se falhar)
     try {
       const { data } = await supabase.from('crm_activities').insert({
-        client_id: cid, deal_id: dealId, contact_id: c.id, type: 'call',
+        client_id: cid, deal_id: dealId, contact_id: c.id || null, type: 'call',
         title: `Ligação para ${c.name}`, notes: `Número: ${dial}`,
         owner_member_id: currentUser?.id || null,
       }).select().single();
@@ -229,7 +229,7 @@ export const CrmDeal: React.FC<Props> = ({ dealId, cid, currentUser, isAdmin, me
     const dial = toE164(c.phone);
     try {
       const { data } = await supabase.from('crm_activities').insert({
-        client_id: cid, deal_id: dealId, contact_id: c.id, type: 'call',
+        client_id: cid, deal_id: dealId, contact_id: c.id || null, type: 'call',
         title: `Ligação (webphone) — ${c.name}`, notes: `Número: ${dial}`,
         owner_member_id: currentUser?.id || null,
       }).select().single();
@@ -498,9 +498,18 @@ export const CrmDeal: React.FC<Props> = ({ dealId, cid, currentUser, isAdmin, me
             </div>
             {oForm === null ? (
               org ? (
-                <div className="text-sm text-slate-700 space-y-0.5">
+                <div className="text-sm text-slate-700 space-y-1">
                   <p className="font-bold italic">{org.name}</p>
-                  {org.phone && <p className="text-xs flex items-center gap-1.5 text-slate-500"><Phone size={11} /> {org.phone}</p>}
+                  {org.phone && (
+                    <div className="space-y-1">
+                      <a href={waLink(org.phone)} target="_blank" rel="noreferrer" className="text-xs flex items-center gap-1.5 text-slate-500 hover:text-emerald-600 w-fit transition-colors"><Phone size={11} /> {toE164(org.phone)}</a>
+                      <div className="flex flex-wrap gap-3">
+                        <button onClick={() => webCall({ phone: org.phone, name: org.name, id: null })} title="Ligar para a empresa pelo webphone" className="text-[9px] font-bold uppercase tracking-wide text-white bg-sky-600 hover:bg-sky-700 rounded px-1.5 py-0.5 flex items-center gap-1 not-italic"><Phone size={12} /> Webphone</button>
+                        <button onClick={() => callContact({ phone: org.phone, name: org.name, id: null })} title="Abrir no discador do sistema" className="text-[9px] font-bold uppercase tracking-wide text-sky-600 hover:text-sky-700 flex items-center gap-1 not-italic"><Phone size={12} /> Ligar</button>
+                        <a href={waLink(org.phone)} target="_blank" rel="noreferrer" className="text-[9px] font-bold uppercase tracking-wide text-emerald-600 hover:text-emerald-700 flex items-center gap-1 not-italic"><MessageSquare size={12} /> WhatsApp</a>
+                      </div>
+                    </div>
+                  )}
                   {org.address && <p className="text-xs text-slate-500">{org.address}</p>}
                   {(org.city || org.uf) && <p className="text-xs text-slate-500">{[org.city, org.uf].filter(Boolean).join(' / ')}</p>}
                   {org.cnpj && <p className="text-[11px] text-slate-400 font-bold not-italic">CNPJ: {org.cnpj}</p>}
