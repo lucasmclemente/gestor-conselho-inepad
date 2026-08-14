@@ -36,8 +36,20 @@ serve(async (req) => {
   if (!['SuperAdmin', 'Administrador', 'Comercial'].includes(role)) return json({ error: 'Forbidden' }, 403);
 
   const admin = createClient(Deno.env.get('SUPABASE_URL') ?? '', Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '', { auth: { persistSession: false } });
+
+  const body = await req.json().catch(() => ({}));
+  const action = body.action || 'call';
+
+  // ── Gravação já em cache no Storage (Telnyx OU GoTo já baixada): serve sem exigir GoTo conectada ──
+  if (action === 'recording') {
+    const rid = String(body.recordingId || '').trim();
+    if (!rid) return json({ error: 'recordingId não informado.' }, 400);
+    const cached0 = await admin.storage.from('crm-recordings').createSignedUrl(`${cid}/${rid}.mp3`, 3600);
+    if (cached0.data?.signedUrl) return json({ url: cached0.data.signedUrl, cached: true });
+  }
+
   const { data: conn } = await admin.from('crm_goto_connections').select('*').eq('member_id', user.id).maybeSingle();
-  if (!conn) return json({ error: 'Telefonia não conectada. Clique em "Conectar telefonia" primeiro.' }, 400);
+  if (!conn) return json({ error: action === 'recording' ? 'Gravação ainda não disponível — tente de novo em instantes.' : 'Telefonia não conectada. Clique em "Conectar telefonia" primeiro.' }, 400);
 
   // ── Token válido (refresh se expirado) ──────────────────────
   let accessToken: string;
@@ -58,10 +70,7 @@ serve(async (req) => {
     return { candidates, raw };
   };
 
-  const body = await req.json().catch(() => ({}));
-  const action = body.action || 'call';
-
-  // ── Baixa a gravação (fluxo de 3 passos) e faz cache no Storage; devolve signed URL ──
+  // ── Baixa a gravação da GoTo (não estava em cache): fluxo de 3 passos + cache no Storage ──
   if (action === 'recording') {
     const recordingId = String(body.recordingId || '').trim();
     if (!recordingId) return json({ error: 'recordingId não informado.' }, 400);
