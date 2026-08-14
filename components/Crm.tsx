@@ -184,12 +184,15 @@ export const Crm: React.FC<Props> = ({ currentUser, activeClientId, isAdmin, mem
   const stopScroll = () => { if (scrollTimer.current) { clearInterval(scrollTimer.current); scrollTimer.current = null; } };
   const startScroll = (dir: number) => { stopScroll(); scrollTimer.current = setInterval(() => { boardRef.current?.scrollBy({ left: dir * 22 }); updateArrows(); }, 16); };
   useEffect(() => {
+    if (loading) return;
     updateArrows();
+    const raf = requestAnimationFrame(updateArrows);
     const onR = () => updateArrows();
     window.addEventListener('resize', onR);
-    const t = setTimeout(updateArrows, 250);
-    return () => { window.removeEventListener('resize', onR); clearTimeout(t); };
-  }, [stages]);
+    const t1 = setTimeout(updateArrows, 150);
+    const t2 = setTimeout(updateArrows, 600);
+    return () => { window.removeEventListener('resize', onR); cancelAnimationFrame(raf); clearTimeout(t1); clearTimeout(t2); };
+  }, [stages, loading, pipelineId]);
   useEffect(() => () => stopScroll(), []);
 
   const syncEmails = async () => {
@@ -528,7 +531,7 @@ export const Crm: React.FC<Props> = ({ currentUser, activeClientId, isAdmin, mem
           {canScrollL && (
             <div className="hidden md:flex absolute left-0 top-0 bottom-4 w-14 z-20 items-center justify-center pointer-events-none">
               <div onMouseEnter={() => startScroll(-1)} onMouseLeave={stopScroll}
-                className="pointer-events-auto w-10 h-10 rounded-full bg-white/95 border border-slate-200 shadow-lg flex items-center justify-center text-slate-500 hover:bg-amber-600 hover:text-white cursor-pointer transition-all">
+                className="pointer-events-auto w-10 h-10 rounded-full bg-white border border-slate-200 shadow-lg flex items-center justify-center text-slate-500 hover:bg-amber-600 hover:text-white cursor-pointer transition-all">
                 <ChevronLeft size={22} />
               </div>
             </div>
@@ -536,7 +539,7 @@ export const Crm: React.FC<Props> = ({ currentUser, activeClientId, isAdmin, mem
           {canScrollR && (
             <div className="hidden md:flex absolute right-0 top-0 bottom-4 w-14 z-20 items-center justify-center pointer-events-none">
               <div onMouseEnter={() => startScroll(1)} onMouseLeave={stopScroll}
-                className="pointer-events-auto w-10 h-10 rounded-full bg-white/95 border border-slate-200 shadow-lg flex items-center justify-center text-slate-500 hover:bg-amber-600 hover:text-white cursor-pointer transition-all">
+                className="pointer-events-auto w-10 h-10 rounded-full bg-white border border-slate-200 shadow-lg flex items-center justify-center text-slate-500 hover:bg-amber-600 hover:text-white cursor-pointer transition-all">
                 <ChevronRight size={22} />
               </div>
             </div>
