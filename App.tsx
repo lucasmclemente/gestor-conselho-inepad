@@ -120,6 +120,10 @@ const App = () => {
   const [tmpDelib, setTmpDelib] = useState({ title: '', voters: [] as string[], votes: {} as any });
   const [editingObsKey, setEditingObsKey] = useState<string | null>(null);
   const [obsInputValue, setObsInputValue] = useState('');
+  // Observações do plano de ação (append-only, atribuídas) — qualquer membro interno, incl. Conselheiro
+  const [commentKey, setCommentKey] = useState<string | null>(null);
+  const [commentValue, setCommentValue] = useState('');
+  const [commentSaving, setCommentSaving] = useState(false);
   const [editingRespsKey, setEditingRespsKey] = useState<string | null>(null);
   const [newUserForm, setnewUserForm] = useState({ name: '', email: '', role: 'Conselheiro', password: '', client_id: '' });
   const [clientProfile, setClientProfile] = useState<any>(null);
@@ -1521,6 +1525,23 @@ const App = () => {
     const newAcoes = (meeting.acoes || []).map((a: any) => a.id === actionId ? { ...a, obs: newObs } : a);
     const { error } = await supabase.from('meetings').update({ acoes: newAcoes }).eq('id', meetingId);
     if (!error) setMeetings(prev => prev.map(m => m.id === meetingId ? { ...m, acoes: newAcoes } : m));
+  };
+
+  // Observação atribuída (append-only) numa ação. Qualquer membro interno pode acrescentar
+  // — inclusive o Conselheiro, que não tem escrita direta em meetings (RLS). Passa por
+  // Edge Function escopada que anexa o comentário no servidor, sem tocar em status/nota/prazo.
+  const addActionComment = async (meetingId: string, actionId: string | number) => {
+    const text = commentValue.trim();
+    if (!text) return;
+    setCommentSaving(true);
+    const { data, error } = await supabase.functions.invoke('add-action-comment', { body: { meetingId, actionId, text } });
+    setCommentSaving(false);
+    if (error || (data as any)?.error) { alert('Não foi possível enviar a observação: ' + (error?.message || (data as any)?.error)); return; }
+    const c = (data as any).comment;
+    setMeetings(prev => prev.map((m: any) => m.id === meetingId
+      ? { ...m, acoes: (m.acoes || []).map((a: any) => String(a.id) === String(actionId) ? { ...a, comments: [...(a.comments || []), c] } : a) }
+      : m));
+    setCommentKey(null); setCommentValue('');
   };
 
   // Atualiza campos arbitrários de uma ação (5W2H, objetivo, status via Kanban…)
@@ -4170,6 +4191,27 @@ const App = () => {
                                     onClick={() => { setEditingObsKey(acaoKey); setObsInputValue(''); }}
                                   ><MessageSquare size={10} /> adicionar nota</button>
                                 ) : null}
+
+                                {/* Observações atribuídas (append-only) — qualquer membro interno, incl. Conselheiro */}
+                                <div className="mt-2 pt-2 border-t border-slate-100">
+                                  {(acao.comments || []).map((c: any) => (
+                                    <div key={c.id} className="mb-2 not-italic font-normal">
+                                      <p className="text-[9px] text-slate-400"><span className="font-bold text-slate-500">{c.author}</span> · {new Date(c.at).toLocaleDateString('pt-BR')}</p>
+                                      <p className="text-[10px] text-slate-600 whitespace-pre-wrap leading-relaxed">{c.text}</p>
+                                    </div>
+                                  ))}
+                                  {commentKey === acaoKey ? (
+                                    <div className="mt-1 not-italic">
+                                      <textarea autoFocus rows={2} value={commentValue} onChange={e => setCommentValue(e.target.value)} placeholder="Sua observação..." className="w-full text-[10px] text-slate-700 bg-slate-50 border border-slate-300 rounded p-1.5 outline-none resize-none font-normal" />
+                                      <div className="flex items-center gap-2 mt-1">
+                                        <button disabled={commentSaving || !commentValue.trim()} onClick={() => addActionComment(acao.mId, acao.id)} className="text-[9px] font-bold uppercase tracking-wider bg-amber-600 hover:bg-amber-700 text-white px-2.5 py-1 rounded disabled:opacity-40 not-italic">{commentSaving ? 'Enviando...' : 'Enviar'}</button>
+                                        <button onClick={() => { setCommentKey(null); setCommentValue(''); }} className="text-[9px] font-bold uppercase tracking-wider text-slate-400 hover:text-slate-600 not-italic">Cancelar</button>
+                                      </div>
+                                    </div>
+                                  ) : (
+                                    <button onClick={() => { setCommentKey(acaoKey); setCommentValue(''); }} className="text-[9px] text-slate-400 hover:text-amber-600 font-normal not-italic flex items-center gap-1 transition-colors"><MessageSquare size={10} /> adicionar observação</button>
+                                  )}
+                                </div>
                               </td>
 
                               {/* RESPONSÁVEIS — chips + dropdown */}
