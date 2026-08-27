@@ -120,6 +120,10 @@ const App = () => {
   const [tmpDelib, setTmpDelib] = useState({ title: '', voters: [] as string[], votes: {} as any });
   const [editingObsKey, setEditingObsKey] = useState<string | null>(null);
   const [obsInputValue, setObsInputValue] = useState('');
+  // Troca de senha do próprio usuário (self-service)
+  const [pwModal, setPwModal] = useState(false);
+  const [pwForm, setPwForm] = useState({ atual: '', nova: '', confirma: '' });
+  const [pwSaving, setPwSaving] = useState(false);
   // Observações do plano de ação (append-only, atribuídas) — qualquer membro interno, incl. Conselheiro
   const [commentKey, setCommentKey] = useState<string | null>(null);
   const [commentValue, setCommentValue] = useState('');
@@ -1542,6 +1546,27 @@ const App = () => {
       ? { ...m, acoes: (m.acoes || []).map((a: any) => String(a.id) === String(actionId) ? { ...a, comments: [...(a.comments || []), c] } : a) }
       : m));
     setCommentKey(null); setCommentValue('');
+  };
+
+  // Troca de senha do próprio usuário: confirma a identidade re-autenticando com a
+  // senha atual (protege sessão deixada aberta) e então define a nova senha.
+  const changeOwnPassword = async () => {
+    const { atual, nova, confirma } = pwForm;
+    if (!atual || !nova) return alert('Preencha a senha atual e a nova senha.');
+    if (nova !== confirma) return alert('A nova senha e a confirmação não coincidem.');
+    if (nova.length < 8) return alert('A nova senha deve ter no mínimo 8 caracteres.');
+    if (!/[a-zA-Z]/.test(nova) || !/[0-9]/.test(nova)) return alert('A nova senha deve conter letras e números.');
+    if (nova === atual) return alert('A nova senha deve ser diferente da atual.');
+    setPwSaving(true);
+    const { error: signErr } = await supabase.auth.signInWithPassword({ email: currentUser.email, password: atual });
+    if (signErr) { setPwSaving(false); return alert('Senha atual incorreta.'); }
+    const { error: updErr } = await supabase.auth.updateUser({ password: nova });
+    setPwSaving(false);
+    if (updErr) return alert('Erro ao alterar a senha: ' + updErr.message);
+    addLog('Configuração', 'Senha alterada pelo próprio usuário.');
+    setPwForm({ atual: '', nova: '', confirma: '' });
+    setPwModal(false);
+    alert('✅ Senha alterada com sucesso.');
   };
 
   // Atualiza campos arbitrários de uma ação (5W2H, objetivo, status via Kanban…)
@@ -3046,12 +3071,45 @@ const App = () => {
             )
           ))}
         </nav>
-        <div className="p-4 border-t border-slate-700/50">
+        <div className="p-4 border-t border-slate-700/50 space-y-1">
+          <button onClick={() => { setPwForm({ atual: '', nova: '', confirma: '' }); setPwModal(true); }} className={`w-full flex items-center gap-3 rounded-lg text-slate-400 hover:bg-slate-700 hover:text-white transition-all text-[10px] font-bold uppercase tracking-widest ${isSidebarCollapsed ? 'justify-center p-3' : 'px-4 py-3'}`} title="Alterar senha">
+            <Key size={18} />
+            {!isSidebarCollapsed && <span>Alterar senha</span>}
+          </button>
           <button onClick={async () => { await supabase.auth.signOut(); setCurrentUser(null); }} className={`w-full flex items-center gap-3 rounded-lg text-red-400 hover:bg-red-500/10 hover:text-red-300 transition-all text-[10px] font-bold uppercase tracking-widest ${isSidebarCollapsed ? 'justify-center p-3' : 'px-4 py-3'}`}>
             <LogOut size={18} />
             {!isSidebarCollapsed && <span>Sair</span>}
           </button>
         </div>
+
+        {pwModal && (
+          <div className="fixed inset-0 z-[70] bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4" onClick={() => !pwSaving && setPwModal(false)}>
+            <div className="bg-white w-full max-w-sm rounded-2xl shadow-2xl overflow-hidden not-italic" onClick={e => e.stopPropagation()}>
+              <div className="bg-slate-900 px-6 py-5 border-b-4 border-amber-600">
+                <p className="text-amber-500 text-[10px] font-bold uppercase tracking-[2px]">Segurança da conta</p>
+                <h3 className="text-white text-lg font-bold italic mt-0.5">Alterar minha senha</h3>
+              </div>
+              <div className="p-6 space-y-4">
+                <div className="space-y-1">
+                  <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Senha atual</label>
+                  <input type="password" autoFocus value={pwForm.atual} onChange={e => setPwForm({ ...pwForm, atual: e.target.value })} className="w-full p-3 border border-slate-200 rounded-lg text-sm outline-none focus:border-amber-400 transition-colors" placeholder="••••••••" />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Nova senha</label>
+                  <input type="password" value={pwForm.nova} onChange={e => setPwForm({ ...pwForm, nova: e.target.value })} className="w-full p-3 border border-slate-200 rounded-lg text-sm outline-none focus:border-amber-400 transition-colors" placeholder="Mín. 8 caracteres, com letras e números" />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Confirmar nova senha</label>
+                  <input type="password" value={pwForm.confirma} onChange={e => setPwForm({ ...pwForm, confirma: e.target.value })} onKeyDown={e => { if (e.key === 'Enter' && !pwSaving) changeOwnPassword(); }} className="w-full p-3 border border-slate-200 rounded-lg text-sm outline-none focus:border-amber-400 transition-colors" placeholder="Repita a nova senha" />
+                </div>
+                <div className="flex gap-3 pt-1">
+                  <button onClick={() => setPwModal(false)} disabled={pwSaving} className="flex-1 py-3 rounded-lg border border-slate-200 text-slate-600 font-bold text-[10px] uppercase tracking-widest hover:bg-slate-50 transition-all disabled:opacity-50">Cancelar</button>
+                  <button onClick={changeOwnPassword} disabled={pwSaving} className="flex-1 py-3 rounded-lg bg-amber-600 hover:bg-amber-700 text-white font-bold text-[10px] uppercase tracking-widest transition-all disabled:opacity-50">{pwSaving ? 'Salvando...' : 'Alterar senha'}</button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
       </aside>
 
       <main className="flex-1 flex flex-col h-screen overflow-hidden">
