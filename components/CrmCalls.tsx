@@ -26,7 +26,7 @@ export const CrmCalls: React.FC<Props> = ({ cid, currentUser, members, onBack })
   const load = useCallback(async () => {
     setLoading(true);
     const { data } = await supabase.from('crm_activities')
-      .select('owner_member_id, call_seconds, call_answered, call_direction, due_at')
+      .select('owner_member_id, call_seconds, call_answered, call_direction, due_at, created_at')
       .eq('client_id', cid).eq('type', 'call').limit(20000);
     setCalls(data || []);
     setLoading(false);
@@ -40,7 +40,8 @@ export const CrmCalls: React.FC<Props> = ({ cid, currentUser, members, onBack })
   else if (period === 'year') start = new Date(now.getFullYear(), 0, 1);
   const inPeriod = (iso: string) => !start || (!!iso && new Date(iso) >= start);
 
-  const rows = calls.filter(c => inPeriod(c.due_at));
+  // usa a data da ligação: due_at (GoTo) ou, na falta, created_at (webfone/manual)
+  const rows = calls.filter(c => inPeriod(c.due_at || c.created_at));
   const answered = rows.filter(c => c.call_answered);
   const talkSecs = answered.reduce((s, c) => s + (Number(c.call_seconds) || 0), 0);
   const avgSecs = answered.length ? talkSecs / answered.length : 0;
