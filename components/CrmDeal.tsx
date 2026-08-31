@@ -565,7 +565,16 @@ export const CrmDeal: React.FC<Props> = ({ dealId, cid, currentUser, isAdmin, me
             <div className="flex flex-wrap gap-1.5">
               {ACT_TYPES.map(t => {
                 const Icon = t.icon; const on = actForm.type === t.v;
-                return <button key={t.v} onClick={() => setActForm({ ...actForm, type: t.v })} className={`px-3 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-wide flex items-center gap-1.5 transition-all ${on ? 'bg-amber-600 text-white' : 'bg-slate-100 text-slate-500 hover:bg-slate-200'}`}><Icon size={12} /> {t.label}</button>;
+                const onClick = () => {
+                  // "E-mail" com Outlook conectado abre o compositor (pré-preenche com o contato principal)
+                  if (t.v === 'email' && emailConnected) {
+                    const pc = contacts.find((c: any) => c.id === deal?.contact_id && c.email) || contacts.find((c: any) => c.email);
+                    setCompose({ to: pc?.email || '', subject: `Contato — ${deal?.title || ''}`, body: '', contactId: pc?.id || null, contactName: pc?.name });
+                  } else {
+                    setActForm({ ...actForm, type: t.v });
+                  }
+                };
+                return <button key={t.v} onClick={onClick} className={`px-3 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-wide flex items-center gap-1.5 transition-all ${on ? 'bg-amber-600 text-white' : 'bg-slate-100 text-slate-500 hover:bg-slate-200'}`}><Icon size={12} /> {t.label}</button>;
               })}
             </div>
             <input type="text" placeholder="Assunto (ex: Liguei para a secretária)" className="w-full p-2.5 border border-slate-200 rounded-lg text-sm outline-none focus:border-amber-500" value={actForm.title} onChange={e => setActForm({ ...actForm, title: e.target.value })} />
