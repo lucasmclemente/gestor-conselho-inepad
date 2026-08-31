@@ -11,7 +11,7 @@ function cors(req: Request): Record<string, string> {
   return { 'Access-Control-Allow-Origin': allowed, 'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type', 'Access-Control-Allow-Methods': 'POST, OPTIONS', 'Vary': 'Origin' }
 }
 
-const MAX_PDF_BYTES = 20 * 1024 * 1024 // 20 MB
+const MAX_PDF_BYTES = 10 * 1024 * 1024 // 10 MB — acima disso o base64 + payload estouram a memória do worker (erro 546)
 
 const SYSTEM_PROMPT = `Você é um(a) especialista em governança corporativa que avalia a CONFORMIDADE de um documento aos seus requisitos mínimos.
 
@@ -92,7 +92,7 @@ serve(async (req) => {
     const { data: blob, error: dErr } = await admin.storage.from('meeting-files').download(path)
     if (dErr || !blob) return json({ error: 'Não foi possível ler o documento.' }, 404)
     const bytes = new Uint8Array(await blob.arrayBuffer())
-    if (bytes.byteLength > MAX_PDF_BYTES) return json({ error: `Documento muito grande (${Math.round(bytes.byteLength / 1024 / 1024)} MB). Limite ${MAX_PDF_BYTES / 1024 / 1024} MB.` }, 400)
+    if (bytes.byteLength > MAX_PDF_BYTES) return json({ error: `Documento muito grande (${(bytes.byteLength / 1024 / 1024).toFixed(1)} MB). O limite é ${MAX_PDF_BYTES / 1024 / 1024} MB — comprima o PDF (ou reduza a resolução do escaneamento) e reenvie.` }, 400)
     // Assinatura %PDF
     if (!(bytes[0] === 0x25 && bytes[1] === 0x50 && bytes[2] === 0x44 && bytes[3] === 0x46)) {
       return json({ error: 'O arquivo não é um PDF. Envie o documento em PDF.' }, 400)
