@@ -602,13 +602,20 @@ export const CrmDeal: React.FC<Props> = ({ dealId, cid, currentUser, isAdmin, me
               {ACT_TYPES.map(t => {
                 const Icon = t.icon; const on = actForm.type === t.v;
                 const onClick = () => {
+                  // "Ligação" abre o webfone (contato principal com telefone → 1º contato com telefone → empresa)
+                  if (t.v === 'call') {
+                    const pc = contacts.find((c: any) => c.id === deal?.contact_id && c.phone) || contacts.find((c: any) => c.phone);
+                    if (pc) return webCall({ phone: pc.phone, name: pc.name, id: pc.id });
+                    if (org?.phone) return webCall({ phone: org.phone, name: org.name, id: null });
+                    return setActForm({ ...actForm, type: t.v }); // sem telefone → registro manual
+                  }
                   // "E-mail" com Outlook conectado abre o compositor (pré-preenche com o contato principal)
                   if (t.v === 'email' && emailConnected) {
                     const pc = contacts.find((c: any) => c.id === deal?.contact_id && c.email) || contacts.find((c: any) => c.email);
                     setCompose({ to: pc?.email || '', subject: `Contato — ${deal?.title || ''}`, body: '', contactId: pc?.id || null, contactName: pc?.name });
-                  } else {
-                    setActForm({ ...actForm, type: t.v });
+                    return;
                   }
+                  setActForm({ ...actForm, type: t.v });
                 };
                 return <button key={t.v} onClick={onClick} className={`px-3 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-wide flex items-center gap-1.5 transition-all ${on ? 'bg-amber-600 text-white' : 'bg-slate-100 text-slate-500 hover:bg-slate-200'}`}><Icon size={12} /> {t.label}</button>;
               })}
