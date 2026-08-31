@@ -95,6 +95,17 @@ serve(async (req) => {
     if (!(bytes[0] === 0x25 && bytes[1] === 0x50 && bytes[2] === 0x44 && bytes[3] === 0x46)) {
       return json({ error: 'O arquivo não é um PDF. Envie o documento em PDF.' }, 400)
     }
+
+    // Documentos muito extensos (ex.: contrato escaneado com dezenas de páginas em imagem)
+    // não cabem na leitura automática dentro dos limites do worker. Nesses casos a evidência
+    // fica anexada e segue para validação MANUAL da INEPAD (não é erro).
+    const MAX_AI_PAGES = 30
+    const pageMatches = new TextDecoder('latin1').decode(bytes).match(/\/Type\s*\/Page(?![sA-Za-z])/g)
+    const pageCount = pageMatches ? pageMatches.length : 0
+    if (pageCount > MAX_AI_PAGES) {
+      return json({ skipped: true, pages: pageCount })
+    }
+
     const userContent = `INSTRUMENTO ESPERADO: ${crit.instrument || crit.item}
 
 REQUISITOS MÍNIMOS (avalie cada um, nesta ordem):

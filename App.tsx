@@ -1263,6 +1263,14 @@ const App = () => {
       let data: any = {};
       try { data = await resp.json(); } catch { /* corpo vazio */ }
       if (!resp.ok || data?.error) throw new Error(data?.error || `Falha na avaliação (HTTP ${resp.status}).`);
+      if (data?.skipped) {
+        // Documento extenso demais para a IA — evidência fica anexada p/ validação manual da INEPAD
+        const { data: fresh } = await supabase.from('maturity_answers').select('*').eq('client_id', cid).eq('criterion_id', criterion.id).maybeSingle();
+        if (fresh) setMatAnswers((prev: any) => [...prev.filter((a: any) => a.criterion_id !== criterion.id), fresh]);
+        addLog('Maturidade', `Evidência anexada (${data.pages} páginas) — sem avaliação por IA; validação manual.`);
+        alert(`✅ Evidência anexada com sucesso.\n\nO documento tem ${data.pages} páginas — extenso demais para a leitura automática por IA. A INEPAD fará a validação manual.`);
+        return;
+      }
       // Recarrega a resposta consolidada (evidência + resultado da IA)
       const { data: fresh } = await supabase.from('maturity_answers').select('*').eq('client_id', cid).eq('criterion_id', criterion.id).maybeSingle();
       if (fresh) setMatAnswers((prev: any) => [...prev.filter((a: any) => a.criterion_id !== criterion.id), fresh]);
