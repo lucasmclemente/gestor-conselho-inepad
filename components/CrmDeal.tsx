@@ -238,19 +238,11 @@ export const CrmDeal: React.FC<Props> = ({ dealId, cid, currentUser, isAdmin, me
     window.location.href = `tel:${dial}`;
   };
 
-  // Liga pelo webphone nativo (Telnyx WebRTC) — áudio no navegador
-  const webCall = async (c: any) => {
+  // Liga pelo webphone nativo (Telnyx WebRTC) — áudio no navegador.
+  // A atividade só é criada quando a chamada TOCA (dentro do CrmWebphone), não no clique.
+  const webCall = (c: any) => {
     if (!c?.phone) return;
-    const dial = toE164(c.phone);
-    try {
-      const { data } = await supabase.from('crm_activities').insert({
-        client_id: cid, deal_id: dealId, contact_id: c.id || null, type: 'call',
-        title: `Ligação (webphone) — ${c.name}`, notes: `Número: ${dial}`,
-        owner_member_id: currentUser?.id || null,
-      }).select().single();
-      if (data) { setActs(prev => [data, ...prev]); setWebphone({ number: dial, name: c.name, activityId: data.id }); }
-      else setWebphone({ number: dial, name: c.name, activityId: null });
-    } catch { setWebphone({ number: dial, name: c.name, activityId: null }); }
+    setWebphone({ number: toE164(c.phone), name: c.name, contactId: c.id || null });
   };
 
   // Baixa/reproduz a gravação da ligação (via GoTo → Storage), sob demanda
@@ -742,7 +734,16 @@ export const CrmDeal: React.FC<Props> = ({ dealId, cid, currentUser, isAdmin, me
       )}
 
       {webphone && (
-        <CrmWebphone number={webphone.number} contactName={webphone.name} activityId={webphone.activityId} onClose={() => setWebphone(null)} />
+        <CrmWebphone
+          number={webphone.number}
+          contactName={webphone.name}
+          dealId={dealId}
+          cid={cid}
+          contactId={webphone.contactId}
+          ownerId={currentUser?.id || null}
+          onLogged={(a) => setActs(prev => [a, ...prev])}
+          onClose={() => setWebphone(null)}
+        />
       )}
 
       {compose && (

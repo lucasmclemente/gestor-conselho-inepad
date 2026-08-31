@@ -6,13 +6,17 @@ import { PhoneOff, Mic, MicOff, Phone, Grid3x3 } from 'lucide-react';
 type Props = {
   number: string;        // destino em E.164 (+55...)
   contactName?: string;
-  activityId?: string | null;  // atividade da ligação (p/ casar a gravação)
+  dealId: string;
+  cid: string;
+  contactId?: string | null;
+  ownerId?: string | null;      // usuário que discou (atribuição)
+  onLogged?: (activity: any) => void;  // devolve a atividade criada ao abrir a ligação
   onClose: () => void;
 };
 
 const fmt = (s: number) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
 
-export const CrmWebphone: React.FC<Props> = ({ number, contactName, activityId, onClose }) => {
+export const CrmWebphone: React.FC<Props> = ({ number, contactName, dealId, cid, contactId, ownerId, onLogged, onClose }) => {
   const [status, setStatus] = useState('Conectando…');
   const [live, setLive] = useState(false);   // ligação ativa (áudio)
   const [muted, setMuted] = useState(false);
@@ -25,20 +29,44 @@ export const CrmWebphone: React.FC<Props> = ({ number, contactName, activityId, 
   const answeredRef = useRef(false);   // ligação chegou a ser atendida?
   const secondsRef = useRef(0);        // duração falada (espelho do state p/ closures)
   const finalizedRef = useRef(false);  // evita gravar métricas 2x
+  const activityIdRef = useRef<string | null>(null);        // criada só quando a chamada toca
+  const createPromiseRef = useRef<Promise<string | null> | null>(null); // single-flight da criação
 
   const stopTimer = () => { if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = null; } };
   const startTimer = () => { stopTimer(); timerRef.current = setInterval(() => setSeconds(s => { const n = s + 1; secondsRef.current = n; return n; }), 1000); };
 
-  // grava métricas da ligação (atendida/duração/direção) na atividade — atribuída a quem discou
+  // cria a atividade da ligação — SÓ na 1ª vez que a chamada toca/conecta (não no clique).
+  // Se a chamada falhar antes de tocar, nada é registrado.
+  const ensureActivity = (): Promise<string | null> => {
+    if (activityIdRef.current) return Promise.resolve(activityIdRef.current);
+    if (createPromiseRef.current) return createPromiseRef.current;
+    createPromiseRef.current = (async () => {
+      try {
+        const { data } = await supabase.from('crm_activities').insert({
+          client_id: cid, deal_id: dealId, contact_id: contactId || null, type: 'call',
+          title: `Ligação (webphone) — ${contactName || number}`, notes: `Número: ${number}`,
+          owner_member_id: ownerId || null,
+        }).select().single();
+        if (data) { activityIdRef.current = data.id; onLogged?.(data); return data.id; }
+      } catch { /* */ }
+      return null;
+    })();
+    return createPromiseRef.current;
+  };
+
+  // grava métricas da ligação (atendida/duração/direção) — só se a atividade chegou a existir
   const finalize = async () => {
-    if (finalizedRef.current || !activityId) return;
+    if (finalizedRef.current) return;
     finalizedRef.current = true;
+    // se a criação (ao tocar) ainda está em andamento, espera para gravar as métricas
+    const id = activityIdRef.current || (createPromiseRef.current ? await createPromiseRef.current : null);
+    if (!id) return; // nunca tocou → não registra ligação
     try {
       await supabase.from('crm_activities').update({
         call_answered: answeredRef.current,
         call_seconds: secondsRef.current,
         call_direction: 'out',
-      }).eq('id', activityId);
+      }).eq('id', id);
     } catch { /* */ }
   };
 
@@ -78,14 +106,15 @@ export const CrmWebphone: React.FC<Props> = ({ number, contactName, activityId, 
       client.on('telnyx.notification', (n: any) => {
         if (n?.type === 'callUpdate' && n.call) {
           const st = n.call.state;
-          if (st === 'ringing' || st === 'early' || st === 'requesting' || st === 'trying') setStatus('Chamando…');
+          if (st === 'ringing' || st === 'early') { setStatus('Chamando…'); ensureActivity(); } // tocou → registra a ligação
+          else if (st === 'requesting' || st === 'trying') setStatus('Chamando…');               // ainda não tocou
           else if (st === 'active') {
             setStatus('Em ligação'); setLive(true); answeredRef.current = true; startTimer();
             // guarda o call_session_id da Telnyx na atividade → o webhook casa a gravação
             try {
               const ids = (callRef.current as any)?.telnyxIDs || n.call?.telnyxIDs;
               const sid = ids?.telnyxSessionId;
-              if (sid && activityId) supabase.from('crm_activities').update({ external_id: sid }).eq('id', activityId).then(() => {}, () => {});
+              ensureActivity().then(id => { if (sid && id) supabase.from('crm_activities').update({ external_id: sid }).eq('id', id).then(() => {}, () => {}); });
             } catch { /* */ }
           }
           else if (st === 'hangup' || st === 'destroy' || st === 'purge') {
