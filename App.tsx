@@ -1253,15 +1253,16 @@ const App = () => {
         client_id: cid, criterion_id: criterion.id, evidence_url: signed?.signedUrl, evidence_name: file.name,
         na: false, updated_by: currentUser?.name || currentUser?.email, updated_at: new Date().toISOString(),
       }], { onConflict: 'client_id,criterion_id' });
-      // Avalia com IA
-      const { data, error } = await supabase.functions.invoke('assess-evidence', { body: { clientId: cid, criterionId: criterion.id, path } });
-      let fnErr: string | undefined = (data as any)?.error;
-      if (error && !fnErr) {
-        // supabase-js esconde o corpo do erro em error.context (a Response) — extrai a mensagem real
-        try { const body = await (error as any).context?.json?.(); if (body?.error) fnErr = body.error; } catch { /* mantém a genérica */ }
-        if (!fnErr) fnErr = error.message;
-      }
-      if (fnErr) throw new Error(fnErr);
+      // Avalia com IA — fetch direto para LER o corpo do erro (o functions.invoke esconde a mensagem real)
+      const { data: sess } = await supabase.auth.getSession();
+      const resp = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/assess-evidence`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${sess?.session?.access_token || ''}`, apikey: import.meta.env.VITE_SUPABASE_ANON_KEY },
+        body: JSON.stringify({ clientId: cid, criterionId: criterion.id, path }),
+      });
+      let data: any = {};
+      try { data = await resp.json(); } catch { /* corpo vazio */ }
+      if (!resp.ok || data?.error) throw new Error(data?.error || `Falha na avaliação (HTTP ${resp.status}).`);
       // Recarrega a resposta consolidada (evidência + resultado da IA)
       const { data: fresh } = await supabase.from('maturity_answers').select('*').eq('client_id', cid).eq('criterion_id', criterion.id).maybeSingle();
       if (fresh) setMatAnswers((prev: any) => [...prev.filter((a: any) => a.criterion_id !== criterion.id), fresh]);
