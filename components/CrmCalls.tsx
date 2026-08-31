@@ -156,7 +156,7 @@ export const CrmCalls: React.FC<Props> = ({ cid, currentUser, members, onBack })
       </div>
 
       <p className="text-[11px] text-slate-400 italic px-1">
-        As ligações passam por um tronco compartilhado na GoTo, então a atribuição é feita pelo <b>responsável do negócio</b> ligado (não pelo ramal). Duração média e tempo total consideram apenas as ligações <b>atendidas</b>.
+        Ligações pelo <b>webfone (Telnyx)</b> são atribuídas ao <b>usuário que discou</b>. Já as ligações antigas via <b>GoTo</b> passam por um tronco compartilhado, então são atribuídas pelo <b>responsável do negócio</b> (as que caem em "Sem responsável" são de negócios sem proprietário). Duração média e tempo total consideram apenas as <b>atendidas</b>.
       </p>
     </div>
   );

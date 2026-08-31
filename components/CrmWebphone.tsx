@@ -22,9 +22,25 @@ export const CrmWebphone: React.FC<Props> = ({ number, contactName, activityId, 
   const clientRef = useRef<any>(null);
   const callRef = useRef<any>(null);
   const timerRef = useRef<any>(null);
+  const answeredRef = useRef(false);   // ligação chegou a ser atendida?
+  const secondsRef = useRef(0);        // duração falada (espelho do state p/ closures)
+  const finalizedRef = useRef(false);  // evita gravar métricas 2x
 
   const stopTimer = () => { if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = null; } };
-  const startTimer = () => { stopTimer(); timerRef.current = setInterval(() => setSeconds(s => s + 1), 1000); };
+  const startTimer = () => { stopTimer(); timerRef.current = setInterval(() => setSeconds(s => { const n = s + 1; secondsRef.current = n; return n; }), 1000); };
+
+  // grava métricas da ligação (atendida/duração/direção) na atividade — atribuída a quem discou
+  const finalize = async () => {
+    if (finalizedRef.current || !activityId) return;
+    finalizedRef.current = true;
+    try {
+      await supabase.from('crm_activities').update({
+        call_answered: answeredRef.current,
+        call_seconds: secondsRef.current,
+        call_direction: 'out',
+      }).eq('id', activityId);
+    } catch { /* */ }
+  };
 
   const cleanup = () => {
     stopTimer();
@@ -64,7 +80,7 @@ export const CrmWebphone: React.FC<Props> = ({ number, contactName, activityId, 
           const st = n.call.state;
           if (st === 'ringing' || st === 'early' || st === 'requesting' || st === 'trying') setStatus('Chamando…');
           else if (st === 'active') {
-            setStatus('Em ligação'); setLive(true); startTimer();
+            setStatus('Em ligação'); setLive(true); answeredRef.current = true; startTimer();
             // guarda o call_session_id da Telnyx na atividade → o webhook casa a gravação
             try {
               const ids = (callRef.current as any)?.telnyxIDs || n.call?.telnyxIDs;
@@ -76,20 +92,20 @@ export const CrmWebphone: React.FC<Props> = ({ number, contactName, activityId, 
             const cause = n.call?.cause || n.call?.causeCode || n.call?.sipCode || '';
             console.log('[webphone] hangup', { cause, causeCode: n.call?.causeCode, sipCode: n.call?.sipCode, call: n.call });
             setStatus(cause ? `Encerrada — ${cause}` : 'Encerrada');
-            setLive(false); stopTimer();
+            setLive(false); stopTimer(); finalize();
           }
         }
       });
       client.connect();
     })();
-    return () => { cancelled = true; cleanup(); };
+    return () => { cancelled = true; finalize(); cleanup(); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const sendDtmf = (d: string) => {
     try { (callRef.current as any)?.dtmf(d); setDtmfLog(prev => (prev + d).slice(-16)); } catch { /* */ }
   };
-  const hangup = () => { cleanup(); onClose(); };
+  const hangup = () => { finalize(); cleanup(); onClose(); };
   const toggleMute = () => {
     const c = callRef.current; if (!c) return;
     try { if (muted) c.unmuteAudio(); else c.muteAudio(); setMuted(!muted); } catch { /* */ }
