@@ -1,6 +1,5 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2"
-import { encodeBase64 } from "https://deno.land/std@0.224.0/encoding/base64.ts"
 
 const ALLOWED_ORIGINS = ['https://conselho.inepadconsulting.com', 'http://localhost:3000']
 function cors(req: Request): Record<string, string> {
@@ -96,8 +95,6 @@ serve(async (req) => {
     if (!(bytes[0] === 0x25 && bytes[1] === 0x50 && bytes[2] === 0x44 && bytes[3] === 0x46)) {
       return json({ error: 'O arquivo não é um PDF. Envie o documento em PDF.' }, 400)
     }
-    const b64 = encodeBase64(bytes)
-
     const userContent = `INSTRUMENTO ESPERADO: ${crit.instrument || crit.item}
 
 REQUISITOS MÍNIMOS (avalie cada um, nesta ordem):
@@ -105,18 +102,29 @@ ${requisitos.map((r, i) => `${i + 1}. ${r}`).join('\n')}
 
 Avalie o documento PDF em anexo contra esses requisitos.`
 
-    // Chamada à Anthropic via fetch direto (o SDK npm é pesado no edge runtime e estoura o worker → 546)
+    const AB = 'files-api-2025-04-14'
+    // 1) Envia o PDF pela API de Arquivos (multipart, bytes crus — sem base64 inline: memória mínima)
+    const form = new FormData()
+    form.append('file', new Blob([bytes], { type: 'application/pdf' }), 'evidencia.pdf')
+    const upResp = await fetch('https://api.anthropic.com/v1/files', {
+      method: 'POST',
+      headers: { 'x-api-key': ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01', 'anthropic-beta': AB },
+      body: form,
+    })
+    const upBody: any = await upResp.json().catch(() => ({}))
+    if (!upResp.ok || !upBody?.id) return json({ error: `Falha ao enviar o PDF à IA: ${upBody?.error?.message || ('HTTP ' + upResp.status)}` }, 502)
+
+    // 2) Avalia referenciando o arquivo — corpo da mensagem minúsculo; sem "thinking" para reduzir tempo/memória
     const aiResp = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
-      headers: { 'x-api-key': ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' },
+      headers: { 'x-api-key': ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01', 'anthropic-beta': AB, 'content-type': 'application/json' },
       body: JSON.stringify({
         model: 'claude-opus-4-8',
-        max_tokens: 8000,
-        thinking: { type: 'adaptive' },
+        max_tokens: 6000,
         system: SYSTEM_PROMPT,
         output_config: { format: { type: 'json_schema', schema: SCHEMA } },
         messages: [{ role: 'user', content: [
-          { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: b64 } },
+          { type: 'document', source: { type: 'file', file_id: upBody.id } },
           { type: 'text', text: userContent },
         ] }],
       }),
