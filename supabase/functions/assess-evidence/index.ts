@@ -1,7 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2"
 import { encodeBase64 } from "https://deno.land/std@0.224.0/encoding/base64.ts"
-import Anthropic from "npm:@anthropic-ai/sdk"
 
 const ALLOWED_ORIGINS = ['https://conselho.inepadconsulting.com', 'http://localhost:3000']
 function cors(req: Request): Record<string, string> {
@@ -106,21 +105,26 @@ ${requisitos.map((r, i) => `${i + 1}. ${r}`).join('\n')}
 
 Avalie o documento PDF em anexo contra esses requisitos.`
 
-    const anthropic = new Anthropic({ apiKey: ANTHROPIC_API_KEY })
-    const stream = anthropic.messages.stream({
-      model: 'claude-opus-4-8',
-      max_tokens: 8000,
-      thinking: { type: 'adaptive' },
-      system: SYSTEM_PROMPT,
-      output_config: { format: { type: 'json_schema', schema: SCHEMA } },
-      messages: [{ role: 'user', content: [
-        { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: b64 } } as any,
-        { type: 'text', text: userContent },
-      ] }],
+    // Chamada à Anthropic via fetch direto (o SDK npm é pesado no edge runtime e estoura o worker → 546)
+    const aiResp = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: { 'x-api-key': ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' },
+      body: JSON.stringify({
+        model: 'claude-opus-4-8',
+        max_tokens: 8000,
+        thinking: { type: 'adaptive' },
+        system: SYSTEM_PROMPT,
+        output_config: { format: { type: 'json_schema', schema: SCHEMA } },
+        messages: [{ role: 'user', content: [
+          { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: b64 } },
+          { type: 'text', text: userContent },
+        ] }],
+      }),
     })
-    const message = await stream.finalMessage()
+    const message: any = await aiResp.json()
+    if (!aiResp.ok) return json({ error: `Falha na IA: ${message?.error?.message || ('HTTP ' + aiResp.status)}` }, 502)
     if (message.stop_reason === 'refusal') return json({ error: 'O modelo recusou processar este documento.' }, 422)
-    const textBlock: any = message.content.find((b: any) => b.type === 'text')
+    const textBlock: any = (message.content || []).find((b: any) => b.type === 'text')
     if (!textBlock?.text) return json({ error: 'Resposta vazia da IA.' }, 502)
     let parsed: any
     try { parsed = JSON.parse(textBlock.text) } catch { return json({ error: 'A IA devolveu um formato inesperado.' }, 502) }
