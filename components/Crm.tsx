@@ -52,12 +52,10 @@ export const Crm: React.FC<Props> = ({ currentUser, activeClientId, isAdmin, mem
   const [canNotify, setCanNotify] = useState<boolean>(typeof Notification !== 'undefined' && Notification.permission === 'granted');
   const [ownerFilter, setOwnerFilter] = useState('all');
   const [tagFilter, setTagFilter] = useState('all');
-  const [gotoConnected, setGotoConnected] = useState<boolean | null>(null);
   const [emailConnected, setEmailConnected] = useState<boolean | null>(null);
   const [emailAddr, setEmailAddr] = useState<string | null>(null);
   const [emailBusy, setEmailBusy] = useState(false);
   const [emailSyncing, setEmailSyncing] = useState(false);
-  const [gotoBusy, setGotoBusy] = useState(false);
   const [dealModal, setDealModal] = useState<any>(null); // { stage_id } ao criar
   const [lostDeal, setLostDeal] = useState<any>(null); // negócio sendo marcado como perdido
   const [form, setForm] = useState({ title: '', value: '', expected_close_date: '' });
@@ -104,18 +102,13 @@ export const Crm: React.FC<Props> = ({ currentUser, activeClientId, isAdmin, mem
       .then(({ data }) => setTags(data || []));
   }, [cid]);
 
-  // Telefonia GoTo: status + retorno do OAuth
+  // E-mail Outlook: status + retorno do OAuth
   useEffect(() => {
-    supabase.functions.invoke('goto-oauth', { body: { action: 'status' } })
-      .then(({ data }) => setGotoConnected(!!(data as any)?.connected))
-      .catch(() => setGotoConnected(false));
     supabase.functions.invoke('outlook-oauth', { body: { action: 'status' } })
       .then(({ data }) => { setEmailConnected(!!(data as any)?.connected); setEmailAddr((data as any)?.email ?? null); })
       .catch(() => setEmailConnected(false));
     const p = new URLSearchParams(window.location.search);
-    if (p.get('goto') === 'connected') { setGotoConnected(true); alert('✅ Telefonia GoTo conectada!'); window.history.replaceState({}, '', window.location.pathname); }
-    else if (p.get('goto') === 'erro') { alert('Erro ao conectar a telefonia GoTo: ' + (p.get('msg') || '')); window.history.replaceState({}, '', window.location.pathname); }
-    else if (p.get('outlook') === 'connected') { setEmailConnected(true); alert('✅ E-mail Outlook conectado!'); window.history.replaceState({}, '', window.location.pathname); }
+    if (p.get('outlook') === 'connected') { setEmailConnected(true); alert('✅ E-mail Outlook conectado!'); window.history.replaceState({}, '', window.location.pathname); }
     else if (p.get('outlook') === 'erro') { alert('Erro ao conectar o e-mail: ' + (p.get('msg') || '')); window.history.replaceState({}, '', window.location.pathname); }
   }, []);
 
@@ -221,37 +214,6 @@ export const Crm: React.FC<Props> = ({ currentUser, activeClientId, isAdmin, mem
     setEmailBusy(false);
     if (error || !(data as any)?.url) { alert('Erro ao iniciar conexão de e-mail: ' + (error?.message || 'sem URL')); return; }
     window.location.href = (data as any).url;
-  };
-
-  const connectPhone = async () => {
-    setGotoBusy(true);
-    const { data, error } = await supabase.functions.invoke('goto-oauth', { body: { action: 'start' } });
-    setGotoBusy(false);
-    if (error || !(data as any)?.url) { alert('Erro ao iniciar conexão: ' + (error?.message || 'sem URL')); return; }
-    window.location.href = (data as any).url;
-  };
-
-  // Sincroniza o registro de ligações da GoTo → atividades nos negócios
-  const syncCalls = async () => {
-    if (!window.confirm('Buscar as ligações da GoTo dos últimos 7 dias e registrar nos negócios?\n\nLigações atendidas (≥30s) para números ainda não cadastrados viram um novo lead automaticamente.')) return;
-    setGotoBusy(true);
-    const { data, error } = await supabase.functions.invoke('goto-call', { body: { action: 'sync', days: 7, autoCreate: true } });
-    setGotoBusy(false);
-    if (error) {
-      let msg = error.message;
-      try { const b = await (error as any).context?.json?.(); if (b?.error) msg = b.error; } catch { /* */ }
-      alert('Erro na sincronização: ' + msg);
-      return;
-    }
-    const d = data as any;
-    const resumo = `Sincronização concluída!\n\n• ${d.fetched} ligações analisadas\n• ${d.created} ligações registradas\n• ${d.leadsCreated || 0} novos leads criados\n• ${d.backfilled || 0} gravações vinculadas ao histórico`;
-    if ((d.created || 0) === 0 && (d.leadsCreated || 0) === 0 && (d.backfilled || 0) === 0 && d.debug) {
-      try { await navigator.clipboard.writeText(JSON.stringify(d.debug, null, 2)); alert(resumo + '\n\n(Nada foi registrado — diagnóstico COPIADO. Cole aqui no chat.)'); }
-      catch { alert(resumo); }
-      return;
-    }
-    alert(resumo);
-    if ((d.created || 0) > 0 || (d.leadsCreated || 0) > 0) loadBoard();
   };
 
   // Campos exigidos pela etapa (compara contra os valores salvos em deal.custom)
@@ -458,11 +420,6 @@ export const Crm: React.FC<Props> = ({ currentUser, activeClientId, isAdmin, mem
               {pipelines.map((p: any) => <option key={p.id} value={p.id}>{p.name}</option>)}
             </select>
           )}
-          <button onClick={connectPhone} disabled={gotoBusy}
-            title={gotoConnected ? 'Telefonia conectada — clique para reconectar/atualizar permissões' : 'Conectar telefonia GoTo'}
-            className={`p-2.5 rounded-lg transition-all flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest ${gotoConnected ? 'bg-emerald-50 text-emerald-700 border border-emerald-200 hover:bg-emerald-100' : 'bg-slate-100 text-slate-700 hover:bg-slate-200'}`}>
-            <Phone size={16} /><span className="hidden sm:inline">{gotoBusy ? 'Conectando...' : (gotoConnected ? 'Telefonia ✓' : 'Conectar telefonia')}</span>
-          </button>
           <button onClick={connectEmail} disabled={emailBusy}
             title={emailConnected ? `E-mail conectado${emailAddr ? ': ' + emailAddr : ''} — clique para reconectar` : 'Conectar e-mail Outlook'}
             className={`p-2.5 rounded-lg transition-all flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest ${emailConnected ? 'bg-emerald-50 text-emerald-700 border border-emerald-200 hover:bg-emerald-100' : 'bg-slate-100 text-slate-700 hover:bg-slate-200'}`}>
@@ -492,12 +449,6 @@ export const Crm: React.FC<Props> = ({ currentUser, activeClientId, isAdmin, mem
             <button onClick={() => setTasksOpen(true)} title="Tarefas da equipe"
               className="p-2.5 rounded-lg bg-slate-100 text-slate-700 hover:bg-slate-200 transition-all flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest">
               <CheckSquare size={16} /><span className="hidden sm:inline">Tarefas</span>
-            </button>
-          )}
-          {isAdmin && gotoConnected && (
-            <button onClick={syncCalls} disabled={gotoBusy} title="Sincronizar ligações da GoTo nos negócios"
-              className="p-2.5 rounded-lg bg-slate-100 text-slate-700 hover:bg-slate-200 transition-all flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest disabled:opacity-50">
-              <RefreshCw size={16} /><span className="hidden sm:inline">{gotoBusy ? 'Sincronizando...' : 'Sincronizar ligações'}</span>
             </button>
           )}
           {isAdmin && (

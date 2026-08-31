@@ -222,22 +222,6 @@ export const CrmDeal: React.FC<Props> = ({ dealId, cid, currentUser, isAdmin, me
     onMutated();
   };
 
-  const callContact = async (c: any) => {
-    if (!c?.phone) return;
-    const dial = toE164(c.phone);
-    // registra a ligação como atividade (não bloqueia a discagem se falhar)
-    try {
-      const { data } = await supabase.from('crm_activities').insert({
-        client_id: cid, deal_id: dealId, contact_id: c.id || null, type: 'call',
-        title: `Ligação para ${c.name}`, notes: `Número: ${dial}`,
-        owner_member_id: currentUser?.id || null,
-      }).select().single();
-      if (data) setActs(prev => [data, ...prev]);
-    } catch { /* segue */ }
-    // abre o discador (app GoTo, se for o handler de tel: na máquina)
-    window.location.href = `tel:${dial}`;
-  };
-
   // Liga pelo webphone nativo (Telnyx WebRTC) — áudio no navegador.
   // A atividade só é criada quando a chamada TOCA (dentro do CrmWebphone), não no clique.
   const webCall = (c: any) => {
@@ -245,7 +229,7 @@ export const CrmDeal: React.FC<Props> = ({ dealId, cid, currentUser, isAdmin, me
     setWebphone({ number: toE164(c.phone), name: c.name, contactId: c.id || null });
   };
 
-  // Baixa/reproduz a gravação da ligação (via GoTo → Storage), sob demanda
+  // Reproduz a gravação da ligação (Telnyx → Storage), sob demanda
   const playRecording = async (a: any) => {
     if (recUrls[a.id]) return;
     setRecLoading(a.id);
@@ -519,7 +503,6 @@ export const CrmDeal: React.FC<Props> = ({ dealId, cid, currentUser, isAdmin, me
                     {c.email && <a href={mailtoLink(c.email)} className="text-xs flex items-center gap-1.5 text-slate-500 hover:text-amber-600 w-fit transition-colors"><Mail size={11} /> {c.email}</a>}
                     <div className="flex flex-wrap gap-3 pt-1">
                       {c.phone && <button onClick={() => webCall(c)} title="Ligar pelo navegador (webphone)" className="text-[9px] font-bold uppercase tracking-wide text-white bg-sky-600 hover:bg-sky-700 rounded px-1.5 py-0.5 flex items-center gap-1 not-italic"><Phone size={12} /> Webphone</button>}
-                      {c.phone && <button onClick={() => callContact(c)} title="Abrir no discador do sistema (tel:)" className="text-[9px] font-bold uppercase tracking-wide text-sky-600 hover:text-sky-700 flex items-center gap-1 not-italic"><Phone size={12} /> Ligar</button>}
                       {c.email && <button onClick={() => openEmail(c)} title={emailConnected ? 'Enviar e-mail pelo Outlook' : 'Abrir no cliente de e-mail'} className="text-[9px] font-bold uppercase tracking-wide text-amber-600 hover:text-amber-700 flex items-center gap-1 not-italic"><Mail size={12} /> E-mail</button>}
                       {c.phone && <a href={waLink(c.phone)} target="_blank" rel="noreferrer" className="text-[9px] font-bold uppercase tracking-wide text-emerald-600 hover:text-emerald-700 flex items-center gap-1 not-italic"><MessageSquare size={12} /> WhatsApp</a>}
                       {!isPrimary && <button onClick={() => setPrimaryContact(c.id)} className="text-[9px] font-bold uppercase tracking-wide text-slate-400 hover:text-amber-600 flex items-center gap-1 not-italic"><Star size={12} /> Tornar principal</button>}
@@ -559,7 +542,6 @@ export const CrmDeal: React.FC<Props> = ({ dealId, cid, currentUser, isAdmin, me
                       <a href={waLink(org.phone)} target="_blank" rel="noreferrer" className="text-xs flex items-center gap-1.5 text-slate-500 hover:text-emerald-600 w-fit transition-colors"><Phone size={11} /> {toE164(org.phone)}</a>
                       <div className="flex flex-wrap gap-3">
                         <button onClick={() => webCall({ phone: org.phone, name: org.name, id: null })} title="Ligar para a empresa pelo webphone" className="text-[9px] font-bold uppercase tracking-wide text-white bg-sky-600 hover:bg-sky-700 rounded px-1.5 py-0.5 flex items-center gap-1 not-italic"><Phone size={12} /> Webphone</button>
-                        <button onClick={() => callContact({ phone: org.phone, name: org.name, id: null })} title="Abrir no discador do sistema" className="text-[9px] font-bold uppercase tracking-wide text-sky-600 hover:text-sky-700 flex items-center gap-1 not-italic"><Phone size={12} /> Ligar</button>
                         <a href={waLink(org.phone)} target="_blank" rel="noreferrer" className="text-[9px] font-bold uppercase tracking-wide text-emerald-600 hover:text-emerald-700 flex items-center gap-1 not-italic"><MessageSquare size={12} /> WhatsApp</a>
                       </div>
                     </div>
