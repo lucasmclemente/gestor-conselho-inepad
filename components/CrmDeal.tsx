@@ -3,7 +3,7 @@ import { supabase } from '../services/supabaseClient';
 import {
   ChevronLeft, Trophy, Ban, RotateCcw, Save, Trash2, Plus, X,
   Phone, Mail, Calendar, MessageSquare, FileText, CheckSquare,
-  Building2, User, Clock, Check, History, Star, Pencil, Play,
+  Building2, User, Clock, Check, History, Star, Pencil, Play, Paperclip, Download,
 } from 'lucide-react';
 import { CrmLostModal } from './CrmLostModal';
 import { CrmWebphone } from './CrmWebphone';
@@ -21,6 +21,11 @@ const ACT_TYPES = [
   { v: 'note', label: 'Nota', icon: FileText },
 ] as const;
 const actMeta = (t: string) => ACT_TYPES.find(x => x.v === t) || ACT_TYPES[4];
+
+const ATT_BUCKET = 'crm-attachments';
+const fmtBytes = (b: number) => { const n = Number(b) || 0; if (n < 1024) return `${n} B`; if (n < 1048576) return `${(n / 1024).toFixed(0)} KB`; return `${(n / 1048576).toFixed(1)} MB`; };
+// nome seguro p/ path do Storage (sem acentos/espaços/símbolos)
+const safeName = (n: string) => (n || 'arquivo').normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^\w.\-]+/g, '_').slice(-90);
 
 type Props = {
   dealId: string;
@@ -72,6 +77,9 @@ export const CrmDeal: React.FC<Props> = ({ dealId, cid, currentUser, isAdmin, me
   const [oForm, setOForm] = useState<any>(null);
   const [actForm, setActForm] = useState<any>({ type: 'call', title: '', notes: '', due_at: '' });
   const [addingAct, setAddingAct] = useState(false);
+  const [pendingFiles, setPendingFiles] = useState<File[]>([]);   // anexos a subir no próximo "Registrar"
+  const [attUrls, setAttUrls] = useState<Record<string, string>>({}); // path do anexo -> signed URL
+  const [attBusy, setAttBusy] = useState('');                     // id da atividade recebendo anexo
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -97,6 +105,13 @@ export const CrmDeal: React.FC<Props> = ({ dealId, cid, currentUser, isAdmin, me
     setLoading(false);
   }, [dealId]);
   useEffect(() => { load(); }, [load]);
+
+  // assina as URLs dos anexos ainda não assinados sempre que as atividades mudam
+  useEffect(() => {
+    const missing = acts.flatMap((a: any) => Array.isArray(a.attachments) ? a.attachments : []).filter((f: any) => f?.path && !attUrls[f.path]);
+    if (missing.length) signAttachments(missing);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [acts]);
 
   const saveDeal = async () => {
     if (!dForm.title.trim()) return alert('Informe o título do negócio.');
@@ -291,8 +306,27 @@ export const CrmDeal: React.FC<Props> = ({ dealId, cid, currentUser, isAdmin, me
     log('CRM', 'Campos personalizados atualizados');
   };
 
+  // sobe cada arquivo para o Storage e devolve os metadados p/ gravar em attachments
+  const uploadAttachments = async (activityId: string, files: File[]) => {
+    const out: any[] = [];
+    for (const f of files) {
+      const path = `${cid}/${dealId}/${activityId}/${Date.now()}-${safeName(f.name)}`;
+      const { error } = await supabase.storage.from(ATT_BUCKET).upload(path, f, { contentType: f.type || 'application/octet-stream', upsert: false });
+      if (error) { alert(`Falha ao anexar "${f.name}": ${error.message}`); continue; }
+      out.push({ name: f.name, path, type: f.type || '', size: f.size });
+    }
+    return out;
+  };
+  // gera signed URLs (1h) para os anexos e guarda no mapa
+  const signAttachments = async (list: any[]) => {
+    const paths = (list || []).map(a => a?.path).filter(Boolean);
+    if (!paths.length) return;
+    const { data } = await supabase.storage.from(ATT_BUCKET).createSignedUrls(paths, 3600);
+    if (data) setAttUrls(prev => { const n = { ...prev }; data.forEach((d: any) => { if (d?.signedUrl && d?.path) n[d.path] = d.signedUrl; }); return n; });
+  };
+
   const addActivity = async () => {
-    if (!actForm.title.trim() && !actForm.notes.trim()) return alert('Preencha o título ou a descrição da atividade.');
+    if (!actForm.title.trim() && !actForm.notes.trim() && pendingFiles.length === 0) return alert('Preencha o título, a descrição ou anexe um arquivo.');
     setAddingAct(true);
     const payload: any = {
       client_id: cid, deal_id: dealId, type: actForm.type,
@@ -301,8 +335,17 @@ export const CrmDeal: React.FC<Props> = ({ dealId, cid, currentUser, isAdmin, me
       owner_member_id: currentUser?.id || null,
     };
     const { data, error } = await supabase.from('crm_activities').insert(payload).select().single();
+    if (error) { setAddingAct(false); alert('Erro: ' + error.message); return; }
+    // sobe os anexos (se houver) e grava na atividade
+    if (pendingFiles.length) {
+      const att = await uploadAttachments(data.id, pendingFiles);
+      if (att.length) {
+        await supabase.from('crm_activities').update({ attachments: att }).eq('id', data.id);
+        data.attachments = att;
+        signAttachments(att);
+      }
+    }
     setAddingAct(false);
-    if (error) { alert('Erro: ' + error.message); return; }
     setActs(prev => [data, ...prev]);
     // aviso (toast do navegador) confirmando a tarefa agendada
     if (payload.due_at) {
@@ -313,6 +356,22 @@ export const CrmDeal: React.FC<Props> = ({ dealId, cid, currentUser, isAdmin, me
       } catch { /* */ }
     }
     setActForm({ type: 'call', title: '', notes: '', due_at: '' });
+    setPendingFiles([]);
+  };
+
+  // anexa arquivos a uma atividade JÁ existente
+  const attachToExisting = async (a: any, files: File[]) => {
+    if (!files.length) return;
+    setAttBusy(a.id);
+    const uploaded = await uploadAttachments(a.id, files);
+    if (uploaded.length) {
+      const merged = [...(Array.isArray(a.attachments) ? a.attachments : []), ...uploaded];
+      const { error } = await supabase.from('crm_activities').update({ attachments: merged }).eq('id', a.id);
+      if (error) { setAttBusy(''); alert('Erro ao salvar anexo: ' + error.message); return; }
+      setActs(prev => prev.map(x => x.id === a.id ? { ...x, attachments: merged } : x));
+      signAttachments(uploaded);
+    }
+    setAttBusy('');
   };
 
   const toggleAct = async (a: any) => {
@@ -327,6 +386,9 @@ export const CrmDeal: React.FC<Props> = ({ dealId, cid, currentUser, isAdmin, me
     if (!window.confirm('Excluir esta atividade?')) return;
     const { error } = await supabase.from('crm_activities').delete().eq('id', a.id);
     if (error) { alert('Erro: ' + error.message); return; }
+    // limpeza best-effort dos anexos no Storage
+    const paths = (Array.isArray(a.attachments) ? a.attachments : []).map((f: any) => f?.path).filter(Boolean);
+    if (paths.length) { try { await supabase.storage.from(ATT_BUCKET).remove(paths); } catch { /* */ } }
     setActs(prev => prev.filter(x => x.id !== a.id));
   };
 
@@ -579,6 +641,23 @@ export const CrmDeal: React.FC<Props> = ({ dealId, cid, currentUser, isAdmin, me
             </div>
             <input type="text" placeholder="Assunto (ex: Liguei para a secretária)" className="w-full p-2.5 border border-slate-200 rounded-lg text-sm outline-none focus:border-amber-500" value={actForm.title} onChange={e => setActForm({ ...actForm, title: e.target.value })} />
             <textarea placeholder="Detalhes / resultado do contato" rows={2} className="w-full p-2.5 border border-slate-200 rounded-lg text-sm outline-none focus:border-amber-500 resize-y" value={actForm.notes} onChange={e => setActForm({ ...actForm, notes: e.target.value })} />
+            {/* Anexos (arquivos, áudios, imagens) */}
+            <div className="space-y-2">
+              <label className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-lg text-[10px] font-bold uppercase tracking-wide cursor-pointer transition-all w-fit">
+                <Paperclip size={12} /> Anexar arquivos
+                <input type="file" multiple className="hidden" onChange={e => { const fs = Array.from(e.target.files || []); if (fs.length) setPendingFiles(prev => [...prev, ...fs]); (e.target as HTMLInputElement).value = ''; }} />
+              </label>
+              {pendingFiles.length > 0 && (
+                <div className="flex flex-wrap gap-1.5">
+                  {pendingFiles.map((f, i) => (
+                    <span key={i} className="inline-flex items-center gap-1.5 bg-amber-50 border border-amber-100 text-amber-700 rounded-lg px-2 py-1 text-[11px]">
+                      <Paperclip size={11} /> <span className="max-w-[160px] truncate">{f.name}</span> <span className="text-amber-400">{fmtBytes(f.size)}</span>
+                      <button onClick={() => setPendingFiles(prev => prev.filter((_, j) => j !== i))} className="text-amber-400 hover:text-red-500"><X size={12} /></button>
+                    </span>
+                  ))}
+                </div>
+              )}
+            </div>
             <div className="flex flex-wrap items-center gap-2">
               <div className="flex items-center gap-1.5 text-slate-400"><Clock size={13} /><input type="datetime-local" className="p-2 border border-slate-200 rounded-lg text-sm outline-none focus:border-amber-500 text-slate-600" value={actForm.due_at} onChange={e => setActForm({ ...actForm, due_at: e.target.value })} /></div>
               <button disabled={addingAct} onClick={addActivity} className="ml-auto px-5 py-2 bg-amber-600 hover:bg-amber-700 text-white rounded-lg font-bold text-[10px] uppercase tracking-widest flex items-center gap-2 transition-all disabled:opacity-50"><Plus size={14} /> {addingAct ? 'Registrando...' : 'Registrar'}</button>
@@ -606,9 +685,28 @@ export const CrmDeal: React.FC<Props> = ({ dealId, cid, currentUser, isAdmin, me
                           : <button onClick={() => playRecording(a)} disabled={recLoading === a.id} className="text-[9px] font-bold uppercase tracking-wide text-sky-600 hover:text-sky-700 flex items-center gap-1 not-italic disabled:opacity-50"><Play size={12} /> {recLoading === a.id ? 'Carregando áudio...' : 'Ouvir gravação'}</button>}
                       </div>
                     )}
+                    {Array.isArray(a.attachments) && a.attachments.length > 0 && (
+                      <div className="mt-2 space-y-2">
+                        {a.attachments.map((f: any, i: number) => {
+                          const url = attUrls[f.path];
+                          const kind = f.type || '';
+                          if (kind.startsWith('image/')) return url
+                            ? <a key={i} href={url} target="_blank" rel="noreferrer"><img src={url} alt={f.name} className="max-h-44 rounded-lg border border-slate-200" /></a>
+                            : <div key={i} className="text-[11px] text-slate-400 italic">Carregando {f.name}…</div>;
+                          if (kind.startsWith('audio/')) return url
+                            ? <audio key={i} controls preload="none" src={url} className="w-full h-9" />
+                            : <div key={i} className="text-[11px] text-slate-400 italic">Carregando {f.name}…</div>;
+                          return <a key={i} href={url || undefined} target="_blank" rel="noreferrer" className={`text-[11px] flex items-center gap-1.5 not-italic w-fit ${url ? 'text-sky-600 hover:text-sky-700' : 'text-slate-400 pointer-events-none'}`}><Download size={12} /> {f.name} <span className="text-slate-400">{fmtBytes(f.size)}</span></a>;
+                        })}
+                      </div>
+                    )}
                     <div className="flex items-center gap-3 mt-1.5 text-[10px] text-slate-400 font-bold uppercase tracking-wide">
                       {a.due_at && <span className="flex items-center gap-1"><Clock size={10} /> {fmtDateTime(a.due_at)}</span>}
                       {a.owner_member_id && <span>{ownerName(a.owner_member_id)}</span>}
+                      <label className={`flex items-center gap-1 cursor-pointer transition-colors ${attBusy === a.id ? 'text-amber-500' : 'hover:text-amber-600'}`} title="Anexar arquivo a esta atividade">
+                        <Paperclip size={11} /> {attBusy === a.id ? 'Anexando…' : 'Anexar'}
+                        <input type="file" multiple className="hidden" disabled={attBusy === a.id} onChange={e => { const fs = Array.from(e.target.files || []); (e.target as HTMLInputElement).value = ''; if (fs.length) attachToExisting(a, fs); }} />
+                      </label>
                     </div>
                   </div>
                   <button onClick={() => delAct(a)} title="Excluir" className="text-slate-300 hover:text-red-500 transition-colors shrink-0"><Trash2 size={14} /></button>
