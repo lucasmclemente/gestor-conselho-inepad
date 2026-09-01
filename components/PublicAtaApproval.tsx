@@ -52,13 +52,23 @@ export const PublicAtaApproval: React.FC<{ token: string }> = ({ token }) => {
                 <p className="font-bold text-slate-800 italic mt-0.5">{info.ataName}</p>
                 {info.ataUrl && <a href={info.ataUrl} target="_blank" rel="noreferrer" className="inline-block mt-2 text-xs font-bold text-amber-700 hover:text-amber-800">⬇ Ver / baixar a ata</a>}
               </div>
-              <p className="text-xs text-slate-500 my-4">Registrando a manifestação de <b className="text-slate-800">{info.approver}</b>{info.currentStatus ? <span> — atual: <b>{LABELS[info.currentStatus] || info.currentStatus}</b> (pode alterar)</span> : null}</p>
-              <textarea value={note} onChange={e => setNote(e.target.value)} placeholder="Comentário (obrigatório para ressalvas ou reprovação)" rows={3} className="w-full p-3 border border-slate-200 rounded-lg text-sm outline-none focus:border-amber-400 mb-4 resize-none" />
-              <div className="flex flex-col gap-3">
-                <button disabled={casting} onClick={() => cast('aprovada')} className="py-4 rounded-lg font-bold uppercase tracking-wider text-white bg-emerald-600 hover:bg-emerald-700 transition-all disabled:opacity-50">👍 Aprovar</button>
-                <button disabled={casting} onClick={() => cast('ressalva')} className="py-4 rounded-lg font-bold uppercase tracking-wider text-white bg-amber-600 hover:bg-amber-700 transition-all disabled:opacity-50">✎ Aprovar com ressalvas</button>
-                <button disabled={casting} onClick={() => cast('reprovada')} className="py-4 rounded-lg font-bold uppercase tracking-wider text-white bg-red-600 hover:bg-red-700 transition-all disabled:opacity-50">👎 Reprovar</button>
-              </div>
+              {info.closed ? (
+                <div className="text-center py-6">
+                  <div className="text-4xl mb-2">🔒</div>
+                  <p className="font-bold text-slate-800">Aprovações encerradas</p>
+                  <p className="text-sm text-slate-500 mt-2">A secretaria encerrou o período de aprovação desta ata.{info.currentStatus ? <span> Sua manifestação registrada: <b>{LABELS[info.currentStatus] || info.currentStatus}</b>.</span> : null}</p>
+                </div>
+              ) : (
+                <>
+                  <p className="text-xs text-slate-500 my-4">Registrando a manifestação de <b className="text-slate-800">{info.approver}</b>{info.currentStatus ? <span> — atual: <b>{LABELS[info.currentStatus] || info.currentStatus}</b> (pode alterar)</span> : null}</p>
+                  <textarea value={note} onChange={e => setNote(e.target.value)} placeholder="Comentário (obrigatório para ressalvas ou reprovação)" rows={3} className="w-full p-3 border border-slate-200 rounded-lg text-sm outline-none focus:border-amber-400 mb-4 resize-none" />
+                  <div className="flex flex-col gap-3">
+                    <button disabled={casting} onClick={() => cast('aprovada')} className="py-4 rounded-lg font-bold uppercase tracking-wider text-white bg-emerald-600 hover:bg-emerald-700 transition-all disabled:opacity-50">👍 Aprovar</button>
+                    <button disabled={casting} onClick={() => cast('ressalva')} className="py-4 rounded-lg font-bold uppercase tracking-wider text-white bg-amber-600 hover:bg-amber-700 transition-all disabled:opacity-50">✎ Aprovar com ressalvas</button>
+                    <button disabled={casting} onClick={() => cast('reprovada')} className="py-4 rounded-lg font-bold uppercase tracking-wider text-white bg-red-600 hover:bg-red-700 transition-all disabled:opacity-50">👎 Reprovar</button>
+                  </div>
+                </>
+              )}
             </>
           )}
           {status === 'done' && (

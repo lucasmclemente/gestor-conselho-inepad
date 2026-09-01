@@ -48,10 +48,12 @@ serve(async (req) => {
       return json({
         ok: true, meetingTitle: meeting.title, ataName: ata.name, ataUrl,
         approver: payload.v, currentStatus: approvals[payload.v] || null, currentNote: notes[payload.v] || '',
+        closed: !!ata.approvalClosed,
       })
     }
 
     if (action === 'cast') {
+      if (ata.approvalClosed) return json({ error: 'As aprovações desta ata foram encerradas pela secretaria.' }, 403)
       if (!STATUSES.includes(choice)) return json({ error: 'Opção inválida.' }, 400)
       if (!(ata.approvers || []).includes(payload.v)) return json({ error: 'Você não está na lista de aprovadores desta ata.' }, 403)
       if ((choice === 'ressalva' || choice === 'reprovada') && !String(note || '').trim()) return json({ error: 'Descreva o motivo para ressalva/reprovação.' }, 400)

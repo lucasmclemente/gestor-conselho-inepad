@@ -2799,6 +2799,42 @@ const App = () => {
     finally { setAtaApprovalLoading(false); }
   };
 
+  // Lembrete de aprovação só para quem ainda não respondeu (a função recalcula os pendentes no servidor)
+  const remindPendingAta = async (ata: any) => {
+    if (!currentMeeting.id || !ata) return;
+    const approvals = ata.approvals || {};
+    const pending = (ata.approvers || []).filter((n: string) => !approvals[n]);
+    if (pending.length === 0) return alert('Todos os conselheiros já responderam — não há pendentes.');
+    if (!window.confirm(`Enviar lembrete de aprovação a ${pending.length} conselheiro(s) pendente(s)?`)) return;
+    setAtaApprovalLoading(true);
+    try {
+      const { data, error } = await supabase.functions.invoke('send-ata-approval', { body: { meetingId: currentMeeting.id, ataId: ata.id, appOrigin: window.location.origin, onlyPending: true } });
+      if (error || data?.error) throw new Error(error?.message || data?.error);
+      setCurrentMeeting((prev: any) => ({ ...prev, atas: (prev.atas || []).map((a: any) => a.id === ata.id ? { ...a, approvalSentAt: new Date().toISOString() } : a) }));
+      addLog('Aprovação de ata', `Lembrete enviado a ${data.sent} pendente(s) — ${ata.name}`);
+      alert(`✅ Lembrete enviado a ${data.sent} conselheiro(s) pendente(s).`);
+    } catch (e: any) { alert('Erro ao enviar lembrete: ' + e.message); }
+    finally { setAtaApprovalLoading(false); }
+  };
+
+  // Encerra (ou reabre) as aprovações da ata. Lê a versão fresca do banco para não
+  // sobrescrever manifestações registradas desde o último carregamento.
+  const setAtaApprovalClosed = async (ata: any, close: boolean) => {
+    if (!currentMeeting.id || !ata) return;
+    if (close && !window.confirm('Encerrar as aprovações desta ata? Os conselheiros não poderão mais registrar ou alterar a manifestação pelos links.')) return;
+    setAtaApprovalLoading(true);
+    try {
+      const { data: fresh } = await supabase.from('meetings').select('atas').eq('id', currentMeeting.id).maybeSingle();
+      const baseAtas = (fresh?.atas || currentMeeting.atas || []);
+      const atas = baseAtas.map((a: any) => a.id === ata.id ? { ...a, approvalClosed: close, approvalClosedAt: close ? new Date().toISOString() : null, approvalClosedBy: close ? (currentUser?.name || currentUser?.email) : null } : a);
+      const { error } = await supabase.from('meetings').update({ atas }).eq('id', currentMeeting.id);
+      if (error) throw new Error(error.message);
+      setCurrentMeeting((prev: any) => ({ ...prev, atas }));
+      addLog('Aprovação de ata', `${close ? 'Aprovações encerradas' : 'Aprovações reabertas'} — ${ata.name}`);
+    } catch (e: any) { alert('Erro ao atualizar as aprovações: ' + e.message); }
+    finally { setAtaApprovalLoading(false); }
+  };
+
   // Envia ata para assinatura digital via ClickSign
   const handleSendToClickSign = async (ataIndex: number) => {
     if (!currentMeeting.id) return;
@@ -4009,11 +4045,23 @@ const App = () => {
       const notes: any = ata.approvalNotes || {};
       const LB: any = { aprovada: { t: 'Aprovou', c: 'text-emerald-700 bg-emerald-50 border-emerald-200' }, ressalva: { t: 'Ressalvas', c: 'text-amber-700 bg-amber-50 border-amber-200' }, reprovada: { t: 'Reprovou', c: 'text-red-600 bg-red-50 border-red-200' } };
       const done = approvers.filter((n: string) => approvals[n]).length;
+      const pending = approvers.filter((n: string) => !approvals[n]).length;
+      const closed = !!ata.approvalClosed;
       return (
         <div className="px-4 pb-4 border-t border-slate-50 pt-3">
-          <div className="flex items-center justify-between mb-2">
-            <p className="text-[9px] font-bold uppercase tracking-widest text-slate-400 not-italic">Aprovação da ata{approvers.length > 0 ? ` · ${done}/${approvers.length}` : ''}</p>
-            <button disabled={ataApprovalLoading} onClick={() => resendAtaApproval(ata)} className="text-[9px] font-bold uppercase tracking-widest text-amber-600 hover:text-amber-700 disabled:opacity-50 not-italic">{approvers.length > 0 ? 'Reenviar' : 'Solicitar aprovação'}</button>
+          <div className="flex items-center justify-between mb-2 gap-2 flex-wrap">
+            <p className="text-[9px] font-bold uppercase tracking-widest text-slate-400 not-italic">Aprovação da ata{approvers.length > 0 ? ` · ${done}/${approvers.length}` : ''}{closed ? ' · Encerrada' : ''}</p>
+            <div className="flex items-center gap-2.5 not-italic">
+              {approvers.length > 0 && !closed && pending > 0 && (
+                <button disabled={ataApprovalLoading} onClick={() => remindPendingAta(ata)} className="text-[9px] font-bold uppercase tracking-widest text-amber-600 hover:text-amber-700 disabled:opacity-50">Lembrar pendentes</button>
+              )}
+              {!closed && (
+                <button disabled={ataApprovalLoading} onClick={() => resendAtaApproval(ata)} className="text-[9px] font-bold uppercase tracking-widest text-amber-600 hover:text-amber-700 disabled:opacity-50">{approvers.length > 0 ? 'Reenviar a todos' : 'Solicitar aprovação'}</button>
+              )}
+              {approvers.length > 0 && (
+                <button disabled={ataApprovalLoading} onClick={() => setAtaApprovalClosed(ata, !closed)} className={`text-[9px] font-bold uppercase tracking-widest disabled:opacity-50 ${closed ? 'text-emerald-600 hover:text-emerald-700' : 'text-slate-400 hover:text-red-500'}`}>{closed ? 'Reabrir' : 'Encerrar'}</button>
+              )}
+            </div>
           </div>
           {approvers.length === 0 ? (
             <p className="text-[10px] text-slate-400 not-italic">Nenhum pedido de aprovação enviado ainda.</p>

@@ -53,7 +53,7 @@ serve(async (req) => {
   if (!['Administrador', 'Secretário', 'SuperAdmin'].includes(role)) return json({ error: 'Apenas Administrador/Secretário podem solicitar aprovação.' }, 403)
 
   try {
-    const { meetingId, ataId, appOrigin } = await req.json()
+    const { meetingId, ataId, appOrigin, onlyPending } = await req.json()
     const RESEND_API_KEY = Deno.env.get('RESEND_API_KEY')
     if (!meetingId) return json({ error: 'Parâmetros ausentes.' }, 400)
 
@@ -72,22 +72,36 @@ serve(async (req) => {
     let ata = { ...atas[idx] }
     if (ata.id == null) ata.id = Date.now()
 
+    // Não envia se as aprovações já foram encerradas
+    if (ata.approvalClosed) return json({ error: 'As aprovações desta ata foram encerradas. Reabra para enviar de novo.' }, 400)
+
     // Aprovadores = participantes internos (não externos) com e-mail
     const internos = (meeting.participants || []).filter((p: any) => !p.isExternal && p?.email && p?.name)
     if (internos.length === 0) return json({ error: 'A reunião não tem conselheiros internos com e-mail.' }, 400)
 
-    ata.approvers = internos.map((p: any) => p.name)
-    ata.approvalSentAt = new Date().toISOString()
     ata.approvals = ata.approvals || {}
+    // Lembrete só para pendentes: mantém a lista de aprovadores e envia apenas aos que ainda não responderam
+    const isReminder = onlyPending === true && Array.isArray(ata.approvers) && ata.approvers.length > 0
+    let recipients: any[]
+    if (isReminder) {
+      const pend = new Set((ata.approvers as string[]).filter((n: string) => !ata.approvals[n]))
+      recipients = internos.filter((p: any) => pend.has(p.name))
+    } else {
+      ata.approvers = internos.map((p: any) => p.name)
+      recipients = internos
+    }
+    ata.approvalSentAt = new Date().toISOString()
     atas[idx] = ata
     await admin.from('meetings').update({ atas }).eq('id', meeting.id)
+
+    if (recipients.length === 0) return json({ success: true, sent: 0, skipped: [], ataId: ata.id, approvers: ata.approvers, note: 'Nenhum conselheiro pendente.' })
 
     const origin = (typeof appOrigin === 'string' && /^https?:\/\//.test(appOrigin)) ? appOrigin.replace(/\/$/, '') : 'https://conselho.inepadconsulting.com'
     const exp = Date.now() + 7 * 24 * 60 * 60 * 1000
 
     let sent = 0
     const skipped: string[] = []
-    for (const p of internos) {
+    for (const p of recipients) {
       const token = await signToken({ m: meetingId, a: ata.id, v: p.name, e: p.email, exp, k: 'ata' })
       const approveUrl = `${origin}/?atatoken=${encodeURIComponent(token)}`
       if (RESEND_API_KEY) {
