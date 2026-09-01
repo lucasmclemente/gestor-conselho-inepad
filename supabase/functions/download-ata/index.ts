@@ -55,6 +55,15 @@ serve(async (req) => {
     if (!match) return json({ error: 'Arquivo inválido.' }, 400)
     const path = decodeURIComponent(match[1])
 
+    // Isolamento de tenant: o path é <tipo>/<client_id>/... — só o próprio tenant baixa (fecha IDOR cross-tenant)
+    const role = (user.app_metadata as any)?.role ?? ''
+    const homeClient = (user.app_metadata as any)?.client_id ?? null
+    const secClients: string[] = Array.isArray((user.app_metadata as any)?.secretary_clients) ? (user.app_metadata as any).secretary_clients : []
+    const fileClient = path.split('/')[1]
+    if (!(role === 'SuperAdmin' || (fileClient && (fileClient === homeClient || secClients.includes(fileClient))))) {
+      return json({ error: 'Sem permissão para este arquivo.' }, 403)
+    }
+
     const admin = createClient(Deno.env.get('SUPABASE_URL') ?? '', Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '', { auth: { autoRefreshToken: false, persistSession: false } })
     const { data: file, error: dlErr } = await admin.storage.from('meeting-files').download(path)
     if (dlErr || !file) return json({ error: 'Arquivo não encontrado no servidor.' }, 404)

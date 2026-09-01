@@ -57,6 +57,14 @@ serve(async (req) => {
     })
   }
 
+  // Autorização: só Adm/Sec/Super; o tenant é validado após carregar a reunião
+  const role = (user.app_metadata as any)?.role ?? ''
+  const homeClient = (user.app_metadata as any)?.client_id ?? null
+  const secClients: string[] = Array.isArray((user.app_metadata as any)?.secretary_clients) ? (user.app_metadata as any).secretary_clients : []
+  if (!['Administrador', 'Secretário', 'SuperAdmin'].includes(role)) {
+    return new Response(JSON.stringify({ error: 'Sem permissão.' }), { status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
+  }
+
   try {
     const { meetingTitle, minuteName, minuteUrl, actions, pendingSummary, meetingId, ataId, appOrigin } = await req.json()
     const RESEND_API_KEY = Deno.env.get('RESEND_API_KEY')
@@ -66,23 +74,24 @@ serve(async (req) => {
 
     // Blindagem: a ATA NUNCA vai para convidados externos (filtro no servidor). Também
     // carrega a ata alvo para (a) marcar os aprovadores e (b) embutir o link de aprovação.
+    if (!meetingId) return new Response(JSON.stringify({ error: 'Parâmetro ausente (meetingId).' }), { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
     const externalEmails = new Set<string>()
-    let admin: any = null
-    let allAtas: any[] = []
-    let ataIdx = -1
-    if (meetingId) {
-      admin = createClient(
-        Deno.env.get('SUPABASE_URL') ?? '',
-        Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '',
-        { auth: { autoRefreshToken: false, persistSession: false } }
-      )
-      const { data: meeting } = await admin.from('meetings').select('participants, atas').eq('id', meetingId).maybeSingle()
-      for (const p of (meeting?.participants || [])) {
-        if (p?.isExternal && p?.email) externalEmails.add(String(p.email).trim().toLowerCase())
-      }
-      allAtas = [...(meeting?.atas || [])]
-      ataIdx = (ataId != null) ? allAtas.findIndex((a: any) => a.id === ataId) : allAtas.length - 1
+    const admin = createClient(
+      Deno.env.get('SUPABASE_URL') ?? '',
+      Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '',
+      { auth: { autoRefreshToken: false, persistSession: false } }
+    )
+    const { data: meeting } = await admin.from('meetings').select('client_id, participants, atas').eq('id', meetingId).maybeSingle()
+    if (!meeting) return new Response(JSON.stringify({ error: 'Reunião não encontrada.' }), { status: 404, headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
+    // Isolamento de tenant: a reunião tem que ser do cliente do solicitante (ou multi-empresa/Super)
+    if (role !== 'SuperAdmin' && meeting.client_id !== homeClient && !secClients.includes(meeting.client_id)) {
+      return new Response(JSON.stringify({ error: 'Sem permissão para esta empresa.' }), { status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
     }
+    for (const p of (meeting.participants || [])) {
+      if (p?.isExternal && p?.email) externalEmails.add(String(p.email).trim().toLowerCase())
+    }
+    const allAtas: any[] = [...(meeting.atas || [])]
+    const ataIdx = (ataId != null) ? allAtas.findIndex((a: any) => a.id === ataId) : allAtas.length - 1
     const safeRecipients = (pendingSummary || []).filter(
       (u: any) => !externalEmails.has(String(u?.email || '').trim().toLowerCase())
     )

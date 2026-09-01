@@ -69,8 +69,20 @@ serve(async (req) => {
     })
   }
 
+  // Autorização: só Adm/Sec/Super, e apenas para reuniões do próprio tenant
+  const role = (user.app_metadata as any)?.role ?? ''
+  const homeClient = (user.app_metadata as any)?.client_id ?? null
+  const secClients: string[] = Array.isArray((user.app_metadata as any)?.secretary_clients) ? (user.app_metadata as any).secretary_clients : []
+  if (!['Administrador', 'Secretário', 'SuperAdmin'].includes(role)) {
+    return new Response(JSON.stringify({ error: 'Sem permissão.' }), { status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
+  }
+
   try {
     const { meetings, recipients, clientName, organizer: organizerInput } = await req.json()
+    const cids = [...new Set((Array.isArray(meetings) ? meetings : []).map((m: any) => m?.client_id))]
+    if (role !== 'SuperAdmin' && (cids.length === 0 || cids.some((c: any) => !c || (c !== homeClient && !secClients.includes(c))))) {
+      return new Response(JSON.stringify({ error: 'Sem permissão para esta empresa.' }), { status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
+    }
     const RESEND_API_KEY = Deno.env.get('RESEND_API_KEY')
 
     if (!Array.isArray(meetings) || meetings.length === 0) {
