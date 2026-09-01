@@ -14,10 +14,12 @@
 -- Aditiva e idempotente.
 -- ============================================================
 
+-- IMPORTANTE: SECURITY INVOKER (padrão) — o trigger roda no contexto do próprio
+-- usuário, então public.jwt_role() enxerga o papel exatamente como o RLS enxerga
+-- (com SECURITY DEFINER o Certificador não era reconhecido e a validação era revertida).
 create or replace function public.maturity_answers_guard()
 returns trigger
 language plpgsql
-security definer
 set search_path = public
 as $$
 declare
@@ -57,5 +59,3 @@ drop trigger if exists trg_maturity_answers_guard on public.maturity_answers;
 create trigger trg_maturity_answers_guard
   before insert or update on public.maturity_answers
   for each row execute function public.maturity_answers_guard();
-
-revoke execute on function public.maturity_answers_guard() from public, anon, authenticated;
