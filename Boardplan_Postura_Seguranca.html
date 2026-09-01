@@ -372,7 +372,7 @@
           </thead>
           <tbody>
             <tr><td>MFA obrigatório</td><td>Não configurado — usuários podem ativar voluntariamente no Supabase</td></tr>
-            <tr><td>Pen test por terceiro</td><td>Não realizado nesta fase; planejado para antes do lançamento geral</td></tr>
+            <tr><td>Pen test formal por terceiro</td><td>Teste de intrusão <strong>interno</strong> (caixa-preta, cenários autenticado e não autenticado) realizado em 01/09/2026 — a única questão encontrada (isolamento de leitura na tabela <code>members</code>) foi corrigida e revalidada ao vivo. Pen test <strong>formal por empresa independente</strong> permanece planejado para antes do lançamento geral</td></tr>
             <tr><td>Rate limiting customizado</td><td>Depende dos limites padrão do Supabase (30 req/5min por IP)</td></tr>
             <tr><td>Cabeçalhos CSP / HSTS</td><td>Gerenciados pela Vercel via HTTPS enforçado — fora do escopo da aplicação</td></tr>
             <tr><td>IP allowlist</td><td>Não configurado</td></tr>
