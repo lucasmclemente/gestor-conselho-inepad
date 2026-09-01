@@ -1,0 +1,416 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Postura de Segurança — Boardplan | INEPAD</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    font-family: 'Inter', 'Helvetica Neue', Arial, sans-serif;
+    background: #f1f5f9;
+    color: #1e293b;
+    font-size: 13px;
+    line-height: 1.6;
+  }
+
+  .page {
+    max-width: 800px;
+    margin: 32px auto;
+    background: #fff;
+    box-shadow: 0 4px 24px rgba(0,0,0,0.10);
+    border-radius: 4px;
+    overflow: hidden;
+  }
+
+  /* ── HEADER ── */
+  .header {
+    background: #0f172a;
+    padding: 30px 40px 26px;
+    border-bottom: 4px solid #d97706;
+  }
+  .header-logo { height: 30px; width: auto; display: block; margin-bottom: 20px; }
+  .header-tag {
+    display: inline-block;
+    background: #d97706;
+    color: #fff;
+    font-size: 9px;
+    font-weight: 700;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    padding: 3px 10px;
+    border-radius: 2px;
+    margin-bottom: 14px;
+  }
+  .header h1 {
+    color: #fff;
+    font-size: 22px;
+    font-weight: 700;
+    letter-spacing: -0.5px;
+    margin-bottom: 6px;
+  }
+  .header h2 {
+    color: #94a3b8;
+    font-size: 13px;
+    font-weight: 400;
+    margin-bottom: 4px;
+  }
+  .header-meta {
+    display: flex;
+    gap: 24px;
+    margin-top: 20px;
+    flex-wrap: wrap;
+  }
+  .header-meta-item { color: #64748b; font-size: 11px; }
+  .header-meta-item strong {
+    color: #94a3b8;
+    display: block;
+    font-size: 9px;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    margin-bottom: 2px;
+  }
+
+  /* ── BODY ── */
+  .body { padding: 36px 40px; }
+
+  /* ── SECTION ── */
+  .section { margin-bottom: 32px; }
+  .section-title {
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 1.5px;
+    text-transform: uppercase;
+    color: #64748b;
+    padding-bottom: 8px;
+    border-bottom: 1px solid #e2e8f0;
+    margin-bottom: 14px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .section-title::before {
+    content: '';
+    display: inline-block;
+    width: 3px;
+    height: 14px;
+    background: #d97706;
+    border-radius: 2px;
+  }
+
+  .lead { color: #475569; line-height: 1.7; margin-bottom: 14px; }
+
+  /* ── TABLES ── */
+  table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+  thead tr { background: #0f172a; color: #fff; }
+  thead th { padding: 9px 12px; text-align: left; font-weight: 600; font-size: 11px; letter-spacing: 0.3px; }
+  tbody tr:nth-child(even) { background: #f8fafc; }
+  tbody tr:hover { background: #f1f5f9; }
+  tbody td { padding: 8px 12px; border-bottom: 1px solid #f1f5f9; vertical-align: top; color: #334155; }
+  tbody td:first-child { font-weight: 500; }
+
+  /* ── CHECK LIST ── */
+  .check-list { display: flex; flex-direction: column; gap: 0; border: 1px solid #e2e8f0; border-radius: 6px; overflow: hidden; }
+  .check-item { display: grid; grid-template-columns: 210px 1fr; border-bottom: 1px solid #f1f5f9; }
+  .check-item:last-child { border-bottom: none; }
+  .check-key {
+    padding: 9px 14px; font-weight: 600; font-size: 12px; color: #1e293b;
+    display: flex; align-items: flex-start; gap: 8px; background: #f8fafc;
+  }
+  .check-key .icon { color: #059669; font-size: 13px; flex-shrink: 0; margin-top: 1px; }
+  .check-val { padding: 9px 14px; color: #475569; font-size: 12px; line-height: 1.5; }
+
+  /* ── AMBER BOX ── */
+  .amber-box {
+    background: #fff7ed; border: 1px solid #fed7aa; border-left: 4px solid #d97706;
+    border-radius: 6px; padding: 16px 18px; margin-bottom: 14px;
+  }
+  .amber-box-title { font-weight: 700; font-size: 11px; color: #92400e; text-transform: uppercase; letter-spacing: 0.8px; margin-bottom: 10px; }
+  .amber-box table thead tr { background: #d97706; }
+
+  code { background: #f1f5f9; border-radius: 3px; padding: 1px 5px; font-size: 11.5px; color: #0f172a; font-family: 'SFMono-Regular', Consolas, monospace; }
+
+  /* ── FOOTER ── */
+  .footer {
+    background: #f8fafc; border-top: 1px solid #e2e8f0; padding: 16px 40px;
+    display: flex; justify-content: space-between; align-items: center; font-size: 10px; color: #94a3b8; flex-wrap: wrap; gap: 8px;
+  }
+  .footer-brand { font-weight: 700; color: #64748b; }
+
+  /* ── CONFIDENTIAL BAND ── */
+  .confidential-band {
+    background: #0f172a; color: #475569; text-align: center; font-size: 9px;
+    font-weight: 600; letter-spacing: 3px; text-transform: uppercase; padding: 6px;
+  }
+
+  @media print {
+    body { background: #fff; }
+    .page { margin: 0; box-shadow: none; border-radius: 0; max-width: 100%; }
+    .no-print { display: none; }
+    .section { page-break-inside: avoid; }
+  }
+</style>
+</head>
+<body>
+
+<div class="no-print" style="text-align:center;padding:16px 0 0;">
+  <button onclick="window.print()" style="background:#0f172a;color:#fff;border:none;padding:10px 24px;border-radius:6px;font-size:13px;font-weight:600;cursor:pointer;letter-spacing:0.5px;">
+    ⬇ Salvar como PDF (Ctrl+P → Salvar como PDF)
+  </button>
+</div>
+
+<div class="page">
+
+  <div class="confidential-band">Confidencial — uso restrito</div>
+
+  <!-- HEADER -->
+  <div class="header">
+    <img class="header-logo" src="data:image/png;base64,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" alt="Boardplan" />
+    <div class="header-tag">Relatório Técnico de Segurança</div>
+    <h1>Postura de Segurança — Boardplan</h1>
+    <h2>Plataforma de Gestão de Conselhos | INEPAD Governança e Sucessão</h2>
+    <div class="header-meta">
+      <div class="header-meta-item"><strong>Data</strong>01/09/2026</div>
+      <div class="header-meta-item"><strong>Versão</strong>2.1 — Boardplan</div>
+      <div class="header-meta-item"><strong>Status</strong>Auditoria concluída</div>
+      <div class="header-meta-item"><strong>Vulnerabilidades abertas</strong>0</div>
+    </div>
+  </div>
+
+  <div class="body">
+
+    <!-- SUMÁRIO EXECUTIVO -->
+    <div class="section">
+      <div class="section-title">Sumário Executivo</div>
+      <p class="lead">
+        O <strong>Boardplan</strong> é uma plataforma SaaS multi-tenant para gestão do ciclo completo de reuniões de
+        Conselhos Deliberativos e Consultivos, operada pela INEPAD Governança e Sucessão. Este relatório documenta os
+        controles de segurança implementados e o resultado da auditoria técnica em vigor.
+      </p>
+      <p class="lead">
+        Desde a versão anterior deste documento, a autorização foi movida para um campo de identidade gravável apenas
+        pelo servidor (<code>app_metadata</code>), o modelo de acesso por papel foi endurecido com políticas restritivas,
+        e novos fluxos públicos passaram a operar por <strong>token assinado</strong>. Todos os itens críticos e médios
+        identificados foram corrigidos — o sistema não possui vulnerabilidades conhecidas em aberto na data deste relatório.
+      </p>
+      <p class="lead">
+        A revisão mais recente (rodada de setembro/2026) adicionou: verificação de papel e tenant em todas as funções de
+        e-mail; trava de banco que reserva a <strong>validação da maturidade</strong> exclusivamente ao Certificador da INEPAD;
+        <strong>segredo dedicado</strong> para a assinatura dos links públicos (rotacionável de forma independente); e o
+        <strong>encerramento controlado</strong> de votações e aprovações de ata, que passam a recusar novas manifestações
+        após o fechamento.
+      </p>
+    </div>
+
+    <!-- CONTROLE DE ACESSO -->
+    <div class="section">
+      <div class="section-title">1. Controle de Acesso e Identidade</div>
+      <table>
+        <thead>
+          <tr><th style="width:210px">Mecanismo</th><th>Implementação</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>Autenticação</td><td>Supabase Auth nativo — JWT assinado pelo servidor, expiração de 1 hora e rotação de refresh token</td></tr>
+          <tr><td>Autorização</td><td>Papel e <code>client_id</code> lidos do JWT em <code>app_metadata</code> — campo gravável <strong>apenas pelo service_role</strong>, nunca pelo usuário final</td></tr>
+          <tr><td>Endurecimento (v2)</td><td>Autorização migrada de <code>user_metadata</code> (editável pelo próprio usuário) para <code>app_metadata</code>, eliminando o vetor de escalada de privilégios</td></tr>
+          <tr><td>Isolamento multi-tenant</td><td><code>client_id</code> enforçado por Row Level Security em todas as tabelas</td></tr>
+          <tr><td>Multi-empresa</td><td>Acesso a empresas adicionais via <code>secretary_clients</code> (lista de tenants autorizados no <code>app_metadata</code>), reconhecida pela RLS de leitura e escrita</td></tr>
+          <tr><td>Cadastro de usuários</td><td>Exclusivamente via Edge Function autenticada, com verificação de papel — sem auto-registro público</td></tr>
+          <tr><td>Força de senha</td><td>Mínimo 8 caracteres com letras e números (enforçado em Auth e frontend)</td></tr>
+          <tr><td>Registro público</td><td>Desabilitado em produção e homologação</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <!-- RLS -->
+    <div class="section">
+      <div class="section-title">2. Row Level Security (RLS)</div>
+      <p class="lead">
+        Todas as tabelas possuem RLS ativa. Nenhuma policy utiliza a role <em>public</em>. Os checks de papel leem do
+        JWT (<code>app_metadata</code>) — não da tabela <code>members</code> — eliminando vetores de escalada por manipulação de banco.
+      </p>
+      <table>
+        <thead>
+          <tr><th style="width:180px">Tabela / camada</th><th>Garantia</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>members</td><td>Usuário acessa apenas membros dos seus tenants; escrita restrita a Administrador/SuperAdmin com <code>WITH CHECK</code></td></tr>
+          <tr><td>meetings</td><td>Somente Administrador/Secretário (papel verificado no JWT) criam/editam reuniões dos seus tenants; Conselheiro não grava via chamada direta à API</td></tr>
+          <tr><td>audit_logs</td><td>UPDATE e DELETE bloqueados por RLS em nível de banco — logs são tecnicamente imutáveis</td></tr>
+          <tr><td>server_audit_logs</td><td>Inserção apenas por trigger interno (<code>SECURITY DEFINER</code>); leitura restrita a administradores</td></tr>
+          <tr><td>Blindagem por papel</td><td>Políticas <code>RESTRICTIVE</code> (combinadas por AND, só subtraem acesso) garantem que papéis sem permissão de governança não leiam atas, deliberações, materiais ou logs, nem baixem arquivos — defesa a prova de erro de configuração</td></tr>
+          <tr><td>Storage (arquivos)</td><td>Download apenas por Signed URL; policies de bucket respeitam <code>client_id</code> e <code>secretary_clients</code></td></tr>
+          <tr><td>Dados agregados</td><td>Comparativos entre clientes (benchmark, relatório do ecossistema) são servidos por funções que devolvem <strong>apenas agregados anônimos</strong>, com massa mínima — nunca identificam empresas ou notas individuais</td></tr>
+          <tr><td>Maturidade (validação)</td><td>O status <em>validado</em> das respostas do diagnóstico de maturidade só pode ser concedido pelo <strong>Certificador</strong> (equipe INEPAD) ou SuperAdmin — um trigger de banco impede que o próprio cliente se auto-valide, mesmo por chamada direta à API</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <!-- EDGE FUNCTIONS -->
+    <div class="section">
+      <div class="section-title">3. API e Edge Functions</div>
+      <p class="lead">As funções serverless seguem três modelos de proteção, conforme a finalidade:</p>
+      <table>
+        <thead>
+          <tr><th style="width:210px">Classe</th><th>Controles Aplicados</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Autenticadas (JWT + papel)</td>
+            <td>Cadastro de usuários, convocação, notificação de atas, convites de calendário, funções de IA (rascunho de ata, pauta e diagnóstico de documentos), indicadores e assinatura digital: exigem JWT válido, verificam papel e tenant, aplicam escaping de HTML e CORS por whitelist</td>
+          </tr>
+          <tr>
+            <td>Públicas por token assinado</td>
+            <td>Fluxos sem login — votação de deliberações, aprovação de atas, coleta de indicadores e verificação pública de selo — operam por <strong>token HMAC-SHA256</strong> individual, assinado com um <strong>segredo dedicado</strong> (rotacionável de forma independente da chave de serviço), com expiração e <em>comparação em tempo constante</em>. Nenhum dado sensível é exposto; a verificação de selo devolve apenas dados não sensíveis</td>
+          </tr>
+          <tr>
+            <td>Encerramento de fluxos</td>
+            <td>Votações e aprovações de ata têm fechamento controlado: reuniões marcadas como <em>Concluída</em> não aceitam mais votos, e a secretaria pode <em>encerrar</em> as aprovações de uma ata — após o fechamento, os links públicos recusam novas manifestações (<em>fail-closed</em>)</td>
+          </tr>
+          <tr>
+            <td>Agendadas (cron)</td>
+            <td>Reavaliação diária de indicadores protegida por segredo de execução (<code>x-cron-secret</code>), distinto por ambiente; rejeita chamadas sem o segredo</td>
+          </tr>
+          <tr>
+            <td>Webhook ClickSign</td>
+            <td>Endpoint de retorno autenticado por assinatura <code>HMAC-SHA256</code> (cabeçalho <code>Content-Hmac</code>); requisições sem assinatura válida são rejeitadas — <em>fail-closed</em></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <!-- SUB-PROCESSADORES / LGPD -->
+    <div class="section">
+      <div class="section-title">4. Sub-processadores e Tratamento de Dados (LGPD)</div>
+      <p class="lead">
+        O Boardplan utiliza os provedores abaixo para operar. Nenhum dado de conselho é compartilhado com terceiros
+        além dos listados, e cada um atua estritamente na finalidade indicada.
+      </p>
+      <table>
+        <thead>
+          <tr><th style="width:150px">Provedor</th><th style="width:160px">Finalidade</th><th>Dados tratados</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>Supabase</td><td>Banco de dados, autenticação e armazenamento</td><td>Todos os dados da aplicação (isolados por <code>client_id</code>)</td></tr>
+          <tr><td>Vercel</td><td>Hospedagem do front-end</td><td>Não armazena dados de negócio — entrega de interface estática via HTTPS/CDN</td></tr>
+          <tr><td>Resend</td><td>Envio de e-mails (convocações, atas, aprovações, alertas)</td><td>Nome, e-mail e dados da reunião contidos na mensagem</td></tr>
+          <tr><td>Anthropic (Claude)</td><td>Recursos de IA: rascunho de ata a partir de transcrição, pauta automática e diagnóstico de documentos de governança</td><td>Texto enviado sob demanda; chave de API mantida como secret do servidor</td></tr>
+          <tr><td>ClickSign</td><td>Assinatura digital de atas (opcional, por cliente)</td><td>Documento da ata + nome/e-mail dos signatários. Ativado individualmente via <code>clicksign_enabled</code></td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <!-- PROTEÇÃO DE DADOS -->
+    <div class="section">
+      <div class="section-title">5. Proteção de Dados e Secrets</div>
+      <div class="check-list">
+        <div class="check-item">
+          <div class="check-key"><span class="icon">✓</span>Autorização no servidor</div>
+          <div class="check-val">Papel, <code>client_id</code> e <code>secretary_clients</code> vivem em <code>app_metadata</code>, gravável apenas pelo <code>service_role</code> — o usuário não consegue alterar o próprio nível de acesso.</div>
+        </div>
+        <div class="check-item">
+          <div class="check-key"><span class="icon">✓</span>Chaves de API externas</div>
+          <div class="check-val">Anthropic, Resend e ClickSign armazenadas como Supabase Secrets no servidor, distintas por ambiente. Ausentes no bundle JavaScript entregue ao browser.</div>
+        </div>
+        <div class="check-item">
+          <div class="check-key"><span class="icon">✓</span>Arquivos e atas</div>
+          <div class="check-val">Acesso via Signed URLs com expiração de 7 dias — sem links públicos permanentes.</div>
+        </div>
+        <div class="check-item">
+          <div class="check-key"><span class="icon">✓</span>Tokens de fluxos públicos</div>
+          <div class="check-val">Votação, aprovação de ata e coleta de indicadores usam token <code>HMAC-SHA256</code> de uso individual, assinado com um <strong>segredo dedicado</strong> (distinto da chave de serviço, rotacionável isoladamente), com expiração e verificação por comparação em tempo constante (mitiga ataques de temporização).</div>
+        </div>
+        <div class="check-item">
+          <div class="check-key"><span class="icon">✓</span>Injeção de HTML</div>
+          <div class="check-val"><code>escapeHtml()</code> e <code>safeUrl()</code> aplicados em todos os campos de entrada do usuário renderizados nos e-mails.</div>
+        </div>
+        <div class="check-item">
+          <div class="check-key"><span class="icon">✓</span>Autenticação de e-mail</div>
+          <div class="check-val">Domínio remetente com <code>SPF</code>, <code>DKIM</code> e <code>DMARC</code> configurados — reduz falsificação (spoofing) do remetente e melhora a entregabilidade.</div>
+        </div>
+        <div class="check-item">
+          <div class="check-key"><span class="icon">✓</span>CORS</div>
+          <div class="check-val">Whitelist de origens explícita em todas as Edge Functions. Nenhum endpoint aceita <code>*</code>.</div>
+        </div>
+        <div class="check-item">
+          <div class="check-key"><span class="icon">✓</span>Senhas</div>
+          <div class="check-val">Nunca armazenadas em texto plano. Hash gerenciado pelo Supabase Auth (bcrypt).</div>
+        </div>
+        <div class="check-item">
+          <div class="check-key"><span class="icon">✓</span>process_audit_log</div>
+          <div class="check-val"><code>SECURITY DEFINER</code> com <code>SET search_path = ''</code> e <code>EXECUTE</code> revogado de <code>PUBLIC</code>, <code>anon</code> e <code>authenticated</code>. Executada exclusivamente por triggers internos — não exposta via API REST.</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- AUDITORIA -->
+    <div class="section">
+      <div class="section-title">6. Trilha de Auditoria</div>
+      <p class="lead">
+        Ações relevantes — login, criação de reunião, upload e aprovação de ata, cadastro de membros, convocações,
+        emissão de selo, alterações de configuração — são registradas automaticamente em <code>audit_logs</code>.
+        As políticas RLS garantem que registros existentes não possam ser alterados ou removidos por nenhum usuário,
+        incluindo administradores. A tabela aceita apenas INSERT por usuários autenticados, isolado por <code>client_id</code>.
+      </p>
+    </div>
+
+    <!-- O QUE NÃO ESTÁ IMPLEMENTADO -->
+    <div class="section">
+      <div class="section-title">7. Transparência — O que não está implementado</div>
+      <div class="amber-box">
+        <div class="amber-box-title">⚠ Itens fora de escopo desta fase</div>
+        <p style="color:#92400e;font-size:12px;margin-bottom:12px;line-height:1.6;">
+          Esta seção existe por transparência técnica. Equipes de segurança valorizam saber exatamente o que foi e o que
+          não foi endereçado.
+        </p>
+        <table>
+          <thead>
+            <tr><th style="width:220px">Item</th><th>Status</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>MFA obrigatório</td><td>Não configurado — usuários podem ativar voluntariamente no Supabase</td></tr>
+            <tr><td>Pen test por terceiro</td><td>Não realizado nesta fase; planejado para antes do lançamento geral</td></tr>
+            <tr><td>Rate limiting customizado</td><td>Depende dos limites padrão do Supabase (30 req/5min por IP)</td></tr>
+            <tr><td>Cabeçalhos CSP / HSTS</td><td>Gerenciados pela Vercel via HTTPS enforçado — fora do escopo da aplicação</td></tr>
+            <tr><td>IP allowlist</td><td>Não configurado</td></tr>
+            <tr><td>Funções agregadas <code>SECURITY DEFINER</code></td><td>Três funções (benchmark anônimo, relatório do ecossistema e um helper de RLS do CRM) são <code>SECURITY DEFINER</code> por necessidade — leem dados cross-tenant para produzir agregados anônimos ou apoiar o próprio RLS. Protegidas por checagem de papel interna e massa mínima. O linter as sinaliza por padrão; foram avaliadas e <strong>aceitas como intencionais</strong>, não constituindo vulnerabilidade</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- INFRAESTRUTURA -->
+    <div class="section">
+      <div class="section-title">8. Infraestrutura e Ambientes</div>
+      <table>
+        <thead>
+          <tr><th style="width:150px">Camada</th><th style="width:180px">Tecnologia</th><th>Observação</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>Front-end</td><td>React + TypeScript</td><td>Deploy via Vercel — HTTPS enforçado, CDN global</td></tr>
+          <tr><td>Back-end</td><td>Supabase (PostgreSQL)</td><td>Dois projetos isolados: produção e homologação</td></tr>
+          <tr><td>Autenticação</td><td>Supabase Auth</td><td>JWT com expiração de 1 hora e rotação de refresh token; autorização em <code>app_metadata</code></td></tr>
+          <tr><td>Funções serverless</td><td>Deno Edge Functions</td><td>Isoladas por função, sem estado compartilhado; secrets por ambiente</td></tr>
+          <tr><td>Armazenamento</td><td>Supabase Storage</td><td>Acesso via Signed URLs com TTL de 7 dias</td></tr>
+          <tr><td>E-mail transacional</td><td>Resend API</td><td>Domínio autenticado (SPF/DKIM/DMARC); chave como secret do servidor</td></tr>
+          <tr><td>Inteligência artificial</td><td>Anthropic Claude</td><td>Texto enviado sob demanda; chave como secret, distinta por ambiente</td></tr>
+          <tr><td>Assinatura digital</td><td>ClickSign API</td><td>Opcional por cliente. Token como secret; retorno via webhook autenticado por HMAC</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+  </div><!-- /body -->
+
+  <div class="footer">
+    <span class="footer-brand">Boardplan — INEPAD Governança e Sucessão</span>
+    <span>Relatório gerado em 01/09/2026</span>
+    <span>Confidencial — uso restrito</span>
+  </div>
+
+</div><!-- /page -->
+
+</body>
+</html>
