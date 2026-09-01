@@ -1,6 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2"
-import { verifyVoteToken } from "../_shared/votetoken.ts"
+import { verifyToken } from "../_shared/votetoken.ts"
 
 const ALLOWED_ORIGINS = ['https://conselho.inepadconsulting.com', 'http://localhost:3000']
 function cors(req: Request): Record<string, string> {
@@ -23,7 +23,7 @@ serve(async (req) => {
 
   try {
     const { token, action, choice, note } = await req.json()
-    const payload = await verifyVoteToken(SECRET, token || '')
+    const payload = await verifyToken(token || '')
     if (!payload || payload.k !== 'ata') return json({ error: 'Link inválido ou expirado.' }, 401)
 
     const { data: meeting } = await admin.from('meetings').select('id, title, client_id, atas').eq('id', payload.m).maybeSingle()

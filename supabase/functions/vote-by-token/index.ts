@@ -1,6 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2"
-import { verifyVoteToken } from "../_shared/votetoken.ts"
+import { verifyToken } from "../_shared/votetoken.ts"
 
 const ALLOWED_ORIGINS = [
   'https://conselho.inepadconsulting.com',
@@ -38,10 +38,10 @@ serve(async (req) => {
 
   try {
     const { token, action, choice } = await req.json()
-    const payload = await verifyVoteToken(SECRET, token || '')
+    const payload = await verifyToken(token || '')
     if (!payload) return json({ error: 'Link inválido ou expirado.' }, 401)
 
-    const { data: meeting } = await admin.from('meetings').select('id, client_id, deliberacoes, acoes').eq('id', payload.m).maybeSingle()
+    const { data: meeting } = await admin.from('meetings').select('id, client_id, status, deliberacoes, acoes').eq('id', payload.m).maybeSingle()
     if (!meeting) return json({ error: 'Deliberação não encontrada.' }, 404)
     const delibs = [...(meeting.deliberacoes || [])]
     const idx = (payload.d != null) ? delibs.findIndex((x: any) => x.id === payload.d) : payload.di
@@ -53,6 +53,8 @@ serve(async (req) => {
     }
 
     if (action === 'cast') {
+      // Trava de encerramento: reunião concluída não aceita mais votos
+      if (meeting.status === 'Concluída') return json({ error: 'Votação encerrada — esta reunião já foi concluída.' }, 403)
       if (!['Favor', 'Contra', 'Abstenção'].includes(choice)) return json({ error: 'Opção inválida.' }, 400)
       if (!(delib.voters || []).includes(payload.v)) return json({ error: 'Você não está na lista de votantes desta deliberação.' }, 403)
       const votes = { ...(delib.votes || {}), [payload.v]: choice }

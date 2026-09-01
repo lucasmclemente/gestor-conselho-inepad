@@ -30,6 +30,31 @@ export async function signVoteToken(secret: string, payload: Record<string, unkn
   return `${p}.${sig}`;
 }
 
+// ── Segredo dedicado de assinatura (item 10) ──
+// Usa TOKEN_SIGNING_SECRET quando configurado; senão cai no SERVICE_ROLE_KEY (compat).
+// Assim a migração é sem quebra: links antigos (assinados com a service key) continuam
+// válidos até expirar, e os novos passam a usar o segredo dedicado.
+function envSecret(name: string): string {
+  try { return (Deno.env.get(name) || '').trim(); } catch { return ''; }
+}
+
+export function tokenSignSecret(): string {
+  return envSecret('TOKEN_SIGNING_SECRET') || envSecret('SUPABASE_SERVICE_ROLE_KEY');
+}
+
+export async function signToken(payload: Record<string, unknown>): Promise<string> {
+  return signVoteToken(tokenSignSecret(), payload);
+}
+
+// Verifica tentando o segredo dedicado e, como fallback, a service key (tokens antigos).
+export async function verifyToken(token: string): Promise<any | null> {
+  const primary = envSecret('TOKEN_SIGNING_SECRET');
+  const fallback = envSecret('SUPABASE_SERVICE_ROLE_KEY');
+  if (primary) { const r = await verifyVoteToken(primary, token); if (r) return r; }
+  if (fallback && fallback !== primary) { const r = await verifyVoteToken(fallback, token); if (r) return r; }
+  return null;
+}
+
 export async function verifyVoteToken(secret: string, token: string): Promise<any | null> {
   const parts = (token || '').split('.');
   if (parts.length !== 2) return null;

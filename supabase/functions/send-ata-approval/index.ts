@@ -1,6 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2"
-import { signVoteToken } from "../_shared/votetoken.ts"
+import { signToken } from "../_shared/votetoken.ts"
 
 const ALLOWED_ORIGINS = ['https://conselho.inepadconsulting.com', 'http://localhost:3000']
 function cors(req: Request): Record<string, string> {
@@ -88,7 +88,7 @@ serve(async (req) => {
     let sent = 0
     const skipped: string[] = []
     for (const p of internos) {
-      const token = await signVoteToken(SECRET, { m: meetingId, a: ata.id, v: p.name, e: p.email, exp, k: 'ata' })
+      const token = await signToken({ m: meetingId, a: ata.id, v: p.name, e: p.email, exp, k: 'ata' })
       const approveUrl = `${origin}/?atatoken=${encodeURIComponent(token)}`
       if (RESEND_API_KEY) {
         await fetch('https://api.resend.com/emails', {

@@ -1,6 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2"
-import { signVoteToken } from "../_shared/votetoken.ts"
+import { signToken } from "../_shared/votetoken.ts"
 
 const ALLOWED_ORIGINS = [
   'https://conselho.inepadconsulting.com',
@@ -104,7 +104,7 @@ serve(async (req) => {
       if (!email) { skipped.push(name); continue }
       const tokenPayload: Record<string, unknown> = { m: meetingId, v: name, e: email, exp }
       if (delibId != null) tokenPayload.d = delibId; else tokenPayload.di = delibIndex
-      const token = await signVoteToken(SECRET, tokenPayload)
+      const token = await signToken(tokenPayload)
       const voteUrl = `${origin}/?votetoken=${encodeURIComponent(token)}`
 
       if (RESEND_API_KEY) {

@@ -1,6 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2"
-import { signVoteToken, verifyVoteToken } from "../_shared/votetoken.ts"
+import { signToken, verifyToken } from "../_shared/votetoken.ts"
 import { fireForReading } from "../_shared/triggers.ts"
 
 const ALLOWED_ORIGINS = [
@@ -49,12 +49,12 @@ serve(async (req) => {
       if (!(role === 'SuperAdmin' || client_id === home || sec.includes(client_id))) return json({ error: 'forbidden' }, 403)
       const per = /^\d{4}-\d{2}$/.test(String(period)) ? `${period}-01` : String(period)
       const exp = nowSec() + 45 * 24 * 3600 // 45 dias
-      const token = await signVoteToken(SECRET, { p: 'collect', c: client_id, m: per, e: exp })
+      const token = await signToken({ p: 'collect', c: client_id, m: per, e: exp })
       return json({ token })
     }
 
     // ---- info / submit: públicos, validados por token ----
-    const payload = await verifyVoteToken(SECRET, body.token || '')
+    const payload = await verifyToken(body.token || '')
     if (!payload || payload.p !== 'collect') return json({ error: 'Link inválido.' }, 401)
     if (!payload.e || payload.e < nowSec()) return json({ error: 'Link expirado. Solicite um novo à secretaria.' }, 401)
     const cid = payload.c

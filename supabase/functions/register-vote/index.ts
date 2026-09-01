@@ -60,10 +60,12 @@ serve(async (req) => {
     }
 
     const admin = createClient(Deno.env.get('SUPABASE_URL') ?? '', Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '')
-    const { data: meeting, error: mErr } = await admin.from('meetings').select('id, client_id, deliberacoes, acoes, participants').eq('id', meetingId).maybeSingle()
+    const { data: meeting, error: mErr } = await admin.from('meetings').select('id, client_id, status, deliberacoes, acoes, participants').eq('id', meetingId).maybeSingle()
     if (mErr) throw new Error(mErr.message)
     if (!meeting) return new Response(JSON.stringify({ error: 'Reunião não encontrada.' }), { status: 404, headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
     if (!isSuper && meeting.client_id !== clientId) return new Response(JSON.stringify({ error: 'Sem permissão.' }), { status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
+    // Trava de encerramento: reunião concluída não aceita mais votos
+    if (meeting.status === 'Concluída') return new Response(JSON.stringify({ error: 'Votação encerrada — esta reunião já foi concluída.' }), { status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
 
     const delibs = [...(meeting.deliberacoes || [])]
     const di = (delibId != null)

@@ -1,6 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2"
-import { signVoteToken } from "../_shared/votetoken.ts"
+import { signToken } from "../_shared/votetoken.ts"
 
 const ALLOWED_ORIGINS = [
   'https://conselho.inepadconsulting.com',
@@ -116,7 +116,7 @@ serve(async (req) => {
       // Botão de aprovação individual (token assinado, sem login)
       let approveBtn = ''
       if (resolvedAtaId != null) {
-        const token = await signVoteToken(SECRET, { m: meetingId, a: resolvedAtaId, v: user.name, e: user.email, exp, k: 'ata' })
+        const token = await signToken({ m: meetingId, a: resolvedAtaId, v: user.name, e: user.email, exp, k: 'ata' })
         const approveUrl = `${origin}/?atatoken=${encodeURIComponent(token)}`
         approveBtn = `
           <div style="margin: 20px 0; padding: 18px; background: #fffbeb; border: 1px solid #fde68a; border-radius: 10px; text-align: center;">

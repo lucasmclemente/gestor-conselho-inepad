@@ -1,6 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2"
-import { verifyVoteToken } from "../_shared/votetoken.ts"
+import { verifyToken } from "../_shared/votetoken.ts"
 
 const esc = (s: string): string =>
   String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#039;')
@@ -61,7 +61,7 @@ serve(async (req) => {
   // GET → mostra a página de confirmação (NÃO registra voto — evita "pré-clique" de antivírus)
   if (req.method === 'GET') {
     const token = url.searchParams.get('token') || ''
-    const payload = await verifyVoteToken(SECRET, token)
+    const payload = await verifyToken(token)
     if (!payload) return errorPage('Link inválido ou expirado.')
     const { delib } = await loadDelib(payload)
     if (!delib) return errorPage('Deliberação não encontrada.')
@@ -86,7 +86,7 @@ serve(async (req) => {
     const form = await req.formData()
     const token = String(form.get('token') || '')
     const choice = String(form.get('choice') || '')
-    const payload = await verifyVoteToken(SECRET, token)
+    const payload = await verifyToken(token)
     if (!payload) return errorPage('Link inválido ou expirado.')
     if (!['Favor', 'Contra', 'Abstenção'].includes(choice)) return errorPage('Opção de voto inválida.')
 
