@@ -2980,6 +2980,7 @@ const App = () => {
           <button disabled={isSendingEmail} onClick={async () => {
             const emails = (currentMeeting.participants || []).map((p: any) => p.email).filter((e: string) => e);
             if (emails.length === 0) return alert("Erro: Não há participantes com e-mail.");
+            if (!currentMeeting?.id || !currentMeeting?.client_id) return alert('Salve a reunião antes de disparar a convocação.');
             setIsSendingEmail(true);
             try {
               await supabase.functions.invoke('send-invitation', { body: { meetingData: currentMeeting, recipients: emails, organizer: { name: currentUser.name, email: currentUser.email } } });
