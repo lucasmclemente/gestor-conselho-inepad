@@ -1,5 +1,15 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import * as ed from "https://esm.sh/@noble/ed25519@2.1.0";
+import { sha512 } from "https://esm.sh/@noble/hashes@1.4.0/sha512";
+ed.etc.sha512Sync = (...m: Uint8Array[]) => sha512(ed.etc.concatBytes(...m));
+
+function b64ToBytes(s: string): Uint8Array {
+  const bin = atob(s);
+  const out = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+  return out;
+}
 
 // Só permite baixar de URLs públicas https — bloqueia SSRF (metadata da nuvem,
 // localhost, IPs privados/loopback/link-local).
@@ -22,12 +32,12 @@ async function telnyxSignatureValid(raw: string, req: Request, pubB64: string): 
   const tsNum = parseInt(ts, 10);
   if (!Number.isFinite(tsNum) || Math.abs(Date.now() / 1000 - tsNum) > 300) return false; // anti-replay (5 min)
   try {
-    const pub = Uint8Array.from(atob(pubB64), (c) => c.charCodeAt(0));
-    const sig = Uint8Array.from(atob(sigB64), (c) => c.charCodeAt(0));
     const msg = new TextEncoder().encode(`${ts}|${raw}`);
-    const key = await crypto.subtle.importKey('raw', pub, { name: 'Ed25519' }, false, ['verify']);
-    return await crypto.subtle.verify({ name: 'Ed25519' }, key, sig, msg);
-  } catch (_) { return false; }
+    return ed.verify(b64ToBytes(sigB64), msg, b64ToBytes(pubB64));
+  } catch (e) {
+    console.error('[telnyx-webhook] erro na verificação da assinatura:', String(e));
+    return false;
+  }
 }
 
 // Recebe eventos da Telnyx. Quando a gravação fica pronta (call.recording.saved),
