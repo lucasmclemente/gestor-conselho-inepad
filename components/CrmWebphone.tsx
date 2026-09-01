@@ -31,6 +31,67 @@ export const CrmWebphone: React.FC<Props> = ({ number, contactName, dealId, cid,
   const finalizedRef = useRef(false);  // evita gravar métricas 2x
   const activityIdRef = useRef<string | null>(null);        // criada só quando a chamada toca
   const createPromiseRef = useRef<Promise<string | null> | null>(null); // single-flight da criação
+  const recorderRef = useRef<any>(null);       // MediaRecorder da ligação
+  const audioCtxRef = useRef<any>(null);        // AudioContext do mix (mic + remoto)
+  const chunksRef = useRef<BlobPart[]>([]);     // pedaços do áudio gravado
+  const recStartedRef = useRef(false);          // evita iniciar a gravação 2x
+  const uploadStartedRef = useRef(false);       // evita subir a gravação 2x
+
+  // Inicia a gravação da ligação no navegador (a conexão WebRTC do Telnyx não grava server-side).
+  // Mistura o áudio remoto (elemento <audio>) com o microfone local num único stream.
+  const startRecording = (call: any) => {
+    if (recStartedRef.current) return;
+    try {
+      const el = document.getElementById('telnyx-remote-audio') as HTMLAudioElement | null;
+      const remote: MediaStream | null = call?.remoteStream || (el?.srcObject as MediaStream) || null;
+      const local: MediaStream | null = call?.localStream || call?.options?.localStream || null;
+      if (!remote && !local) return;
+      const AC: any = (window as any).AudioContext || (window as any).webkitAudioContext;
+      if (!AC || !(window as any).MediaRecorder) return;
+      const ctx = new AC();
+      audioCtxRef.current = ctx;
+      const dest = ctx.createMediaStreamDestination();
+      if (remote) { try { ctx.createMediaStreamSource(remote).connect(dest); } catch { /* */ } }
+      if (local) { try { ctx.createMediaStreamSource(local).connect(dest); } catch { /* */ } }
+      try { ctx.resume?.(); } catch { /* */ }
+      const mime = ['audio/webm;codecs=opus', 'audio/webm', 'audio/ogg;codecs=opus']
+        .find(m => (window as any).MediaRecorder.isTypeSupported?.(m)) || '';
+      const rec = mime ? new MediaRecorder(dest.stream, { mimeType: mime }) : new MediaRecorder(dest.stream);
+      chunksRef.current = [];
+      rec.ondataavailable = (e: any) => { if (e.data && e.data.size > 0) chunksRef.current.push(e.data); };
+      rec.start(1000); // coleta a cada 1s → não perde áudio se a ligação cair
+      recorderRef.current = rec;
+      recStartedRef.current = true;
+    } catch (e) { console.warn('[webphone] gravação não iniciou', e); }
+  };
+
+  // Encerra a gravação e envia o áudio para a Edge Function (idempotente lá também).
+  const stopAndUpload = async () => {
+    const rec = recorderRef.current;
+    if (!rec || uploadStartedRef.current) return;
+    uploadStartedRef.current = true;
+    recorderRef.current = null;
+    const mime = rec.mimeType || 'audio/webm';
+    const blob: Blob = await new Promise((resolve) => {
+      rec.onstop = () => resolve(new Blob(chunksRef.current, { type: mime }));
+      try { if (rec.state !== 'inactive') rec.stop(); else resolve(new Blob(chunksRef.current, { type: mime })); } catch { resolve(new Blob(chunksRef.current, { type: mime })); }
+    });
+    try { audioCtxRef.current?.close?.(); } catch { /* */ }
+    audioCtxRef.current = null;
+    if (!blob || blob.size < 1024) return; // nada capturado
+    const id = activityIdRef.current || (createPromiseRef.current ? await createPromiseRef.current : null);
+    if (!id) return;
+    const ext = mime.includes('ogg') ? 'ogg' : 'webm';
+    const b64: string = await new Promise((resolve, reject) => {
+      const fr = new FileReader();
+      fr.onload = () => resolve(String(fr.result).split(',')[1] || '');
+      fr.onerror = reject;
+      fr.readAsDataURL(blob);
+    });
+    try {
+      await supabase.functions.invoke('crm-save-recording', { body: { activityId: id, audioB64: b64, mime, ext, seconds: secondsRef.current } });
+    } catch (e) { console.warn('[webphone] falha ao subir gravação', e); }
+  };
 
   const stopTimer = () => { if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = null; } };
   const startTimer = () => { stopTimer(); timerRef.current = setInterval(() => setSeconds(s => { const n = s + 1; secondsRef.current = n; return n; }), 1000); };
@@ -110,31 +171,32 @@ export const CrmWebphone: React.FC<Props> = ({ number, contactName, dealId, cid,
           else if (st === 'requesting' || st === 'trying') setStatus('Chamando…');               // ainda não tocou
           else if (st === 'active') {
             setStatus('Em ligação'); setLive(true); answeredRef.current = true; startTimer();
-            // guarda o call_session_id da Telnyx na atividade → o webhook casa a gravação
+            // guarda o call_session_id da Telnyx na atividade (referência) e inicia a gravação no navegador
             try {
               const ids = (callRef.current as any)?.telnyxIDs || n.call?.telnyxIDs;
               const sid = ids?.telnyxSessionId;
               ensureActivity().then(id => { if (sid && id) supabase.from('crm_activities').update({ external_id: sid }).eq('id', id).then(() => {}, () => {}); });
             } catch { /* */ }
+            startRecording(callRef.current || n.call);
           }
           else if (st === 'hangup' || st === 'destroy' || st === 'purge') {
             const cause = n.call?.cause || n.call?.causeCode || n.call?.sipCode || '';
             console.log('[webphone] hangup', { cause, causeCode: n.call?.causeCode, sipCode: n.call?.sipCode, call: n.call });
             setStatus(cause ? `Encerrada — ${cause}` : 'Encerrada');
-            setLive(false); stopTimer(); finalize();
+            setLive(false); stopTimer(); finalize(); stopAndUpload();
           }
         }
       });
       client.connect();
     })();
-    return () => { cancelled = true; finalize(); cleanup(); };
+    return () => { cancelled = true; finalize(); stopAndUpload(); cleanup(); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const sendDtmf = (d: string) => {
     try { (callRef.current as any)?.dtmf(d); setDtmfLog(prev => (prev + d).slice(-16)); } catch { /* */ }
   };
-  const hangup = () => { finalize(); cleanup(); onClose(); };
+  const hangup = () => { finalize(); stopAndUpload(); cleanup(); onClose(); };
   const toggleMute = () => {
     const c = callRef.current; if (!c) return;
     try { if (muted) c.unmuteAudio(); else c.muteAudio(); setMuted(!muted); } catch { /* */ }

@@ -43,6 +43,15 @@ serve(async (req) => {
   // ── Gravação já em cache no Storage (Telnyx OU GoTo já baixada): serve sem exigir GoTo conectada ──
   if (action === 'recording') {
     const rid = String(body.recordingId || '').trim();
+    const aid = String(body.activityId || '').trim();
+    // Gravação com caminho próprio (ex.: webphone gravado no navegador) — serve direto pelo recording_path
+    if (aid) {
+      const { data: actRec } = await admin.from('crm_activities').select('recording_path, client_id').eq('id', aid).maybeSingle();
+      if (actRec?.recording_path && (role === 'SuperAdmin' || actRec.client_id === cid)) {
+        const s = await admin.storage.from('crm-recordings').createSignedUrl(actRec.recording_path, 3600);
+        if (s.data?.signedUrl) return json({ url: s.data.signedUrl, cached: true });
+      }
+    }
     if (!rid) return json({ error: 'recordingId não informado.' }, 400);
     const cached0 = await admin.storage.from('crm-recordings').createSignedUrl(`${cid}/${rid}.mp3`, 3600);
     if (cached0.data?.signedUrl) return json({ url: cached0.data.signedUrl, cached: true });
