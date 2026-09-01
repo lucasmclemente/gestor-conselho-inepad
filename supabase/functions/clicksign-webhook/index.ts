@@ -138,7 +138,7 @@ serve(async (req) => {
           if (!uploadErr) {
             const { data: urlData } = await supabaseAdmin.storage
               .from('meeting-files')
-              .createSignedUrl(filePath, 60 * 60 * 24 * 365)
+              .createSignedUrl(filePath, 60 * 60 * 24 * 7)
             if (urlData?.signedUrl) {
               signedStorageUrl = urlData.signedUrl
               console.log(`[clicksign-webhook] PDF assinado salvo no Storage`)
