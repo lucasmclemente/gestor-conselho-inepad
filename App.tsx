@@ -4535,6 +4535,12 @@ const App = () => {
                           <tr><td colSpan={5} className="px-6 py-10 text-center text-slate-400 text-[10px] uppercase tracking-widest">Nenhuma deliberação encontrada</td></tr>
                         ) : delibStats.list.map((d: any) => {
                           const meeting = meetings.find((m: any) => m.id === d.mId);
+                          const dvoters: string[] = d.voters || [];
+                          const dvotes: Record<string, string> = d.votes || {};
+                          const favorNames = dvoters.filter((v) => dvotes[v] === 'Favor');
+                          const contraNames = dvoters.filter((v) => dvotes[v] === 'Contra');
+                          const abstNames = dvoters.filter((v) => dvotes[v] === 'Abstenção');
+                          const pendingNames = dvoters.filter((v) => !dvotes[v]);
                           return (
                             <tr key={`${d.mId}-${d.idx}`} className="hover:bg-slate-50 transition-all align-top">
                               <td className="px-6 py-4 text-slate-800 max-w-md"><p className="leading-snug">"{d.title}"</p></td>
@@ -4550,6 +4556,14 @@ const App = () => {
                                   <span className="inline-flex items-center gap-1 bg-slate-50 text-slate-500 text-[9px] font-bold px-2 py-0.5 rounded-full border border-slate-200"><MinusCircle size={9} />{d.abst}</span>
                                 </div>
                                 <p className="text-[9px] text-slate-400 text-center mt-1 not-italic">{d.voted}/{d.total} votaram</p>
+                                {dvoters.length > 0 && (
+                                  <div className="mt-2 text-left space-y-0.5 max-w-[260px]">
+                                    {favorNames.length > 0 && <p className="text-[9px] not-italic leading-snug text-emerald-700"><b>Favor:</b> {favorNames.join(', ')}</p>}
+                                    {contraNames.length > 0 && <p className="text-[9px] not-italic leading-snug text-red-600"><b>Contra:</b> {contraNames.join(', ')}</p>}
+                                    {abstNames.length > 0 && <p className="text-[9px] not-italic leading-snug text-slate-500"><b>Abstenção:</b> {abstNames.join(', ')}</p>}
+                                    {pendingNames.length > 0 && <p className="text-[9px] not-italic leading-snug text-amber-600"><b>Pendente:</b> {pendingNames.join(', ')}</p>}
+                                  </div>
+                                )}
                               </td>
                               <td className="px-6 py-4 text-center"><span className={`px-3 py-1 rounded-full text-[9px] uppercase font-bold ${d.cls}`}>{d.label}</span></td>
                               <td className="px-6 py-4 text-center">
