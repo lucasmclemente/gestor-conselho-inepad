@@ -4171,7 +4171,18 @@ const App = () => {
                   {/* Grid de cards */}
                   {filteredAtas.length > 0 && (
                     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                      {filteredAtas.map((ata: any, i: number) => (
+                      {filteredAtas.map((ata: any, i: number) => {
+                        const apprvrs: string[] = ata.approvers || [];
+                        const apprvls: Record<string, string> = ata.approvals || {};
+                        const doneN = apprvrs.filter((n) => apprvls[n]).length;
+                        const anyRepr = apprvrs.some((n) => apprvls[n] === 'reprovada');
+                        const anyRess = apprvrs.some((n) => apprvls[n] === 'ressalva');
+                        const allDone = apprvrs.length > 0 && doneN === apprvrs.length;
+                        const aprovouN = apprvrs.filter((n) => apprvls[n] === 'aprovada');
+                        const ressalvaN = apprvrs.filter((n) => apprvls[n] === 'ressalva');
+                        const reprovouN = apprvrs.filter((n) => apprvls[n] === 'reprovada');
+                        const pendenteN = apprvrs.filter((n) => !apprvls[n]);
+                        return (
                         <div key={`${ata.meetingId}-${i}`}
                           className="bg-white border border-slate-200 rounded-xl p-5 flex flex-col gap-4 shadow-sm hover:shadow-md hover:border-amber-300 transition-all group">
 
@@ -4211,6 +4222,30 @@ const App = () => {
                             </div>
                           </div>
 
+                          {/* Status de aprovação da ata */}
+                          {apprvrs.length === 0 ? (
+                            <div className="text-[9px] font-bold uppercase tracking-widest text-slate-300 not-italic">Aprovação não solicitada</div>
+                          ) : (
+                            <div className="space-y-1.5">
+                              <div className="flex items-center justify-between gap-2">
+                                <span className="text-[9px] font-bold uppercase tracking-widest text-slate-400 not-italic">Aprovação · {doneN}/{apprvrs.length}{ata.approvalClosed ? ' · encerrada' : ''}</span>
+                                {anyRepr
+                                  ? <span className="text-[8px] font-bold uppercase tracking-widest px-2 py-0.5 rounded-full border bg-red-50 text-red-600 border-red-200 not-italic shrink-0">Reprovada</span>
+                                  : allDone
+                                    ? (anyRess
+                                        ? <span className="text-[8px] font-bold uppercase tracking-widest px-2 py-0.5 rounded-full border bg-amber-50 text-amber-700 border-amber-200 not-italic shrink-0">Aprovada c/ ressalvas</span>
+                                        : <span className="text-[8px] font-bold uppercase tracking-widest px-2 py-0.5 rounded-full border bg-emerald-50 text-emerald-700 border-emerald-200 not-italic shrink-0">Aprovada</span>)
+                                    : <span className="text-[8px] font-bold uppercase tracking-widest px-2 py-0.5 rounded-full border bg-amber-50 text-amber-600 border-amber-200 not-italic shrink-0">Pendente</span>}
+                              </div>
+                              <div className="space-y-0.5">
+                                {aprovouN.length > 0 && <p className="text-[9px] not-italic leading-snug text-emerald-700"><b>Aprovou:</b> {aprovouN.join(', ')}</p>}
+                                {ressalvaN.length > 0 && <p className="text-[9px] not-italic leading-snug text-amber-700"><b>Ressalvas:</b> {ressalvaN.join(', ')}</p>}
+                                {reprovouN.length > 0 && <p className="text-[9px] not-italic leading-snug text-red-600"><b>Reprovou:</b> {reprovouN.join(', ')}</p>}
+                                {pendenteN.length > 0 && <p className="text-[9px] not-italic leading-snug text-amber-600"><b>Pendente:</b> {pendenteN.join(', ')}</p>}
+                              </div>
+                            </div>
+                          )}
+
                           {/* Ações */}
                           <div className="flex items-center gap-2 mt-auto">
                             <button
@@ -4247,7 +4282,8 @@ const App = () => {
                             )}
                           </div>
                         </div>
-                      ))}
+                        );
+                      })}
                     </div>
                   )}
                 </div>
