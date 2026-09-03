@@ -60,7 +60,8 @@ const App = () => {
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
 
   const [filterResp, setFilterResp] = useState('all');
-  const [filterStatus, setFilterStatus] = useState('all');
+  const [filterStatus, setFilterStatus] = useState<string[]>([]); // multi-seleção; vazio = todos
+  const [statusMenuOpen, setStatusMenuOpen] = useState(false);
   const [filterOrigin, setFilterOrigin] = useState('all');
   const [filterPriority, setFilterPriority] = useState('all');
   const [filterObjective, setFilterObjective] = useState('all'); // all | with | none | <objective_id>
@@ -2605,9 +2606,9 @@ const App = () => {
     const allA = filteredM.flatMap(m => (m.acoes || []).map((a: any) => ({ ...a, mTitle: m.title, mId: m.id, mDate: m.date })))
       .filter(a => filterResp === 'all' || (a.resps?.length > 0 ? a.resps.includes(filterResp) : a.resp === filterResp))
       .filter(a => {
-        if (filterStatus === 'all') return true;
-        if (filterStatus === 'Atrasada') return a.status !== 'Concluída' && a.date && new Date(a.date) < today;
-        return a.status === filterStatus;
+        if (filterStatus.length === 0) return true;
+        const isAtrasada = a.status !== 'Concluída' && a.date && new Date(a.date) < today;
+        return filterStatus.some((s: string) => s === 'Atrasada' ? isAtrasada : a.status === s);
       })
       .filter(a => (filterOrigin === 'all' || a.mId === filterOrigin))
       .filter(a => (filterPriority === 'all' || (a.priority || 'Média') === filterPriority))
@@ -3277,7 +3278,7 @@ const App = () => {
                   </div>
                   <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
                     {/* Concluídas — barra de progresso + atalho ao Plano de Ação concluído */}
-                    <button onClick={() => { setFilterStatus('Concluída'); setFilterResp('all'); setFilterOrigin('all'); setActiveMenu('plano-acao'); }} className="group bg-white p-6 rounded-xl border border-slate-200 shadow-sm flex flex-col gap-3 text-left transition-all hover:shadow-md hover:border-amber-300">
+                    <button onClick={() => { setFilterStatus(['Concluída']); setFilterResp('all'); setFilterOrigin('all'); setActiveMenu('plano-acao'); }} className="group bg-white p-6 rounded-xl border border-slate-200 shadow-sm flex flex-col gap-3 text-left transition-all hover:shadow-md hover:border-amber-300">
                       <div className="flex items-start gap-4">
                         <div className="p-3 rounded-lg bg-amber-100 text-amber-600"><CheckCircle2 /></div>
                         <div className="flex-1">
@@ -3304,7 +3305,7 @@ const App = () => {
                     </button>
 
                     {/* Em Atraso — atalho ao Plano de Ação filtrado por atrasadas */}
-                    <button onClick={() => { setFilterStatus('Atrasada'); setFilterResp('all'); setFilterOrigin('all'); setActiveMenu('plano-acao'); }} className={`group bg-white p-6 rounded-xl border shadow-sm flex items-start gap-4 text-left transition-all hover:shadow-md ${dashStats.atrasadas > 0 ? 'border-red-200 hover:border-red-300' : 'border-slate-200 hover:border-amber-300'}`}>
+                    <button onClick={() => { setFilterStatus(['Atrasada']); setFilterResp('all'); setFilterOrigin('all'); setActiveMenu('plano-acao'); }} className={`group bg-white p-6 rounded-xl border shadow-sm flex items-start gap-4 text-left transition-all hover:shadow-md ${dashStats.atrasadas > 0 ? 'border-red-200 hover:border-red-300' : 'border-slate-200 hover:border-amber-300'}`}>
                       <div className={`p-3 rounded-lg ${dashStats.atrasadas > 0 ? 'bg-red-100 text-red-600' : 'bg-slate-100 text-slate-400'}`}><AlertCircle /></div>
                       <div><p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest flex items-center gap-1">Em Atraso <ChevronRight size={12} className="opacity-0 group-hover:opacity-100 transition-opacity" /></p><p className={`text-2xl font-bold mt-1 ${dashStats.atrasadas > 0 ? 'text-red-600' : 'text-slate-800'}`}>{dashStats.atrasadas}</p></div>
                     </button>
@@ -3353,7 +3354,7 @@ const App = () => {
                   <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden animate-in fade-in slide-in-from-bottom-2">
                     <div className="p-4 border-b border-slate-50 bg-slate-50/50 flex justify-between items-center">
                       <h3 className="text-xs font-bold uppercase text-slate-500 tracking-widest italic flex items-center gap-2"><ListChecks size={16} className="text-amber-600" /> Pendências Prioritárias</h3>
-                      <button onClick={() => { setFilterStatus('all'); setFilterResp('all'); setFilterOrigin('all'); setActiveMenu('plano-acao'); }} className="text-[10px] font-bold uppercase tracking-widest text-amber-600 hover:text-amber-700 flex items-center gap-1 transition-colors">Ver todas <ChevronRight size={12} /></button>
+                      <button onClick={() => { setFilterStatus([]); setFilterResp('all'); setFilterOrigin('all'); setActiveMenu('plano-acao'); }} className="text-[10px] font-bold uppercase tracking-widest text-amber-600 hover:text-amber-700 flex items-center gap-1 transition-colors">Ver todas <ChevronRight size={12} /></button>
                     </div>
                     <div className="overflow-x-auto">
                       <table className="w-full text-left text-sm font-bold italic">
@@ -4258,7 +4259,30 @@ const App = () => {
                     <h1 className="text-2xl font-bold text-slate-800 tracking-tight italic">Plano Global</h1>
                     <div className="flex flex-wrap items-center gap-3 bg-slate-50 p-2 rounded-lg border border-slate-200 w-full md:w-auto">
                       <div className="flex items-center gap-2 bg-white px-3 py-1.5 rounded border border-slate-200"><User size={14} className="text-amber-500" /><select className="text-[10px] font-bold uppercase outline-none bg-transparent cursor-pointer text-slate-600" value={filterResp} onChange={e => setFilterResp(e.target.value)}><option value="all">Responsável</option>{[...new Set(meetings.flatMap((m: any) => (m.acoes || []).flatMap((a: any) => a.resps?.length > 0 ? a.resps : (a.resp ? [a.resp] : []))))].filter(Boolean).map((r: any) => <option key={r} value={r}>{r}</option>)}</select></div>
-                      <div className="flex items-center gap-2 bg-white px-3 py-1.5 rounded border border-slate-200"><Target size={14} className="text-amber-500" /><select className="text-[10px] font-bold uppercase outline-none bg-transparent cursor-pointer text-slate-600" value={filterStatus} onChange={e => setFilterStatus(e.target.value)}><option value="all">Status</option><option value="Pendente">Pendente</option><option value="Em andamento">Em andamento</option><option value="Concluída">Concluída</option><option value="Atrasada">Atrasada</option></select></div>
+                      <div className="relative flex items-center gap-2 bg-white px-3 py-1.5 rounded border border-slate-200">
+                        <Target size={14} className="text-amber-500" />
+                        <button onClick={() => setStatusMenuOpen(o => !o)} className="text-[10px] font-bold uppercase outline-none bg-transparent cursor-pointer text-slate-600 flex items-center gap-1">
+                          {filterStatus.length === 0 ? 'Status' : filterStatus.length === 1 ? filterStatus[0] : `Status (${filterStatus.length})`}
+                          <ChevronDown size={12} className="text-slate-400" />
+                        </button>
+                        {statusMenuOpen && (
+                          <>
+                            <div className="fixed inset-0 z-20" onClick={() => setStatusMenuOpen(false)} />
+                            <div className="absolute top-full left-0 mt-1 z-30 bg-white border border-slate-200 rounded-lg shadow-2xl py-1 w-48">
+                              {['Pendente', 'Em andamento', 'Concluída', 'Atrasada'].map(s => {
+                                const on = filterStatus.includes(s);
+                                return (
+                                  <button key={s} onClick={() => setFilterStatus((prev: string[]) => on ? prev.filter(x => x !== s) : [...prev, s])} className="w-full text-left px-3 py-2 text-[10px] font-bold uppercase text-slate-600 hover:bg-amber-50 flex items-center gap-2 transition-colors">
+                                    <span className={`w-3.5 h-3.5 rounded border flex items-center justify-center shrink-0 ${on ? 'bg-amber-600 border-amber-600 text-white' : 'border-slate-300'}`}>{on && <Check size={10} />}</span>
+                                    {s}
+                                  </button>
+                                );
+                              })}
+                              {filterStatus.length > 0 && <button onClick={() => setFilterStatus([])} className="w-full text-left px-3 py-1.5 text-[9px] font-bold uppercase text-slate-400 hover:text-amber-600 border-t border-slate-50 mt-1 transition-colors">Limpar seleção</button>}
+                            </div>
+                          </>
+                        )}
+                      </div>
                       <div className="flex items-center gap-2 bg-white px-3 py-1.5 rounded border border-slate-200"><AlertCircle size={14} className="text-amber-500" /><select className="text-[10px] font-bold uppercase outline-none bg-transparent cursor-pointer text-slate-600" value={filterPriority} onChange={e => setFilterPriority(e.target.value)}><option value="all">Prioridade</option>{PRIORITIES.map(p => <option key={p} value={p}>{p}</option>)}</select></div>
                       <div className="flex items-center gap-2 bg-white px-3 py-1.5 rounded border border-slate-200"><Building2 size={14} className="text-amber-500" /><select className="text-[10px] font-bold uppercase outline-none bg-transparent cursor-pointer text-slate-600" value={filterOrigin} onChange={e => setFilterOrigin(e.target.value)}><option value="all">Origem (Reunião)</option>{meetings.map(m => <option key={m.id} value={m.id}>{m.title}{m.date ? ` — ${new Date(m.date + 'T00:00:00').toLocaleDateString('pt-BR')}` : ''}</option>)}</select></div>
                       {strategyEnabled && <div className="flex items-center gap-2 bg-white px-3 py-1.5 rounded border border-slate-200"><Compass size={14} className="text-amber-500" /><select className="text-[10px] font-bold uppercase outline-none bg-transparent cursor-pointer text-slate-600" value={filterObjective} onChange={e => setFilterObjective(e.target.value)}><option value="all">Objetivo estratégico</option><option value="with">✓ Vinculadas a objetivo</option><option value="none">✕ Sem objetivo</option>{strategyObjectives.length > 0 && <option disabled>──────────</option>}{strategyObjectives.map((o: any) => <option key={o.id} value={o.id}>{o.name}</option>)}</select></div>}
