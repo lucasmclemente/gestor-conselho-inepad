@@ -156,7 +156,7 @@ serve(async (req) => {
         body: JSON.stringify({
           from: 'Governança INEPAD <conselho@inepadconsulting.com>',
           to: user.email,
-          subject: resolvedAtaId != null ? `✍️ Aprove a ata: ${meetingTitle}` : `ATA PUBLICADA E PENDÊNCIAS: ${meetingTitle}`,
+          subject: (resolvedAtaId != null ? `✍️ Aprove a ata: ${meetingTitle}` : `ATA PUBLICADA E PENDÊNCIAS: ${meetingTitle}`).replace(/[\r\n\t]+/g, ' ').trim(),
           html: `
             <div style="font-family: sans-serif; max-width: 600px; margin: auto; border: 1px solid #e2e8f0; border-radius: 12px; overflow: hidden; background: #ffffff;">
               <div style="background: #0f172a; padding: 20px; text-align: center;">

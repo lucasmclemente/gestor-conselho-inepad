@@ -111,7 +111,7 @@ serve(async (req) => {
           body: JSON.stringify({
             from: 'Governança INEPAD <conselho@inepadconsulting.com>',
             to: p.email,
-            subject: `✍️ Aprovação da ata: ${meeting.title?.substring(0, 60) || 'Reunião do Conselho'}`,
+            subject: `✍️ Aprovação da ata: ${String(meeting.title || 'Reunião do Conselho').replace(/[\r\n\t]+/g, ' ').trim().substring(0, 60)}`,
             html: buildEmail(p.name, meeting.title || 'Reunião do Conselho', ata.name || 'Ata da reunião', ata.url || '#', approveUrl),
           }),
         })

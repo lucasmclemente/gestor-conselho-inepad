@@ -91,7 +91,7 @@ serve(async (req) => {
         from: 'Governança INEPAD <conselho@inepadconsulting.com>',
         to: recipients,
         reply_to: organizer.email,
-        subject: `MATERIAIS DISPONÍVEIS: ${meetingData?.title || 'Reunião do Conselho'}`,
+        subject: `MATERIAIS DISPONÍVEIS: ${String(meetingData?.title || 'Reunião do Conselho').replace(/[\r\n\t]+/g, ' ').trim()}`,
         html,
       }),
     })

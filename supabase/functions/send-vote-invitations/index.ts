@@ -97,6 +97,10 @@ serve(async (req) => {
     const origin = (typeof appOrigin === 'string' && /^https?:\/\//.test(appOrigin)) ? appOrigin.replace(/\/$/, '') : 'https://conselho.inepadconsulting.com'
     const exp = Date.now() + 7 * 24 * 60 * 60 * 1000 // token válido por 7 dias
 
+    // O assunto do e-mail NÃO pode conter quebra de linha/tab (Resend rejeita com HTTP 422).
+    // Títulos de deliberação às vezes vêm com \n colado — normaliza para espaço.
+    const cleanTitle = (String(delib.title || 'Deliberação do Conselho').replace(/[\r\n\t]+/g, ' ').trim()) || 'Deliberação do Conselho'
+
     let sent = 0
     const skipped: string[] = []
     const failed: string[] = []
@@ -115,8 +119,8 @@ serve(async (req) => {
           body: JSON.stringify({
             from: 'Governança INEPAD <conselho@inepadconsulting.com>',
             to: email,
-            subject: `🗳️ Sua votação: ${delib.title?.substring(0, 60) || 'Deliberação do Conselho'}`,
-            html: buildVoteEmail(name, delib.title || 'Deliberação do Conselho', voteUrl),
+            subject: `🗳️ Sua votação: ${cleanTitle.substring(0, 60)}`,
+            html: buildVoteEmail(name, cleanTitle, voteUrl),
           }),
         })
         if (res.ok) { sent++ }

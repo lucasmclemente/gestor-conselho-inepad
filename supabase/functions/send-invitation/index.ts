@@ -174,7 +174,7 @@ serve(async (req) => {
           from: 'Governança INEPAD <conselho@inepadconsulting.com>',
           to,
           reply_to: organizer.email,
-          subject: `CONVOCAÇÃO OFICIAL: ${meetingData.title}`,
+          subject: `CONVOCAÇÃO OFICIAL: ${String(meetingData.title || 'Reunião do Conselho').replace(/[\r\n\t]+/g, ' ').trim()}`,
           ...(attachments ? { attachments } : {}),
           html: buildEmailBody(pautas),
         }),
