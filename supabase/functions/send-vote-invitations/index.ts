@@ -99,6 +99,7 @@ serve(async (req) => {
 
     let sent = 0
     const skipped: string[] = []
+    const failed: string[] = []
     for (const name of voterNames) {
       const email = emailByName.get(name)
       if (!email) { skipped.push(name); continue }
@@ -108,7 +109,7 @@ serve(async (req) => {
       const voteUrl = `${origin}/?votetoken=${encodeURIComponent(token)}`
 
       if (RESEND_API_KEY) {
-        await fetch('https://api.resend.com/emails', {
+        const res = await fetch('https://api.resend.com/emails', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${RESEND_API_KEY}` },
           body: JSON.stringify({
@@ -118,11 +119,16 @@ serve(async (req) => {
             html: buildVoteEmail(name, delib.title || 'Deliberação do Conselho', voteUrl),
           }),
         })
-        sent++
-      }
+        if (res.ok) { sent++ }
+        else {
+          const body = await res.text().catch(() => '')
+          console.error('[send-vote-invitations] Resend recusou', res.status, email, body.slice(0, 300))
+          failed.push(`${name} (HTTP ${res.status})`)
+        }
+      } else { skipped.push(name) }
     }
 
-    return new Response(JSON.stringify({ success: true, sent, skipped }), { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
+    return new Response(JSON.stringify({ success: true, sent, skipped, failed }), { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
   } catch (error: any) {
     return new Response(JSON.stringify({ error: error.message }), { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
   }

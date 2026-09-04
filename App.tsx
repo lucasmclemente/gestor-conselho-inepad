@@ -2517,6 +2517,7 @@ const App = () => {
       addLog('Convite de Voto', `Convites de voto por e-mail enviados (${data.sent}).`);
       let msg = `✅ ${data.sent} convite(s) de voto enviado(s) por e-mail.`;
       if (data.skipped?.length) msg += `\n\nSem e-mail cadastrado (não enviados): ${data.skipped.join(', ')}`;
+      if (data.failed?.length) msg += `\n\n⚠️ Recusados pelo servidor de e-mail: ${data.failed.join(', ')}`;
       alert(msg);
     } catch (e: any) {
       alert('Erro ao enviar convites: ' + (e?.message || e));
