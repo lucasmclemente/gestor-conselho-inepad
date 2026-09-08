@@ -62,6 +62,7 @@ const App = () => {
   const [filterResp, setFilterResp] = useState('all');
   const [filterStatus, setFilterStatus] = useState<string[]>([]); // multi-seleção; vazio = todos
   const [statusMenuOpen, setStatusMenuOpen] = useState(false);
+  const [delibFileUploading, setDelibFileUploading] = useState<number | null>(null); // índice da deliberação em upload
   const [filterOrigin, setFilterOrigin] = useState('all');
   const [filterPriority, setFilterPriority] = useState('all');
   const [filterObjective, setFilterObjective] = useState('all'); // all | with | none | <objective_id>
@@ -2591,6 +2592,46 @@ const App = () => {
     setMeetings((prev: any) => prev.map((m: any) => m.id === currentMeeting.id ? { ...m, deliberacoes: newDelibs } : m));
   };
 
+  // Anexa/remove documento da deliberação (ex.: documento a aprovar) — visível aos votantes
+  const uploadDelibFile = async (delibIndex: number, file: File) => {
+    if (!canEdit || !file) return;
+    if (!currentMeeting.id) { alert('Salve a reunião antes de anexar arquivos.'); return; }
+    const cid = activeClientId || currentUser?.client_id;
+    setDelibFileUploading(delibIndex);
+    try {
+      const delib = (currentMeeting.deliberacoes || [])[delibIndex];
+      const safe = file.name.replace(/[^a-zA-Z0-9._-]/g, '_');
+      const path = `deliberacoes/${cid}/${currentMeeting.id}/${delib?.id || delibIndex}/${Date.now()}-${safe}`;
+      const { error: upErr } = await supabase.storage.from('meeting-files').upload(path, file, { upsert: true });
+      if (upErr) throw upErr;
+      const { data: signed } = await supabase.storage.from('meeting-files').createSignedUrl(path, 60 * 60 * 24 * 7);
+      const att = { name: file.name, url: signed?.signedUrl || '' };
+      const newDelibs = [...(currentMeeting.deliberacoes || [])];
+      newDelibs[delibIndex] = { ...newDelibs[delibIndex], attachments: [...(newDelibs[delibIndex].attachments || []), att] };
+      const { error } = await supabase.from('meetings').update({ deliberacoes: newDelibs }).eq('id', currentMeeting.id);
+      if (error) throw new Error(error.message);
+      setCurrentMeeting({ ...currentMeeting, deliberacoes: newDelibs });
+      setMeetings((prev: any) => prev.map((m: any) => m.id === currentMeeting.id ? { ...m, deliberacoes: newDelibs } : m));
+      addLog('Deliberação', `Documento anexado à deliberação — ${file.name}`);
+    } catch (e: any) { alert('Erro ao anexar arquivo: ' + (e?.message || e)); }
+    finally { setDelibFileUploading(null); }
+  };
+
+  const removeDelibFile = async (delibIndex: number, attIndex: number) => {
+    if (!canEdit) return;
+    if (!window.confirm('Remover este anexo da deliberação?')) return;
+    const newDelibs = [...(currentMeeting.deliberacoes || [])];
+    const atts = [...(newDelibs[delibIndex].attachments || [])];
+    atts.splice(attIndex, 1);
+    newDelibs[delibIndex] = { ...newDelibs[delibIndex], attachments: atts };
+    if (currentMeeting.id) {
+      const { error } = await supabase.from('meetings').update({ deliberacoes: newDelibs }).eq('id', currentMeeting.id);
+      if (error) { alert('Erro ao remover anexo: ' + error.message); return; }
+    }
+    setCurrentMeeting({ ...currentMeeting, deliberacoes: newDelibs });
+    setMeetings((prev: any) => prev.map((m: any) => m.id === currentMeeting.id ? { ...m, deliberacoes: newDelibs } : m));
+  };
+
   const formatTime = (seconds: number) => {
     const m = Math.floor(seconds / 60);
     const s = seconds % 60;
@@ -3855,6 +3896,32 @@ const App = () => {
                                     </div>
                                   )}
                                 </div>
+                                {/* Documentos da deliberação (ex.: documento a ser aprovado) */}
+                                {((d.attachments || []).length > 0 || canEdit) && (
+                                  <div className="p-5 border-t border-slate-50">
+                                    <div className="flex items-center justify-between mb-2">
+                                      <span className="text-[9px] font-bold uppercase text-slate-400 tracking-wider not-italic">Documentos para conferência</span>
+                                      {canEdit && (
+                                        <label className="text-[9px] font-bold uppercase tracking-widest text-amber-600 hover:text-amber-700 cursor-pointer not-italic flex items-center gap-1">
+                                          {delibFileUploading === i ? 'Enviando…' : <><Upload size={11} /> Anexar</>}
+                                          <input type="file" className="hidden" disabled={delibFileUploading === i} onChange={e => { const f = e.target.files?.[0]; if (f) uploadDelibFile(i, f); (e.target as HTMLInputElement).value = ''; }} />
+                                        </label>
+                                      )}
+                                    </div>
+                                    {(d.attachments || []).length === 0 ? (
+                                      <p className="text-[10px] text-slate-300 not-italic font-normal">Nenhum documento anexado.</p>
+                                    ) : (
+                                      <div className="space-y-1.5">
+                                        {(d.attachments || []).map((att: any, ai: number) => (
+                                          <div key={ai} className="flex items-center gap-2 not-italic">
+                                            <button onClick={() => openAtaUrl(att.url)} className="flex items-center gap-1.5 text-[11px] font-bold text-sky-600 hover:text-sky-700 truncate"><FileText size={12} className="shrink-0" /> {att.name}</button>
+                                            {canEdit && <button onClick={() => removeDelibFile(i, ai)} className="text-slate-300 hover:text-red-500 ml-auto shrink-0" title="Remover anexo"><X size={11} /></button>}
+                                          </div>
+                                        ))}
+                                      </div>
+                                    )}
+                                  </div>
+                                )}
                               </div>
                             );
                           })}
