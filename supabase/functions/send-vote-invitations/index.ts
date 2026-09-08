@@ -20,8 +20,14 @@ function getCorsHeaders(req: Request): Record<string, string> {
 
 const escapeHtml = (s: string): string =>
   String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#039;')
+const safeUrl = (u: string): string => /^https?:\/\//i.test(String(u ?? '')) ? String(u) : '#'
 
-function buildVoteEmail(name: string, title: string, voteUrl: string): string {
+function buildVoteEmail(name: string, title: string, voteUrl: string, attachments: Array<{ name: string; url: string }> = []): string {
+  const docsHtml = attachments.length > 0 ? `
+        <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:16px;margin-bottom:24px;">
+          <p style="margin:0 0 10px;font-size:11px;font-weight:bold;color:#64748b;text-transform:uppercase;letter-spacing:1px;">Documentos para conferência</p>
+          ${attachments.map((a) => `<div style="margin-bottom:6px;"><a href="${safeUrl(a.url)}" style="color:#b45309;font-size:13px;font-weight:bold;text-decoration:none;">📎 ${escapeHtml(a.name)}</a></div>`).join('')}
+        </div>` : ''
   return `
     <div style="font-family:sans-serif;max-width:600px;margin:auto;border:1px solid #e2e8f0;border-radius:12px;overflow:hidden;">
       <div style="background:#0f172a;padding:24px 30px;text-align:center;">
@@ -34,6 +40,7 @@ function buildVoteEmail(name: string, title: string, voteUrl: string): string {
         <div style="background:#f8fafc;border:1px solid #e2e8f0;border-left:4px solid #b45309;border-radius:8px;padding:16px;margin-bottom:24px;">
           <p style="margin:0;font-size:14px;font-weight:bold;color:#1e293b;font-style:italic;">"${escapeHtml(title)}"</p>
         </div>
+        ${docsHtml}
         <div style="text-align:center;margin-bottom:24px;">
           <a href="${voteUrl}" style="background:#b45309;color:#fff;padding:14px 32px;text-decoration:none;border-radius:8px;font-weight:bold;font-size:13px;display:inline-block;">🗳️ Registrar meu voto</a>
         </div>
@@ -101,6 +108,20 @@ serve(async (req) => {
     // Títulos de deliberação às vezes vêm com \n colado — normaliza para espaço.
     const cleanTitle = (String(delib.title || 'Deliberação do Conselho').replace(/[\r\n\t]+/g, ' ').trim()) || 'Deliberação do Conselho'
 
+    // Re-assina os anexos da deliberação (valem 7 dias, como o token) para irem no e-mail
+    const freshAtts: Array<{ name: string; url: string }> = []
+    for (const att of (Array.isArray(delib.attachments) ? delib.attachments : [])) {
+      let url = String(att?.url || '')
+      try {
+        const m = /\/(?:sign|public)\/meeting-files\/(.+?)(?:\?|$)/.exec(url)
+        if (m && m[1]) {
+          const { data } = await admin.storage.from('meeting-files').createSignedUrl(decodeURIComponent(m[1]), 60 * 60 * 24 * 7)
+          if (data?.signedUrl) url = data.signedUrl
+        }
+      } catch (_) { /* mantém a url salva */ }
+      if (att?.name && url) freshAtts.push({ name: att.name, url })
+    }
+
     let sent = 0
     const skipped: string[] = []
     const failed: string[] = []
@@ -120,7 +141,7 @@ serve(async (req) => {
             from: 'Governança INEPAD <conselho@inepadconsulting.com>',
             to: email,
             subject: `🗳️ Sua votação: ${cleanTitle.substring(0, 60)}`,
-            html: buildVoteEmail(name, cleanTitle, voteUrl),
+            html: buildVoteEmail(name, cleanTitle, voteUrl, freshAtts),
           }),
         })
         if (res.ok) { sent++ }
