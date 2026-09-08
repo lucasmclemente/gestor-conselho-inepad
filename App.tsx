@@ -4671,7 +4671,16 @@ const App = () => {
                           const pendingNames = dvoters.filter((v) => !dvotes[v]);
                           return (
                             <tr key={`${d.mId}-${d.idx}`} className="hover:bg-slate-50 transition-all align-top">
-                              <td className="px-6 py-4 text-slate-800 max-w-md"><p className="leading-snug">"{d.title}"</p></td>
+                              <td className="px-6 py-4 text-slate-800 max-w-md">
+                                <p className="leading-snug">"{d.title}"</p>
+                                {(d.attachments || []).length > 0 && (
+                                  <div className="mt-1.5 space-y-0.5 not-italic">
+                                    {(d.attachments || []).map((att: any, ai: number) => (
+                                      <button key={ai} onClick={() => openAtaUrl(att.url)} className="flex items-center gap-1 text-[10px] font-bold text-sky-600 hover:text-sky-700 truncate max-w-[260px]"><FileText size={11} className="shrink-0" /> {att.name}</button>
+                                    ))}
+                                  </div>
+                                )}
+                              </td>
                               <td className="px-6 py-4 text-[10px] uppercase tracking-widest">
                                 {d.extra
                                   ? <span className="inline-flex items-center gap-1 bg-slate-900 text-amber-400 px-2 py-0.5 rounded-full not-italic font-bold"><Scale size={10} /> Extraordinária</span>
