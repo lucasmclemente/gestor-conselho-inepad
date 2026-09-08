@@ -345,9 +345,8 @@ function buildAtaHeader(
   doc.setFillColor(...C.accent);
   doc.rect(0, H_BAR, W, 2.5, 'F');
 
-  const ataTitle = meetingType
-    ? `ATA DE REUNIÃO DE ${meetingType.toUpperCase()}`
-    : 'ATA DE REUNIÃO DE CONSELHO';
+  // Título fixo — a modalidade (Presencial/Online/Híbrida) já aparece na Identificação da Reunião
+  const ataTitle = 'ATA DE REUNIÃO';
 
   // Logo (se disponível)
   if (logoBase64) {
