@@ -53,7 +53,7 @@ serve(async (req) => {
   if (!['Administrador', 'Secretário', 'SuperAdmin'].includes(role)) return json({ error: 'Apenas Administrador/Secretário podem solicitar aprovação.' }, 403)
 
   try {
-    const { meetingId, ataId, appOrigin, onlyPending } = await req.json()
+    const { meetingId, ataId, appOrigin, onlyPending, approverNames } = await req.json()
     const RESEND_API_KEY = Deno.env.get('RESEND_API_KEY')
     if (!meetingId) return json({ error: 'Parâmetros ausentes.' }, 400)
 
@@ -87,8 +87,13 @@ serve(async (req) => {
       const pend = new Set((ata.approvers as string[]).filter((n: string) => !ata.approvals[n]))
       recipients = internos.filter((p: any) => pend.has(p.name))
     } else {
-      ata.approvers = internos.map((p: any) => p.name)
-      recipients = internos
+      // Assinantes escolhidos pela secretaria (ex.: só conselheiros). Sem lista → todos os internos (compat).
+      const chosen = Array.isArray(approverNames) && approverNames.length > 0
+        ? new Set(approverNames.map((n: any) => String(n)))
+        : null
+      const pool = chosen ? internos.filter((p: any) => chosen.has(p.name)) : internos
+      ata.approvers = pool.map((p: any) => p.name)
+      recipients = pool
     }
     ata.approvalSentAt = new Date().toISOString()
     atas[idx] = ata

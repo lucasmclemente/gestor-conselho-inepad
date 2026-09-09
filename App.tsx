@@ -739,21 +739,12 @@ const App = () => {
       addLog('Upload', `Arquivo ${file.name} em ${type}`);
 
       if (type === 'atas') {
-        const participants = (currentMeeting.participants || []).filter((p: any) => !p.isExternal);
-        const emails = participants.map((p: any) => p.email).filter((e: string) => e);
-        const allPendingActions = meetings.flatMap((m: any) => (m.acoes || []).map((a: any) => ({ ...a, meetingTitle: m.title }))).filter((a: any) => a.status !== 'Concluída');
-        const usersToNotify = participants.map((p: any) => ({ email: p.email, name: p.name, pendingActions: allPendingActions.filter((a: any) => a.resp === p.name) })).filter((u: any) => u.email);
-        if (emails.length > 0) {
-          try {
-            // O e-mail de publicação já traz o pedido de aprovação (botão + token individual)
-            const { data: mn } = await supabase.functions.invoke('send-minute-notification', {
-              body: { meetingTitle: currentMeeting.title, minuteName: file.name, minuteUrl: secureUrl, actions: currentMeeting.acoes || [], recipients: emails, pendingSummary: usersToNotify, meetingId: currentMeeting.id, ataId: newFile.id, appOrigin: window.location.origin }
-            });
-            if (mn?.approvers) {
-              setCurrentMeeting((prev: any) => ({ ...prev, atas: (prev.atas || []).map((a: any) => a.id === newFile.id ? { ...a, approvers: mn.approvers, approvalSentAt: new Date().toISOString() } : a) }));
-            }
-            alert(`✅ Ata publicada e enviada para aprovação de ${mn?.approvers?.length ?? emails.length} conselheiro(s)!`);
-          } catch (e) { alert("✅ Ata publicada e salva automaticamente. Erro no disparo de e-mails."); }
+        // Ata publicada e salva. A secretaria escolhe QUEM assina (só conselheiros por padrão) antes de enviar para aprovação.
+        const internos = (currentMeeting.participants || []).filter((p: any) => !p.isExternal && p.email && p.name);
+        if (internos.length > 0) {
+          const candidates = internos.map((p: any) => ({ name: p.name, email: p.email, role: (clientMembers.find((u: any) => (u.email || '').toLowerCase() === (p.email || '').toLowerCase())?.role) || '' }));
+          const selected = candidates.filter((c: any) => c.role === 'Conselheiro' || !c.role).map((c: any) => c.name);
+          setSignerModal({ ataId: newFile.id, ataName: file.name, minuteUrl: secureUrl, mode: 'publish', candidates, selected });
         } else {
           alert("✅ Ata publicada e salva automaticamente!");
         }
@@ -2826,19 +2817,61 @@ const App = () => {
 
   // Reenvia o pedido de aprovação da ata aos conselheiros internos
   const [ataApprovalLoading, setAtaApprovalLoading] = useState(false);
+  const [signerModal, setSignerModal] = useState<any>(null); // seleção de quem assina a ata
+
+  // Abre a seleção de assinantes (só conselheiros por padrão) de uma ata já publicada
+  const openSignerSelection = (ata: any, mode: 'publish' | 'request') => {
+    const internos = (currentMeeting.participants || []).filter((p: any) => !p.isExternal && p.email && p.name);
+    if (internos.length === 0) { alert('A reunião não tem participantes internos com e-mail.'); return; }
+    const candidates = internos.map((p: any) => ({ name: p.name, email: p.email, role: (clientMembers.find((u: any) => (u.email || '').toLowerCase() === (p.email || '').toLowerCase())?.role) || '' }));
+    const selected = candidates.filter((c: any) => c.role === 'Conselheiro' || !c.role).map((c: any) => c.name);
+    setSignerModal({ ataId: ata.id, ataName: ata.name, minuteUrl: ata.url, mode, candidates, selected });
+  };
+
   const resendAtaApproval = async (ata: any) => {
     if (!currentMeeting.id || !ata) return;
-    const internos = (currentMeeting.participants || []).filter((p: any) => !p.isExternal && p.email);
-    if (internos.length === 0) return alert('A reunião não tem conselheiros internos com e-mail.');
-    if (!window.confirm(`Enviar o pedido de aprovação da ata a ${internos.length} conselheiro(s) interno(s)?`)) return;
+    // Primeira solicitação → escolher assinantes. Já com aprovadores → reenvia a todos eles.
+    if (!(ata.approvers || []).length) { openSignerSelection(ata, 'request'); return; }
+    if (!window.confirm(`Reenviar o pedido de aprovação a ${(ata.approvers || []).length} assinante(s)?`)) return;
     setAtaApprovalLoading(true);
     try {
-      const { data, error } = await supabase.functions.invoke('send-ata-approval', { body: { meetingId: currentMeeting.id, ataId: ata.id, appOrigin: window.location.origin } });
+      const { data, error } = await supabase.functions.invoke('send-ata-approval', { body: { meetingId: currentMeeting.id, ataId: ata.id, approverNames: ata.approvers, appOrigin: window.location.origin } });
       if (error || data?.error) throw new Error(error?.message || data?.error);
       setCurrentMeeting((prev: any) => ({ ...prev, atas: (prev.atas || []).map((a: any) => a.id === ata.id ? { ...a, id: data.ataId, approvers: data.approvers, approvalSentAt: new Date().toISOString() } : a) }));
-      addLog('Aprovação de ata', `Pedido de aprovação enviado (${data.sent}) — ${ata.name}`);
-      alert(`✅ Pedido de aprovação enviado a ${data.sent} conselheiro(s).`);
+      addLog('Aprovação de ata', `Pedido de aprovação reenviado (${data.sent}) — ${ata.name}`);
+      alert(`✅ Pedido de aprovação enviado a ${data.sent} assinante(s).`);
     } catch (e: any) { alert('Erro ao enviar aprovação: ' + e.message); }
+    finally { setAtaApprovalLoading(false); }
+  };
+
+  // Confirma os assinantes escolhidos e dispara o pedido (na publicação ou avulso)
+  const confirmSigners = async () => {
+    if (!signerModal) return;
+    const { ataId, ataName, minuteUrl, mode, selected } = signerModal;
+    if (!selected || selected.length === 0) { alert('Selecione ao menos um conselheiro para assinar.'); return; }
+    setAtaApprovalLoading(true);
+    try {
+      let approvers: string[] = selected; let sent: number = selected.length;
+      if (mode === 'publish') {
+        const parts = (currentMeeting.participants || []).filter((p: any) => !p.isExternal && selected.includes(p.name));
+        const emails = parts.map((p: any) => p.email).filter(Boolean);
+        const allPending = meetings.flatMap((m: any) => (m.acoes || []).map((a: any) => ({ ...a, meetingTitle: m.title }))).filter((a: any) => a.status !== 'Concluída');
+        const usersToNotify = parts.map((p: any) => ({ email: p.email, name: p.name, pendingActions: allPending.filter((a: any) => a.resp === p.name) })).filter((u: any) => u.email);
+        const { data: mn, error } = await supabase.functions.invoke('send-minute-notification', { body: { meetingTitle: currentMeeting.title, minuteName: ataName, minuteUrl, actions: currentMeeting.acoes || [], recipients: emails, pendingSummary: usersToNotify, meetingId: currentMeeting.id, ataId, appOrigin: window.location.origin } });
+        if (error || mn?.error) throw new Error(error?.message || mn?.error);
+        approvers = mn?.approvers || selected; sent = approvers.length;
+      } else {
+        const { data, error } = await supabase.functions.invoke('send-ata-approval', { body: { meetingId: currentMeeting.id, ataId, approverNames: selected, appOrigin: window.location.origin } });
+        if (error || data?.error) throw new Error(error?.message || data?.error);
+        approvers = data?.approvers || selected; sent = data?.sent ?? approvers.length;
+      }
+      const patch = (a: any) => a.id === ataId ? { ...a, approvers, approvalSentAt: new Date().toISOString() } : a;
+      setCurrentMeeting((prev: any) => ({ ...prev, atas: (prev.atas || []).map(patch) }));
+      setMeetings((prev: any) => prev.map((m: any) => m.id === currentMeeting.id ? { ...m, atas: (m.atas || []).map(patch) } : m));
+      addLog('Aprovação de ata', `Ata enviada para assinatura de ${approvers.length} — ${ataName}`);
+      setSignerModal(null);
+      alert(`✅ Ata enviada para assinatura de ${sent} conselheiro(s).`);
+    } catch (e: any) { alert('Erro ao enviar para assinatura: ' + (e?.message || e)); }
     finally { setAtaApprovalLoading(false); }
   };
 
@@ -3177,6 +3210,39 @@ const App = () => {
           </button>
         </div>
 
+        {signerModal && (
+          <div className="fixed inset-0 z-[70] bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4" onClick={() => !ataApprovalLoading && setSignerModal(null)}>
+            <div className="bg-white w-full max-w-md rounded-2xl shadow-2xl overflow-hidden not-italic" onClick={e => e.stopPropagation()}>
+              <div className="bg-slate-900 px-6 py-5 border-b-4 border-amber-600">
+                <p className="text-amber-500 text-[10px] font-bold uppercase tracking-[2px]">Aprovação da ata</p>
+                <h3 className="text-white text-lg font-bold italic mt-0.5">Quem deve assinar esta ata?</h3>
+                <p className="text-slate-300 text-[11px] mt-1 font-normal">Marque os conselheiros que devem aprovar/assinar. Só os marcados serão notificados (externos e não-conselheiros ficam de fora).</p>
+              </div>
+              <div className="p-5 max-h-[50vh] overflow-y-auto space-y-1.5">
+                {(signerModal.candidates || []).map((c: any) => {
+                  const on = signerModal.selected.includes(c.name);
+                  return (
+                    <button key={c.name} onClick={() => setSignerModal((prev: any) => ({ ...prev, selected: on ? prev.selected.filter((n: string) => n !== c.name) : [...prev.selected, c.name] }))}
+                      className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg hover:bg-amber-50 transition-colors text-left">
+                      <span className={`w-4 h-4 rounded border flex items-center justify-center shrink-0 ${on ? 'bg-amber-600 border-amber-600 text-white' : 'border-slate-300'}`}>{on && <Check size={11} />}</span>
+                      <span className="w-7 h-7 rounded-full bg-slate-900 text-amber-400 flex items-center justify-center text-[10px] font-black shrink-0">{c.name?.[0]}</span>
+                      <span className="flex-1 min-w-0">
+                        <span className="block text-sm font-bold text-slate-800 truncate">{c.name}</span>
+                        <span className="block text-[10px] text-slate-400 truncate">{c.email}{c.role ? ` · ${c.role}` : ''}</span>
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+              <div className="p-5 border-t border-slate-100 flex items-center justify-between gap-3">
+                <button disabled={ataApprovalLoading} onClick={() => setSignerModal(null)} className="text-[11px] font-bold uppercase tracking-widest text-slate-400 hover:text-slate-600 disabled:opacity-50">Pular por enquanto</button>
+                <button disabled={ataApprovalLoading || (signerModal.selected || []).length === 0} onClick={confirmSigners} className="bg-amber-600 hover:bg-amber-700 text-white px-5 py-2.5 rounded-lg text-[11px] font-bold uppercase tracking-widest disabled:opacity-50 flex items-center gap-2">
+                  {ataApprovalLoading ? 'Enviando…' : <><Send size={14} /> Enviar para assinatura ({(signerModal.selected || []).length})</>}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
         {pwModal && (
           <div className="fixed inset-0 z-[70] bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4" onClick={() => !pwSaving && setPwModal(false)}>
             <div className="bg-white w-full max-w-sm rounded-2xl shadow-2xl overflow-hidden not-italic" onClick={e => e.stopPropagation()}>
