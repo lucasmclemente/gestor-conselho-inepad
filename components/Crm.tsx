@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { supabase } from '../services/supabaseClient';
-import { Filter, Plus, X, Save, Trash2, Trophy, Ban, Settings, Upload, Users, TrendingUp, Phone, RefreshCw, Mail, CheckSquare, Search, User, Building2, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Filter, Plus, X, Save, Trash2, Trophy, Ban, Settings, Upload, Users, TrendingUp, Phone, RefreshCw, Mail, CheckSquare, Search, User, Building2, ChevronLeft, ChevronRight, Bell, Clock, Check } from 'lucide-react';
 import { CrmDeal } from './CrmDeal';
 import { CrmSettings } from './CrmSettings';
 import { CrmImport } from './CrmImport';
@@ -42,6 +42,9 @@ export const Crm: React.FC<Props> = ({ currentUser, activeClientId, isAdmin, mem
   const [resultsOpen, setResultsOpen] = useState(false);
   const [callsOpen, setCallsOpen] = useState(false);
   const [tasksOpen, setTasksOpen] = useState(false);
+  const [alerts, setAlerts] = useState<any[]>([]);      // tarefas pendentes (agendadas) do cliente
+  const [alertsOpen, setAlertsOpen] = useState(false);  // painel "Meus alertas"
+  const [toast, setToast] = useState<any>(null);        // popup de alerta que disparou
   const [searchQ, setSearchQ] = useState('');
   const [searchRes, setSearchRes] = useState<any>(null); // {deals, contacts, orgs} | null
   const boardRef = useRef<HTMLDivElement>(null);
@@ -68,6 +71,27 @@ export const Crm: React.FC<Props> = ({ currentUser, activeClientId, isAdmin, mem
     (ownerFilter === 'all' || (ownerFilter === 'none' ? !d.owner_member_id : d.owner_member_id === ownerFilter)) &&
     (tagFilter === 'all' || (Array.isArray(d.tag_ids) && d.tag_ids.includes(tagFilter)))
   );
+
+  // Alertas/tarefas pendentes: contagem por lead (para o sininho) e a lista do usuário (painel/popup)
+  const _now = Date.now();
+  const pendingByDeal = new Map<string, number>();
+  const overdueByDeal = new Set<string>();
+  for (const a of alerts) {
+    if (!a.deal_id) continue;
+    pendingByDeal.set(a.deal_id, (pendingByDeal.get(a.deal_id) || 0) + 1);
+    if (a.due_at && new Date(a.due_at).getTime() < _now) overdueByDeal.add(a.deal_id);
+  }
+  const myAlerts = alerts
+    .filter((a: any) => a.owner_member_id === currentUser?.id)
+    .sort((a: any, b: any) => new Date(a.remind_at || a.due_at).getTime() - new Date(b.remind_at || b.due_at).getTime());
+  const myActiveCount = myAlerts.filter((a: any) => new Date(a.remind_at || a.due_at).getTime() <= _now).length;
+
+  // marca uma tarefa como concluída (a partir do painel de alertas)
+  const completeAlert = async (a: any) => {
+    const { error } = await supabase.from('crm_activities').update({ done: true, done_at: new Date().toISOString() }).eq('id', a.id);
+    if (error) { alert('Erro: ' + error.message); return; }
+    setAlerts(prev => prev.filter((x: any) => x.id !== a.id));
+  };
 
   // 1) Carrega os funis do cliente (uma vez / ao trocar de cliente)
   const loadPipelines = useCallback(async () => {
@@ -142,6 +166,38 @@ export const Crm: React.FC<Props> = ({ currentUser, activeClientId, isAdmin, mem
   const enableNotify = async () => {
     try { const p = await Notification.requestPermission(); setCanNotify(p === 'granted'); } catch { /* */ }
   };
+
+  // Alertas: carrega as tarefas pendentes (agendadas) do cliente e atualiza a cada 60s
+  const loadAlerts = useCallback(async () => {
+    if (!cid) return;
+    const { data } = await supabase.from('crm_activities')
+      .select('id, deal_id, owner_member_id, type, title, due_at, remind_at, remind_minutes, deal:crm_deals(title)')
+      .eq('client_id', cid).eq('done', false).not('due_at', 'is', null)
+      .order('due_at', { ascending: true }).limit(3000);
+    setAlerts(data || []);
+  }, [cid]);
+  useEffect(() => { loadAlerts(); const t = setInterval(loadAlerts, 60000); return () => clearInterval(t); }, [loadAlerts]);
+
+  // Dispara o popup dos alertas do usuário cujo horário já chegou (dedup via localStorage)
+  useEffect(() => {
+    if (!currentUser?.id || !alerts.length) return;
+    const now = Date.now();
+    const mineActive = alerts.filter((a: any) => a.owner_member_id === currentUser.id && new Date(a.remind_at || a.due_at).getTime() <= now);
+    if (!mineActive.length) return;
+    let shown: string[] = [];
+    try { shown = JSON.parse(localStorage.getItem('crm_alert_shown') || '[]'); } catch { /* */ }
+    const fresh = mineActive.filter((a: any) => !shown.includes(a.id));
+    if (!fresh.length) return;
+    setToast({ n: fresh.length, first: fresh[0] });
+    try {
+      if (typeof Notification !== 'undefined' && Notification.permission === 'granted') {
+        for (const a of fresh.slice(0, 3)) new Notification('🔔 Tarefa', { body: `${a.title || 'Tarefa'}${a.deal?.title ? ' • ' + a.deal.title : ''}` });
+      }
+    } catch { /* */ }
+    try { localStorage.setItem('crm_alert_shown', JSON.stringify([...shown, ...fresh.map((a: any) => a.id)].slice(-800))); } catch { /* */ }
+    const h = setTimeout(() => setToast(null), 15000);
+    return () => clearTimeout(h);
+  }, [alerts, currentUser?.id]);
 
   // Busca global: negócios, contatos e empresas
   useEffect(() => {
@@ -336,7 +392,7 @@ export const Crm: React.FC<Props> = ({ currentUser, activeClientId, isAdmin, mem
   if (detailId) return (
     <CrmDeal dealId={detailId} cid={cid} currentUser={currentUser} isAdmin={isAdmin} members={members}
       stages={stages} emailConnected={!!emailConnected} addLog={addLog}
-      onBack={() => setDetailId(null)} onMutated={loadBoard} />
+      onBack={() => { setDetailId(null); loadAlerts(); }} onMutated={() => { loadBoard(); loadAlerts(); }} />
   );
 
   if (loading) return <div className="flex items-center justify-center h-64 text-amber-600 font-bold uppercase animate-pulse">Carregando CRM...</div>;
@@ -420,6 +476,11 @@ export const Crm: React.FC<Props> = ({ currentUser, activeClientId, isAdmin, mem
               {pipelines.map((p: any) => <option key={p.id} value={p.id}>{p.name}</option>)}
             </select>
           )}
+          <button onClick={() => setAlertsOpen(true)} title="Meus alertas / tarefas"
+            className="relative p-2.5 rounded-lg bg-slate-100 text-slate-700 hover:bg-slate-200 transition-all flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest">
+            <Bell size={16} /><span className="hidden sm:inline">Alertas</span>
+            {myActiveCount > 0 && <span className="absolute -top-1.5 -right-1.5 min-w-[18px] h-[18px] px-1 rounded-full bg-red-500 text-white text-[10px] font-bold flex items-center justify-center">{myActiveCount}</span>}
+          </button>
           <button onClick={connectEmail} disabled={emailBusy}
             title={emailConnected ? `E-mail conectado${emailAddr ? ': ' + emailAddr : ''} — clique para reconectar` : 'Conectar e-mail Outlook'}
             className={`p-2.5 rounded-lg transition-all flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest ${emailConnected ? 'bg-emerald-50 text-emerald-700 border border-emerald-200 hover:bg-emerald-100' : 'bg-slate-100 text-slate-700 hover:bg-slate-200'}`}>
@@ -521,7 +582,15 @@ export const Crm: React.FC<Props> = ({ currentUser, activeClientId, isAdmin, mem
                       onDragStart={() => setDragId(deal.id)}
                       onDragEnd={() => { setDragId(null); setOverStage(null); }}
                       className="group bg-white rounded-lg border border-slate-200 p-3 shadow-sm cursor-pointer hover:border-amber-300 hover:shadow transition-all">
-                      <p className="text-sm font-bold text-slate-800 italic leading-tight">{deal.title}</p>
+                      <div className="flex items-start justify-between gap-2">
+                        <p className="text-sm font-bold text-slate-800 italic leading-tight">{deal.title}</p>
+                        {pendingByDeal.get(deal.id) ? (
+                          <span title={`${pendingByDeal.get(deal.id)} tarefa(s) pendente(s)`}
+                            className={`shrink-0 flex items-center gap-0.5 text-[10px] font-bold rounded-full px-1.5 py-0.5 border not-italic ${overdueByDeal.has(deal.id) ? 'text-red-600 bg-red-50 border-red-200' : 'text-amber-600 bg-amber-50 border-amber-200'}`}>
+                            <Bell size={10} /> {pendingByDeal.get(deal.id)}
+                          </span>
+                        ) : null}
+                      </div>
                       {Number(deal.value) > 0 && <p className="text-[11px] font-bold text-emerald-600 mt-1 not-italic">{BRL(deal.value)}</p>}
                       {ownerName(deal.owner_member_id) && <p className="text-[9px] text-slate-400 uppercase tracking-wide mt-1 truncate not-italic">{ownerName(deal.owner_member_id)}</p>}
                       {Array.isArray(deal.tag_ids) && deal.tag_ids.length > 0 && (
@@ -541,6 +610,49 @@ export const Crm: React.FC<Props> = ({ currentUser, activeClientId, isAdmin, mem
             );
           })}
           </div>
+        </div>
+      )}
+
+      {alertsOpen && (
+        <div className="fixed inset-0 bg-slate-900/50 flex items-start justify-center p-4 z-50 animate-in fade-in overflow-y-auto" onClick={() => setAlertsOpen(false)}>
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg mt-16 p-6 space-y-3" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between">
+              <h3 className="text-lg font-bold text-slate-800 italic flex items-center gap-2"><Bell size={18} className="text-amber-600" /> Meus alertas</h3>
+              <button onClick={() => setAlertsOpen(false)} className="text-slate-400 hover:text-slate-700"><X size={20} /></button>
+            </div>
+            {myAlerts.length === 0 ? (
+              <p className="text-sm text-slate-400 italic py-6 text-center">Nenhuma tarefa pendente. 🎉</p>
+            ) : (
+              <div className="space-y-2 max-h-[60vh] overflow-y-auto">
+                {myAlerts.map((a: any) => {
+                  const active = new Date(a.remind_at || a.due_at).getTime() <= _now;
+                  const overdue = a.due_at && new Date(a.due_at).getTime() < _now;
+                  return (
+                    <div key={a.id} className={`flex items-start gap-2 p-3 rounded-lg border ${active ? 'border-amber-300 bg-amber-50' : 'border-slate-200'}`}>
+                      <button onClick={() => completeAlert(a)} title="Concluir" className="mt-0.5 w-5 h-5 rounded border border-slate-300 hover:bg-emerald-500 hover:border-emerald-500 text-transparent hover:text-white flex items-center justify-center shrink-0 transition-colors"><Check size={12} /></button>
+                      <div className="flex-1 min-w-0 cursor-pointer" onClick={() => { setAlertsOpen(false); if (a.deal_id) setDetailId(a.deal_id); }}>
+                        <p className="text-sm font-bold text-slate-800 italic truncate">{a.title || 'Tarefa'}</p>
+                        {a.deal?.title && <p className="text-[11px] text-slate-500 truncate not-italic">{a.deal.title}</p>}
+                        <p className={`text-[10px] font-bold uppercase tracking-wide flex items-center gap-1 mt-0.5 not-italic ${overdue ? 'text-red-600' : 'text-slate-400'}`}><Clock size={10} /> {new Date(a.due_at).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' })}{overdue ? ' • atrasada' : ''}</p>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {toast && (
+        <div className="fixed bottom-5 left-1/2 -translate-x-1/2 z-[60] bg-slate-900 text-white rounded-xl shadow-2xl px-4 py-3 flex items-center gap-3 animate-in slide-in-from-bottom-2 max-w-sm">
+          <Bell size={18} className="text-amber-400 shrink-0" />
+          <div className="min-w-0">
+            <p className="text-sm font-bold truncate">{toast.first?.title || 'Tarefa'}{toast.n > 1 ? ` (+${toast.n - 1})` : ''}</p>
+            {toast.first?.deal?.title && <p className="text-[11px] text-slate-300 truncate">{toast.first.deal.title}</p>}
+          </div>
+          <button onClick={() => { setAlertsOpen(true); setToast(null); }} className="text-[10px] font-bold uppercase tracking-widest text-amber-400 hover:text-amber-300 shrink-0">Ver</button>
+          <button onClick={() => setToast(null)} className="text-slate-400 hover:text-white shrink-0"><X size={14} /></button>
         </div>
       )}
 

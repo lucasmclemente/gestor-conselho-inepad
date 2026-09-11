@@ -3,7 +3,7 @@ import { supabase } from '../services/supabaseClient';
 import {
   ChevronLeft, Trophy, Ban, RotateCcw, Save, Trash2, Plus, X,
   Phone, Mail, Calendar, MessageSquare, FileText, CheckSquare,
-  Building2, User, Clock, Check, History, Star, Pencil, Play, Paperclip, Download,
+  Building2, User, Clock, Check, History, Star, Pencil, Play, Paperclip, Download, Bell,
 } from 'lucide-react';
 import { CrmLostModal } from './CrmLostModal';
 import { CrmWebphone } from './CrmWebphone';
@@ -21,6 +21,24 @@ const ACT_TYPES = [
   { v: 'note', label: 'Nota', icon: FileText },
 ] as const;
 const actMeta = (t: string) => ACT_TYPES.find(x => x.v === t) || ACT_TYPES[4];
+
+// Alerta "X antes do prazo"
+const REMIND_OPTS = [
+  { v: '', label: 'Sem alerta' },
+  { v: '0', label: 'No horário' },
+  { v: '15', label: '15 min antes' },
+  { v: '30', label: '30 min antes' },
+  { v: '60', label: '1 hora antes' },
+  { v: '120', label: '2 horas antes' },
+  { v: '1440', label: '1 dia antes' },
+  { v: '2880', label: '2 dias antes' },
+];
+const remindLabel = (min: any) => (min === null || min === undefined) ? '' : (REMIND_OPTS.find(o => o.v === String(min))?.label || `${min} min antes`);
+// due_at (ISO) - minutos → ISO do alerta (ou null)
+const calcRemindAt = (dueIso: string | null, minutes: number | null) =>
+  (dueIso && minutes !== null) ? new Date(new Date(dueIso).getTime() - minutes * 60000).toISOString() : null;
+// ISO → valor para <input type="datetime-local">
+const toLocalInput = (iso: string) => { try { const d = new Date(iso); const p = (n: number) => String(n).padStart(2, '0'); return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`; } catch { return ''; } };
 
 const ATT_BUCKET = 'crm-attachments';
 const fmtBytes = (b: number) => { const n = Number(b) || 0; if (n < 1024) return `${n} B`; if (n < 1048576) return `${(n / 1024).toFixed(0)} KB`; return `${(n / 1048576).toFixed(1)} MB`; };
@@ -75,8 +93,10 @@ export const CrmDeal: React.FC<Props> = ({ dealId, cid, currentUser, isAdmin, me
   const [savingDeal, setSavingDeal] = useState(false);
   const [cForm, setCForm] = useState<any>(null); // null = escondido
   const [oForm, setOForm] = useState<any>(null);
-  const [actForm, setActForm] = useState<any>({ type: 'call', title: '', notes: '', due_at: '' });
+  const [actForm, setActForm] = useState<any>({ type: 'call', title: '', notes: '', due_at: '', remind: '' });
   const [addingAct, setAddingAct] = useState(false);
+  const [editingId, setEditingId] = useState('');           // atividade em edição
+  const [editForm, setEditForm] = useState<any>({ title: '', notes: '', due_at: '', remind: '' });
   const [pendingFiles, setPendingFiles] = useState<File[]>([]);   // anexos a subir no próximo "Registrar"
   const [attUrls, setAttUrls] = useState<Record<string, string>>({}); // path do anexo -> signed URL
   const [attBusy, setAttBusy] = useState('');                     // id da atividade recebendo anexo
@@ -304,10 +324,12 @@ export const CrmDeal: React.FC<Props> = ({ dealId, cid, currentUser, isAdmin, me
   const addActivity = async () => {
     if (!actForm.title.trim() && !actForm.notes.trim() && pendingFiles.length === 0) return alert('Preencha o título, a descrição ou anexe um arquivo.');
     setAddingAct(true);
+    const dueIso = actForm.due_at ? new Date(actForm.due_at).toISOString() : null;
+    const remindMin = (dueIso && actForm.remind !== '') ? Number(actForm.remind) : null;
     const payload: any = {
       client_id: cid, deal_id: dealId, type: actForm.type,
       title: actForm.title.trim() || null, notes: actForm.notes.trim() || null,
-      due_at: actForm.due_at ? new Date(actForm.due_at).toISOString() : null,
+      due_at: dueIso, remind_minutes: remindMin, remind_at: calcRemindAt(dueIso, remindMin),
       owner_member_id: currentUser?.id || null,
     };
     const { data, error } = await supabase.from('crm_activities').insert(payload).select().single();
@@ -331,8 +353,30 @@ export const CrmDeal: React.FC<Props> = ({ dealId, cid, currentUser, isAdmin, me
         }
       } catch { /* */ }
     }
-    setActForm({ type: 'call', title: '', notes: '', due_at: '' });
+    setActForm({ type: 'call', title: '', notes: '', due_at: '', remind: '' });
     setPendingFiles([]);
+  };
+
+  // editar uma atividade/tarefa já criada (título, detalhes, prazo, alerta)
+  const startEdit = (a: any) => {
+    setEditingId(a.id);
+    setEditForm({
+      title: a.title || '', notes: a.notes || '',
+      due_at: a.due_at ? toLocalInput(a.due_at) : '',
+      remind: (a.remind_minutes === null || a.remind_minutes === undefined) ? '' : String(a.remind_minutes),
+    });
+  };
+  const saveEdit = async () => {
+    const dueIso = editForm.due_at ? new Date(editForm.due_at).toISOString() : null;
+    const remindMin = (dueIso && editForm.remind !== '') ? Number(editForm.remind) : null;
+    const patch: any = {
+      title: editForm.title.trim() || null, notes: editForm.notes.trim() || null,
+      due_at: dueIso, remind_minutes: remindMin, remind_at: calcRemindAt(dueIso, remindMin),
+    };
+    const { error } = await supabase.from('crm_activities').update(patch).eq('id', editingId);
+    if (error) { alert('Erro ao salvar: ' + error.message); return; }
+    setActs(prev => prev.map(x => x.id === editingId ? { ...x, ...patch } : x));
+    setEditingId('');
   };
 
   // anexa arquivos a uma atividade JÁ existente
@@ -641,6 +685,12 @@ export const CrmDeal: React.FC<Props> = ({ dealId, cid, currentUser, isAdmin, me
             </div>
             <div className="flex flex-wrap items-center gap-2">
               <div className="flex items-center gap-1.5 text-slate-400"><Clock size={13} /><input type="datetime-local" className="p-2 border border-slate-200 rounded-lg text-sm outline-none focus:border-amber-500 text-slate-600" value={actForm.due_at} onChange={e => setActForm({ ...actForm, due_at: e.target.value })} /></div>
+              <div className="flex items-center gap-1.5 text-slate-400" title={actForm.due_at ? 'Quando avisar antes do prazo' : 'Defina um prazo para ativar o alerta'}>
+                <Bell size={13} />
+                <select disabled={!actForm.due_at} value={actForm.remind} onChange={e => setActForm({ ...actForm, remind: e.target.value })} className="p-2 border border-slate-200 rounded-lg text-sm outline-none focus:border-amber-500 text-slate-600 bg-white disabled:opacity-50">
+                  {REMIND_OPTS.map(o => <option key={o.v} value={o.v}>{o.label}</option>)}
+                </select>
+              </div>
               <button disabled={addingAct} onClick={addActivity} className="ml-auto px-5 py-2 bg-amber-600 hover:bg-amber-700 text-white rounded-lg font-bold text-[10px] uppercase tracking-widest flex items-center gap-2 transition-all disabled:opacity-50"><Plus size={14} /> {addingAct ? 'Registrando...' : 'Registrar'}</button>
             </div>
           </div>
@@ -649,6 +699,23 @@ export const CrmDeal: React.FC<Props> = ({ dealId, cid, currentUser, isAdmin, me
             {acts.length === 0 && <div className="bg-white p-8 rounded-xl border border-slate-200 shadow-sm text-center text-sm text-slate-400 italic">Nenhuma atividade registrada ainda.</div>}
             {acts.map(a => {
               const meta = actMeta(a.type); const Icon = meta.icon;
+              if (editingId === a.id) {
+                return (
+                  <div key={a.id} className="bg-white p-4 rounded-xl border border-amber-300 shadow-sm space-y-2">
+                    <p className="text-[9px] font-bold uppercase tracking-widest text-amber-600">Editando {meta.label.toLowerCase()}</p>
+                    <input type="text" placeholder="Assunto" className="w-full p-2.5 border border-slate-200 rounded-lg text-sm outline-none focus:border-amber-500" value={editForm.title} onChange={e => setEditForm({ ...editForm, title: e.target.value })} />
+                    <textarea placeholder="Detalhes" rows={2} className="w-full p-2.5 border border-slate-200 rounded-lg text-sm outline-none focus:border-amber-500 resize-y" value={editForm.notes} onChange={e => setEditForm({ ...editForm, notes: e.target.value })} />
+                    <div className="flex flex-wrap items-center gap-2">
+                      <div className="flex items-center gap-1.5 text-slate-400"><Clock size={13} /><input type="datetime-local" className="p-2 border border-slate-200 rounded-lg text-sm outline-none focus:border-amber-500 text-slate-600" value={editForm.due_at} onChange={e => setEditForm({ ...editForm, due_at: e.target.value })} /></div>
+                      <div className="flex items-center gap-1.5 text-slate-400"><Bell size={13} /><select disabled={!editForm.due_at} value={editForm.remind} onChange={e => setEditForm({ ...editForm, remind: e.target.value })} className="p-2 border border-slate-200 rounded-lg text-sm outline-none focus:border-amber-500 text-slate-600 bg-white disabled:opacity-50">{REMIND_OPTS.map(o => <option key={o.v} value={o.v}>{o.label}</option>)}</select></div>
+                      <div className="ml-auto flex items-center gap-2">
+                        <button onClick={() => setEditingId('')} className="px-3 py-2 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-600 font-bold text-[10px] uppercase tracking-widest">Cancelar</button>
+                        <button onClick={saveEdit} className="px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white rounded-lg font-bold text-[10px] uppercase tracking-widest flex items-center gap-1.5"><Save size={13} /> Salvar</button>
+                      </div>
+                    </div>
+                  </div>
+                );
+              }
               return (
                 <div key={a.id} className={`bg-white p-4 rounded-xl border shadow-sm flex items-start gap-3 ${a.done ? 'border-slate-100 opacity-70' : 'border-slate-200'}`}>
                   <button onClick={() => toggleAct(a)} title={a.done ? 'Reabrir' : 'Concluir'} className={`mt-0.5 w-6 h-6 rounded-lg flex items-center justify-center shrink-0 transition-all ${a.done ? 'bg-emerald-500 text-white' : 'bg-slate-100 text-slate-400 hover:bg-emerald-100 hover:text-emerald-600'}`}>{a.done ? <Check size={14} /> : <Icon size={13} />}</button>
@@ -681,9 +748,11 @@ export const CrmDeal: React.FC<Props> = ({ dealId, cid, currentUser, isAdmin, me
                         })}
                       </div>
                     )}
-                    <div className="flex items-center gap-3 mt-1.5 text-[10px] text-slate-400 font-bold uppercase tracking-wide">
+                    <div className="flex items-center gap-3 mt-1.5 text-[10px] text-slate-400 font-bold uppercase tracking-wide flex-wrap">
                       {a.due_at && <span className="flex items-center gap-1"><Clock size={10} /> {fmtDateTime(a.due_at)}</span>}
+                      {a.remind_at && !a.done && <span className="flex items-center gap-1 text-amber-600"><Bell size={10} /> {remindLabel(a.remind_minutes)}</span>}
                       {a.owner_member_id && <span>{ownerName(a.owner_member_id)}</span>}
+                      <button onClick={() => startEdit(a)} title="Editar" className="flex items-center gap-1 hover:text-amber-600 transition-colors"><Pencil size={11} /> Editar</button>
                       <label className={`flex items-center gap-1 cursor-pointer transition-colors ${attBusy === a.id ? 'text-amber-500' : 'hover:text-amber-600'}`} title="Anexar arquivo a esta atividade">
                         <Paperclip size={11} /> {attBusy === a.id ? 'Anexando…' : 'Anexar'}
                         <input type="file" multiple className="hidden" disabled={attBusy === a.id} onChange={e => { const fs = Array.from(e.target.files || []); (e.target as HTMLInputElement).value = ''; if (fs.length) attachToExisting(a, fs); }} />
