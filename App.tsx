@@ -2633,6 +2633,14 @@ const App = () => {
     return (currentMeeting.pautas || []).reduce((acc: number, p: any) => acc + (parseInt(p.dur) || 0), 0);
   }, [currentMeeting.pautas]);
 
+  // Horário estimado (início–término) de cada pauta, a partir da hora de início da reunião + durações acumuladas
+  const pautaTimes = useMemo(() => {
+    const parts = String(currentMeeting.time || '09:00').split(':');
+    let cur = ((parseInt(parts[0], 10) || 9) * 60) + (parseInt(parts[1], 10) || 0);
+    const fmt = (mins: number) => { const t = ((mins % 1440) + 1440) % 1440; return `${String(Math.floor(t / 60)).padStart(2, '0')}:${String(t % 60).padStart(2, '0')}`; };
+    return (currentMeeting.pautas || []).map((p: any) => { const dur = parseInt(String(p.dur), 10) || 0; const start = cur; const end = cur + dur; cur = end; return { start: fmt(start), end: fmt(end) }; });
+  }, [currentMeeting.pautas, currentMeeting.time]);
+
   const stats = useMemo(() => {
     const today = new Date(); today.setHours(0, 0, 0, 0);
     const filteredM = dashboardFilter === 'all' ? meetings : meetings.filter(m => m.id === dashboardFilter);
@@ -3081,7 +3089,7 @@ const App = () => {
                   currentMeeting.pautas.map((p: any, i: number) => (
                     <div key={i} className="flex justify-between text-xs border-b border-slate-50 pb-2">
                       <span className="text-slate-700 font-bold italic">{i + 1}. {p.title}</span>
-                      <span className="text-slate-400 font-bold uppercase">{p.dur} min</span>
+                      <span className="text-slate-400 font-bold uppercase shrink-0 ml-2">{pautaTimes[i] ? `${pautaTimes[i].start}–${pautaTimes[i].end} · ` : ''}{p.dur} min</span>
                     </div>
                   ))}
               </div>
@@ -3760,7 +3768,7 @@ const App = () => {
                                   <span className="text-slate-300">#{i + 1}</span>
                                   <div>
                                     <p className="text-sm text-slate-800">{p.title}</p>
-                                    <p className="text-[10px] text-slate-500 font-bold uppercase">{p.resp} • {p.dur} min {p.realDur && <span className="text-emerald-600 ml-2">Gasto: {p.realDur}min</span>}</p>
+                                    <p className="text-[10px] text-slate-500 font-bold uppercase">{p.resp} • {p.dur} min{pautaTimes[i] ? <span className="text-amber-600 ml-2">⏰ {pautaTimes[i].start}–{pautaTimes[i].end}</span> : null} {p.realDur && <span className="text-emerald-600 ml-2">Gasto: {p.realDur}min</span>}</p>
                                   </div>
                                 </div>
                                 <div className="flex items-center gap-4">

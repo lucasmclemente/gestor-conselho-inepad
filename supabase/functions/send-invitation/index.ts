@@ -29,6 +29,14 @@ const escapeHtml = (str: string): string =>
 const safeUrl = (url: string): string =>
   /^https?:\/\//i.test(url ?? '') ? url : '#'
 
+// Calcula o horário estimado (início–término) de cada pauta a partir da hora de início + durações acumuladas
+function pautaSchedule(pautas: any[], time: string): any[] {
+  const parts = String(time || '09:00').split(':')
+  let cur = ((parseInt(parts[0], 10) || 9) * 60) + (parseInt(parts[1], 10) || 0)
+  const fmt = (mins: number) => { const t = ((mins % 1440) + 1440) % 1440; return `${String(Math.floor(t / 60)).padStart(2, '0')}:${String(t % 60).padStart(2, '0')}` }
+  return (pautas || []).map((p: any) => { const dur = parseInt(String(p.dur), 10) || 0; const start = cur; const end = cur + dur; cur = end; return { ...p, _start: fmt(start), _end: fmt(end) } })
+}
+
 serve(async (req) => {
   const corsHeaders = getCorsHeaders(req)
 
@@ -87,11 +95,12 @@ serve(async (req) => {
           <div style="padding: 10px 0; border-bottom: 1px solid #f1f5f9; font-size: 14px;">
             <span style="color: #64748b; font-weight: bold;">${i + 1}.</span>
             <strong style="color: #1e293b;">${escapeHtml(p.title)}</strong>
-            <br/><small style="color: #94a3b8;">Responsável: ${escapeHtml(p.resp || 'N/D')} | Duração: ${escapeHtml(String(p.dur))}min</small>
+            <br/><small style="color: #94a3b8;">Responsável: ${escapeHtml(p.resp || 'N/D')} | 🕐 ${escapeHtml(p._start || '')}–${escapeHtml(p._end || '')} (${escapeHtml(String(p.dur))}min)</small>
           </div>
         `).join('')
         : `<p style="color: #94a3b8; font-style: italic;">${escapeHtml(emptyMsg)}</p>`
-    const pautasHtml = renderPautas(meetingData.pautas, 'Nenhuma pauta definida para esta sessão.')
+    const scheduledPautas = pautaSchedule(meetingData.pautas, meetingData.time)
+    const pautasHtml = renderPautas(scheduledPautas, 'Nenhuma pauta definida para esta sessão.')
 
     // Geramos o HTML dos Materiais (se houver)
     const materiaisHtml = meetingData.materiais && meetingData.materiais.length > 0
@@ -195,7 +204,7 @@ serve(async (req) => {
     if (internal.length > 0) sends.push(sendEmail(internal, pautasHtml, internal))
     for (const email of external) {
       const p = byEmail.get(String(email).toLowerCase())
-      const mine = (meetingData.pautas || []).filter((pt: any) => norm(pt.resp) === norm(p?.name))
+      const mine = scheduledPautas.filter((pt: any) => norm(pt.resp) === norm(p?.name))
       sends.push(sendEmail([email], renderPautas(mine, 'Você não tem pautas específicas atribuídas nesta reunião.'), [email]))
     }
 
