@@ -1335,7 +1335,8 @@ const App = () => {
       ...currentMeeting,
       client_id: currentMeeting.client_id || activeClientId || currentUser.client_id,
       date: currentMeeting.date === "" ? null : currentMeeting.date,
-      time: currentMeeting.time === "" ? null : currentMeeting.time
+      time: currentMeeting.time === "" ? null : currentMeeting.time,
+      end_time: currentMeeting.end_time === "" ? null : (currentMeeting.end_time ?? null)
     };
     if (!meetingData.id) delete meetingData.id;
     const { data, error } = await supabase.from('meetings').upsert([meetingData]).select();
@@ -3705,7 +3706,8 @@ const App = () => {
                           <h3 className="text-xs font-bold uppercase text-slate-500 tracking-widest border-b border-slate-50 pb-4">Logística</h3>
                           <div className="space-y-4">
                             <div><label className="block text-[10px] font-bold text-slate-400 mb-1 uppercase tracking-widest">Data</label><input type="date" value={currentMeeting.date || ''} className="w-full p-3 border rounded-lg text-sm font-bold" onChange={e => setCurrentMeeting({ ...currentMeeting, date: e.target.value })} readOnly={!canEdit} /></div>
-                            <div><label className="block text-[10px] font-bold text-slate-400 mb-1 uppercase tracking-widest">Horário</label><input type="time" value={currentMeeting.time || ''} className="w-full p-3 border rounded-lg text-sm font-bold" onChange={e => setCurrentMeeting({ ...currentMeeting, time: e.target.value })} readOnly={!canEdit} /></div>
+                            <div><label className="block text-[10px] font-bold text-slate-400 mb-1 uppercase tracking-widest">Início</label><input type="time" value={currentMeeting.time || ''} className="w-full p-3 border rounded-lg text-sm font-bold" onChange={e => setCurrentMeeting({ ...currentMeeting, time: e.target.value })} readOnly={!canEdit} /></div>
+                            <div><label className="block text-[10px] font-bold text-slate-400 mb-1 uppercase tracking-widest">Fim (estimado)</label><input type="time" value={currentMeeting.end_time || ''} className="w-full p-3 border rounded-lg text-sm font-bold" onChange={e => setCurrentMeeting({ ...currentMeeting, end_time: e.target.value })} readOnly={!canEdit} /></div>
                             <div><label className="block text-[10px] font-bold text-slate-400 mb-1 uppercase tracking-widest">Tipo</label><select value={currentMeeting.type || 'Híbrida'} className="w-full p-3 border rounded-lg text-sm font-bold bg-white outline-none" onChange={e => { const t = e.target.value; setCurrentMeeting({ ...currentMeeting, type: t, link: t === 'Presencial' ? '' : currentMeeting.link, address: t === 'Online' ? '' : currentMeeting.address }); }} disabled={!canEdit}><option>Híbrida</option><option>Presencial</option><option>Online</option></select></div>
                             {(currentMeeting.type === 'Online' || currentMeeting.type === 'Híbrida') && (
                               <div><label className="block text-[10px] font-bold text-slate-400 mb-1 uppercase tracking-widest">Link da reunião</label><input type="text" value={currentMeeting.link || ''} placeholder="https://meet..." className="w-full p-3 border rounded-lg text-sm font-bold" onChange={e => setCurrentMeeting({ ...currentMeeting, link: e.target.value })} readOnly={!canEdit} /></div>

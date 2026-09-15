@@ -41,6 +41,15 @@ function formatBR(date: string, time?: string): string {
   return `${d}/${m}/${y}${time ? ` às ${time}` : ''}`
 }
 
+// Duração (min) da reunião p/ o convite: fim−início; senão a soma das pautas; senão 120.
+function meetingDurationMin(start: string, end: string, pautas: any[]): number {
+  const toMin = (t: string) => { const a = String(t || '').split(':'); const h = parseInt(a[0], 10); const m = parseInt(a[1], 10); return Number.isFinite(h) ? h * 60 + (Number.isFinite(m) ? m : 0) : NaN }
+  const s = toMin(start), e = toMin(end)
+  if (Number.isFinite(s) && Number.isFinite(e) && e > s) return e - s
+  const total = (pautas || []).reduce((acc: number, p: any) => acc + (parseInt(String(p?.dur), 10) || 0), 0)
+  return total > 0 ? total : 120
+}
+
 serve(async (req) => {
   const corsHeaders = getCorsHeaders(req)
 
@@ -113,7 +122,7 @@ serve(async (req) => {
         title: m.title || 'Reunião do Conselho',
         date: m.date,
         time: m.time || '09:00',
-        durationMin: 120,
+        durationMin: meetingDurationMin(m.time, m.end_time, m.pautas),
         location: meetingLocation(m),
         description: 'Reunião programada do Conselho. Confirme sua presença respondendo a este convite.',
       }))
