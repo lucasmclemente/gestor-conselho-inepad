@@ -63,6 +63,10 @@ export const CrmInboundPhone: React.FC<Props> = ({ cid, currentUser }) => {
 
   const init = async () => {
     try {
+      // só registra (toca) se o usuário estiver no grupo "quem recebe ligações"
+      const { data: agent } = await supabase.from('crm_inbound_agents').select('member_id').eq('client_id', cid).eq('member_id', currentUser?.id).maybeSingle();
+      if (!agent) return; // fora do grupo → não recebe
+
       const { data, error } = await supabase.functions.invoke('telnyx-webrtc-token', { body: { action: 'inbound' } });
       if (error || !(data as any)?.token) return; // recebimento não configurado ainda: silencioso
       const client = new TelnyxRTC({ login_token: (data as any).token });

@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { supabase } from '../services/supabaseClient';
-import { Filter, Plus, X, Save, Trash2, Trophy, Ban, Settings, Upload, Users, TrendingUp, Phone, RefreshCw, Mail, CheckSquare, Search, User, Building2, ChevronLeft, ChevronRight, Bell, Clock, Check } from 'lucide-react';
+import { Filter, Plus, X, Save, Trash2, Trophy, Ban, Settings, Upload, Users, TrendingUp, Phone, RefreshCw, Mail, CheckSquare, Search, User, Building2, ChevronLeft, ChevronRight, Bell, Clock, Check, PhoneIncoming } from 'lucide-react';
 import { CrmDeal } from './CrmDeal';
 import { CrmSettings } from './CrmSettings';
 import { CrmImport } from './CrmImport';
@@ -46,6 +46,9 @@ export const Crm: React.FC<Props> = ({ currentUser, activeClientId, isAdmin, mem
   const [alerts, setAlerts] = useState<any[]>([]);      // tarefas pendentes (agendadas) do cliente
   const [alertsOpen, setAlertsOpen] = useState(false);  // painel "Meus alertas"
   const [toast, setToast] = useState<any>(null);        // popup de alerta que disparou
+  const [inboundOpen, setInboundOpen] = useState(false); // modal "quem recebe ligações"
+  const [inboundAgents, setInboundAgents] = useState<string[]>([]); // member_ids que recebem
+  const [inboundBusy, setInboundBusy] = useState('');   // member_id sendo alterado
   const [searchQ, setSearchQ] = useState('');
   const [searchRes, setSearchRes] = useState<any>(null); // {deals, contacts, orgs} | null
   const boardRef = useRef<HTMLDivElement>(null);
@@ -178,6 +181,27 @@ export const Crm: React.FC<Props> = ({ currentUser, activeClientId, isAdmin, mem
     setAlerts(data || []);
   }, [cid]);
   useEffect(() => { loadAlerts(); const t = setInterval(loadAlerts, 60000); return () => clearInterval(t); }, [loadAlerts]);
+
+  // grupo "quem recebe ligações" (inbound)
+  const loadInboundAgents = useCallback(async () => {
+    if (!cid) return;
+    const { data } = await supabase.from('crm_inbound_agents').select('member_id').eq('client_id', cid);
+    setInboundAgents((data || []).map((r: any) => r.member_id));
+  }, [cid]);
+  useEffect(() => { loadInboundAgents(); }, [loadInboundAgents]);
+  const toggleInboundAgent = async (memberId: string, on: boolean) => {
+    setInboundBusy(memberId);
+    if (on) {
+      const { error } = await supabase.from('crm_inbound_agents').upsert({ client_id: cid, member_id: memberId }, { onConflict: 'client_id,member_id' });
+      if (!error) setInboundAgents(prev => prev.includes(memberId) ? prev : [...prev, memberId]);
+      else alert('Erro: ' + error.message);
+    } else {
+      const { error } = await supabase.from('crm_inbound_agents').delete().eq('client_id', cid).eq('member_id', memberId);
+      if (!error) setInboundAgents(prev => prev.filter(id => id !== memberId));
+      else alert('Erro: ' + error.message);
+    }
+    setInboundBusy('');
+  };
 
   // Dispara o popup dos alertas do usuário cujo horário já chegou (dedup via localStorage)
   useEffect(() => {
@@ -486,6 +510,12 @@ export const Crm: React.FC<Props> = ({ currentUser, activeClientId, isAdmin, mem
             <Bell size={16} /><span className="hidden sm:inline">Alertas</span>
             {myActiveCount > 0 && <span className="absolute -top-1.5 -right-1.5 min-w-[18px] h-[18px] px-1 rounded-full bg-red-500 text-white text-[10px] font-bold flex items-center justify-center">{myActiveCount}</span>}
           </button>
+          {isAdmin && (
+            <button onClick={() => setInboundOpen(true)} title="Quem recebe as ligações"
+              className="p-2.5 rounded-lg bg-slate-100 text-slate-700 hover:bg-slate-200 transition-all flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest">
+              <PhoneIncoming size={16} /><span className="hidden sm:inline">Recebimento</span>
+            </button>
+          )}
           <button onClick={connectEmail} disabled={emailBusy}
             title={emailConnected ? `E-mail conectado${emailAddr ? ': ' + emailAddr : ''} — clique para reconectar` : 'Conectar e-mail Outlook'}
             className={`p-2.5 rounded-lg transition-all flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest ${emailConnected ? 'bg-emerald-50 text-emerald-700 border border-emerald-200 hover:bg-emerald-100' : 'bg-slate-100 text-slate-700 hover:bg-slate-200'}`}>
@@ -645,6 +675,34 @@ export const Crm: React.FC<Props> = ({ currentUser, activeClientId, isAdmin, mem
                 })}
               </div>
             )}
+          </div>
+        </div>
+      )}
+
+      {inboundOpen && (
+        <div className="fixed inset-0 bg-slate-900/50 flex items-start justify-center p-4 z-50 animate-in fade-in overflow-y-auto" onClick={() => setInboundOpen(false)}>
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg mt-16 p-6 space-y-3" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between">
+              <h3 className="text-lg font-bold text-slate-800 italic flex items-center gap-2"><PhoneIncoming size={18} className="text-amber-600" /> Quem recebe as ligações</h3>
+              <button onClick={() => setInboundOpen(false)} className="text-slate-400 hover:text-slate-700"><X size={20} /></button>
+            </div>
+            <p className="text-xs text-slate-500">Marque quem deve <b>tocar</b> quando entra uma ligação. Só toca para quem estiver marcado <b>e</b> com o CRM aberto. Se ninguém atender, vai para o correio de voz.</p>
+            <div className="space-y-1.5 max-h-[55vh] overflow-y-auto">
+              {crmUsers.length === 0 && <p className="text-sm text-slate-400 italic py-4 text-center">Nenhum usuário do CRM encontrado.</p>}
+              {crmUsers.map((m: any) => {
+                const on = inboundAgents.includes(m.id);
+                return (
+                  <label key={m.id} className={`flex items-center gap-3 p-3 rounded-lg border cursor-pointer transition-all ${on ? 'border-amber-300 bg-amber-50' : 'border-slate-200 hover:bg-slate-50'}`}>
+                    <input type="checkbox" checked={on} disabled={inboundBusy === m.id} onChange={e => toggleInboundAgent(m.id, e.target.checked)} className="w-4 h-4 accent-amber-600" />
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-bold text-slate-800 italic truncate">{m.name || m.email}</p>
+                      <p className="text-[10px] text-slate-400 uppercase tracking-wide not-italic">{m.role}</p>
+                    </div>
+                    {on && <span className="text-[9px] font-bold uppercase tracking-wide text-amber-600">recebe</span>}
+                  </label>
+                );
+              })}
+            </div>
           </div>
         </div>
       )}
