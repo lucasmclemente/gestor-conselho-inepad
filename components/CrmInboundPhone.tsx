@@ -57,6 +57,7 @@ async function logInbound(num: string, secs: number) {
       client_id: cid, deal_id: dealId, type: 'call',
       title: `Ligação recebida — ${num}`, notes: 'Atendida pelo webfone.',
       owner_member_id: uid || null, call_direction: 'in', call_answered: true, call_seconds: secs,
+      call_number: num, call_cause: 'answered',
     });
   } catch { /* */ }
 }

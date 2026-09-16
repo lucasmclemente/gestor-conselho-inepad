@@ -29,6 +29,7 @@ export const CrmWebphone: React.FC<Props> = ({ number, contactName, dealId, cid,
   const answeredRef = useRef(false);   // ligação chegou a ser atendida?
   const secondsRef = useRef(0);        // duração falada (espelho do state p/ closures)
   const finalizedRef = useRef(false);  // evita gravar métricas 2x
+  const causeRef = useRef('');         // causa do encerramento (p/ analytics)
   const activityIdRef = useRef<string | null>(null);        // criada só quando a chamada toca
   const createPromiseRef = useRef<Promise<string | null> | null>(null); // single-flight da criação
   const recorderRef = useRef<any>(null);       // MediaRecorder da ligação
@@ -127,6 +128,8 @@ export const CrmWebphone: React.FC<Props> = ({ number, contactName, dealId, cid,
         call_answered: answeredRef.current,
         call_seconds: secondsRef.current,
         call_direction: 'out',
+        call_number: number,
+        call_cause: answeredRef.current ? 'answered' : (causeRef.current || null),
       }).eq('id', id);
     } catch { /* */ }
   };
@@ -181,7 +184,7 @@ export const CrmWebphone: React.FC<Props> = ({ number, contactName, dealId, cid,
           }
           else if (st === 'hangup' || st === 'destroy' || st === 'purge') {
             const cause = n.call?.cause || n.call?.causeCode || n.call?.sipCode || '';
-            console.log('[webphone] hangup', { cause, causeCode: n.call?.causeCode, sipCode: n.call?.sipCode, call: n.call });
+            causeRef.current = String(cause || '');
             setStatus(cause ? `Encerrada — ${cause}` : 'Encerrada');
             setLive(false); stopTimer(); finalize(); stopAndUpload();
           }
