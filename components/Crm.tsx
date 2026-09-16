@@ -386,31 +386,38 @@ export const Crm: React.FC<Props> = ({ currentUser, activeClientId, isAdmin, mem
 
   const boardTotal = visibleDeals.reduce((s, d) => s + (Number(d.value) || 0), 0);
 
+  const inboundPhone = <CrmInboundPhone cid={cid} currentUser={currentUser} />;
+
   if (settingsOpen) return (
-    <CrmSettings cid={cid} addLog={addLog} onBack={() => { setSettingsOpen(false); loadPipelines(); loadBoard(); }} />
+    <>{inboundPhone}
+    <CrmSettings cid={cid} addLog={addLog} onBack={() => { setSettingsOpen(false); loadPipelines(); loadBoard(); }} /></>
   );
 
   if (leadsOpen) return (
+    <>{inboundPhone}
     <CrmLeads cid={cid} members={members} addLog={addLog}
       onBack={() => { setLeadsOpen(false); loadBoard(); }}
       onMutated={loadBoard}
-      onOpenDeal={(id) => { setLeadsOpen(false); setDetailId(id); }} />
+      onOpenDeal={(id) => { setLeadsOpen(false); setDetailId(id); }} /></>
   );
 
   if (resultsOpen) return (
+    <>{inboundPhone}
     <CrmResults cid={cid} currentUser={currentUser} members={members}
       onBack={() => setResultsOpen(false)}
-      onOpenDeal={(id) => { setResultsOpen(false); setDetailId(id); }} />
+      onOpenDeal={(id) => { setResultsOpen(false); setDetailId(id); }} /></>
   );
 
   if (callsOpen) return (
-    <CrmCalls cid={cid} currentUser={currentUser} members={members} onBack={() => setCallsOpen(false)} />
+    <>{inboundPhone}
+    <CrmCalls cid={cid} currentUser={currentUser} members={members} onBack={() => setCallsOpen(false)} /></>
   );
 
   if (tasksOpen) return (
+    <>{inboundPhone}
     <CrmTasks cid={cid} currentUser={currentUser} members={members}
       onBack={() => setTasksOpen(false)}
-      onOpenDeal={(id) => { setTasksOpen(false); setDetailId(id); }} />
+      onOpenDeal={(id) => { setTasksOpen(false); setDetailId(id); }} /></>
   );
 
   // Detalhe do negócio (abre ao clicar num card). Antes do loading para não desmontar ao recarregar o board.
