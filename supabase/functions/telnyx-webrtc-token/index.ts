@@ -36,15 +36,44 @@ serve(async (req) => {
   const API_KEY = Deno.env.get('TELNYX_API_KEY') ?? '';
   const CONNECTION_ID = Deno.env.get('TELNYX_CONNECTION_ID') ?? '';
   const CALLER_ID = Deno.env.get('TELNYX_CALLER_ID') ?? '';
+  const INBOUND_CRED = Deno.env.get('TELNYX_INBOUND_CREDENTIAL_ID') ?? '';
   if (!API_KEY || !CONNECTION_ID) return json({ error: 'Telnyx não configurado (API key/connection).' }, 400);
 
-  const tnx = (path: string, body?: object) => fetch(`${TELNYX}${path}`, {
-    method: 'POST',
+  const tnx = (path: string, body?: object, method = 'POST') => fetch(`${TELNYX}${path}`, {
+    method,
     headers: { Authorization: `Bearer ${API_KEY}`, 'Content-Type': 'application/json' },
     body: body ? JSON.stringify(body) : undefined,
   });
+  const mintToken = async (credId: string) => {
+    const r = await tnx(`/telephony_credentials/${credId}/token`);
+    const t = await r.text();
+    return (r.ok && t) ? t.trim() : null;
+  };
 
-  // 1) cria uma credencial de telefonia efêmera para esta conexão (expira em ~2h)
+  const body = await req.json().catch(() => ({}));
+  const action = body?.action || 'outbound';
+
+  // ── SETUP (admin, 1x): cria a credencial COMPARTILHADA de entrada e devolve o sip_username ──
+  // Todos os webfones registram sob ela → com "simultaneous ring" ligado, tocam juntos.
+  if (action === 'inbound_setup') {
+    if (!['SuperAdmin', 'Administrador'].includes(role)) return json({ error: 'Forbidden' }, 403);
+    const expires_at = new Date(Date.now() + 3650 * 24 * 3600 * 1000).toISOString(); // ~10 anos
+    const r = await tnx('/telephony_credentials', { connection_id: CONNECTION_ID, name: 'boardplan-inbound', expires_at });
+    const b = await r.json().catch(() => ({}));
+    const cred = b?.data;
+    if (!r.ok || !cred?.id) return json({ error: 'Falha ao criar credencial de entrada.', detail: b?.errors || b }, 400);
+    return json({ credential_id: cred.id, sip_username: cred.sip_username || null, note: 'Defina TELNYX_INBOUND_CREDENTIAL_ID com credential_id e use sip_username no TeXML.' });
+  }
+
+  // ── INBOUND: token da credencial COMPARTILHADA (mesma para todos) ──
+  if (action === 'inbound') {
+    if (!INBOUND_CRED) return json({ error: 'Recebimento não configurado (TELNYX_INBOUND_CREDENTIAL_ID ausente).' }, 400);
+    const token = await mintToken(INBOUND_CRED);
+    if (!token) return json({ error: 'Falha ao gerar o token de entrada.' }, 400);
+    return json({ token, callerId: CALLER_ID });
+  }
+
+  // ── OUTBOUND (padrão): credencial efêmera por sessão (expira em ~2h) ──
   const expires_at = new Date(Date.now() + 2 * 3600 * 1000).toISOString();
   const credRes = await tnx('/telephony_credentials', {
     connection_id: CONNECTION_ID,
@@ -55,10 +84,8 @@ serve(async (req) => {
   const credId = credBody?.data?.id;
   if (!credRes.ok || !credId) return json({ error: 'Falha ao criar credencial Telnyx.', detail: credBody?.errors || credBody }, 400);
 
-  // 2) gera o token JWT (retorno em texto puro) para o navegador
-  const tokRes = await tnx(`/telephony_credentials/${credId}/token`);
-  const token = await tokRes.text();
-  if (!tokRes.ok || !token) return json({ error: 'Falha ao gerar o token Telnyx.' }, 400);
+  const token = await mintToken(credId);
+  if (!token) return json({ error: 'Falha ao gerar o token Telnyx.' }, 400);
 
-  return json({ token: token.trim(), callerId: CALLER_ID });
+  return json({ token, callerId: CALLER_ID });
 });

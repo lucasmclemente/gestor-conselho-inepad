@@ -10,6 +10,7 @@ import { CrmCalls } from './CrmCalls';
 import { CrmTasks } from './CrmTasks';
 import { CrmBriefing } from './CrmBriefing';
 import { CrmLostModal } from './CrmLostModal';
+import { CrmInboundPhone } from './CrmInboundPhone';
 
 type Props = {
   currentUser: any;
@@ -390,15 +391,19 @@ export const Crm: React.FC<Props> = ({ currentUser, activeClientId, isAdmin, mem
 
   // Detalhe do negócio (abre ao clicar num card). Antes do loading para não desmontar ao recarregar o board.
   if (detailId) return (
-    <CrmDeal dealId={detailId} cid={cid} currentUser={currentUser} isAdmin={isAdmin} members={members}
-      stages={stages} emailConnected={!!emailConnected} addLog={addLog}
-      onBack={() => { setDetailId(null); loadAlerts(); }} onMutated={() => { loadBoard(); loadAlerts(); }} />
+    <>
+      <CrmInboundPhone cid={cid} currentUser={currentUser} />
+      <CrmDeal dealId={detailId} cid={cid} currentUser={currentUser} isAdmin={isAdmin} members={members}
+        stages={stages} emailConnected={!!emailConnected} addLog={addLog}
+        onBack={() => { setDetailId(null); loadAlerts(); }} onMutated={() => { loadBoard(); loadAlerts(); }} />
+    </>
   );
 
   if (loading) return <div className="flex items-center justify-center h-64 text-amber-600 font-bold uppercase animate-pulse">Carregando CRM...</div>;
 
   return (
     <div className="space-y-6 animate-in fade-in">
+      <CrmInboundPhone cid={cid} currentUser={currentUser} />
       {brief && (
         <CrmBriefing overdue={brief.overdue} today={brief.today} canNotify={canNotify}
           onEnableNotify={enableNotify}
