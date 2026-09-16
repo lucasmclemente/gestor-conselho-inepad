@@ -64,15 +64,23 @@ export const CrmInboundPhone: React.FC<Props> = ({ cid, currentUser }) => {
   const init = async () => {
     try {
       // só registra (toca) se o usuário estiver no grupo "quem recebe ligações"
-      const { data: agent } = await supabase.from('crm_inbound_agents').select('member_id').eq('client_id', cid).eq('member_id', currentUser?.id).maybeSingle();
+      const { data: agent, error: agErr } = await supabase.from('crm_inbound_agents').select('member_id').eq('client_id', cid).eq('member_id', currentUser?.id).maybeSingle();
+      console.log('[inbound] check grupo', { userId: currentUser?.id, noGrupo: !!agent, agErr: agErr?.message });
       if (!agent) return; // fora do grupo → não recebe
 
       const { data, error } = await supabase.functions.invoke('telnyx-webrtc-token', { body: { action: 'inbound' } });
-      if (error || !(data as any)?.token) return; // recebimento não configurado ainda: silencioso
+      if (error || !(data as any)?.token) {
+        let m = error?.message; try { const b = await (error as any)?.context?.json?.(); if (b?.error) m = b.error; } catch { /* */ }
+        console.log('[inbound] token FALHOU:', m || 'sem token');
+        return;
+      }
+      console.log('[inbound] token OK, conectando…');
       const client = new TelnyxRTC({ login_token: (data as any).token });
       (client as any).remoteElement = 'telnyx-inbound-audio';
       clientRef.current = client;
+      client.on('telnyx.ready', () => console.log('[inbound] REGISTRADO (pronto para receber)'));
       client.on('telnyx.notification', (n: any) => {
+        if (n?.type === 'callUpdate') console.log('[inbound] callUpdate state=', n.call?.state, 'dir=', n.call?.direction);
         if (n?.type !== 'callUpdate' || !n.call) return;
         const call = n.call;
         const st = call.state;
@@ -96,9 +104,10 @@ export const CrmInboundPhone: React.FC<Props> = ({ cid, currentUser }) => {
           callRef.current = null; setPhase('idle'); setMuted(false); setCaller('');
         }
       });
-      client.on('telnyx.error', () => { /* deixa o reinit periódico recuperar */ });
+      client.on('telnyx.error', (e: any) => console.log('[inbound] telnyx.error', e?.error || e));
+      client.on('telnyx.socket.error', (e: any) => console.log('[inbound] socket.error', e));
       client.connect();
-    } catch { /* */ }
+    } catch (e) { console.log('[inbound] init exception', String((e as any)?.message || e)); }
   };
 
   useEffect(() => {
