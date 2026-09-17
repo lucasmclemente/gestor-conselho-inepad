@@ -232,9 +232,9 @@ export const Crm: React.FC<Props> = ({ currentUser, activeClientId, isAdmin, mem
       const safe = q.replace(/[,%()]/g, ' ').trim();
       const like = `%${safe}%`;
       const [d, c, o] = await Promise.all([
-        supabase.from('crm_deals').select('id, title, organization_id').eq('client_id', cid).ilike('title', like).limit(6),
-        supabase.from('crm_contacts').select('id, name, email, phone, organization_id').eq('client_id', cid).or(`name.ilike.${like},email.ilike.${like},phone.ilike.${like}`).limit(6),
-        supabase.from('crm_organizations').select('id, name, cnpj, phone').eq('client_id', cid).or(`name.ilike.${like},cnpj.ilike.${like},phone.ilike.${like}`).limit(6),
+        supabase.from('crm_deals').select('id, title, organization_id').eq('client_id', cid).or(`title.ilike.${like},source.ilike.${like}`).limit(8),
+        supabase.from('crm_contacts').select('id, name, email, phone, organization_id').eq('client_id', cid).or(`name.ilike.${like},email.ilike.${like},phone.ilike.${like},role_title.ilike.${like}`).limit(8),
+        supabase.from('crm_organizations').select('id, name, cnpj, phone, city, uf').eq('client_id', cid).or(`name.ilike.${like},cnpj.ilike.${like},phone.ilike.${like},city.ilike.${like},uf.ilike.${like},address.ilike.${like},segment.ilike.${like}`).limit(12),
       ]);
       setSearchRes({ deals: d.data || [], contacts: c.data || [], orgs: o.data || [] });
     }, 300);
@@ -473,7 +473,7 @@ export const Crm: React.FC<Props> = ({ currentUser, activeClientId, isAdmin, mem
                 {searchRes.orgs.map((o: any) => (
                   <button key={'o' + o.id} onClick={() => openFromOrg(o.id)} className="w-full text-left px-4 py-2.5 hover:bg-slate-50 flex items-center gap-2.5 transition-colors">
                     <Building2 size={14} className="text-amber-600 shrink-0" />
-                    <span className="min-w-0"><span className="text-sm font-bold text-slate-700 italic block truncate">{o.name}</span>{o.cnpj && <span className="text-[10px] text-slate-400 block">CNPJ {o.cnpj}</span>}</span>
+                    <span className="min-w-0"><span className="text-sm font-bold text-slate-700 italic block truncate">{o.name}</span><span className="text-[10px] text-slate-400 block truncate">{[o.city && `${o.city}${o.uf ? '/' + o.uf : ''}`, o.cnpj && `CNPJ ${o.cnpj}`].filter(Boolean).join(' · ')}</span></span>
                     <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wide ml-auto shrink-0">Empresa</span>
                   </button>
                 ))}
