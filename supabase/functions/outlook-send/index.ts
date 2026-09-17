@@ -36,8 +36,20 @@ serve(async (req) => {
   const to = String(body.to || '').trim();
   const subject = String(body.subject || '').trim();
   const text = String(body.body || '');
+  const rawAtts = Array.isArray(body.attachments) ? body.attachments : [];
   if (!to || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(to)) return json({ error: 'Destinatário (e-mail) inválido.' }, 400);
-  if (!subject && !text) return json({ error: 'Escreva o assunto ou a mensagem.' }, 400);
+  if (!subject && !text && !rawAtts.length) return json({ error: 'Escreva o assunto, a mensagem ou anexe um arquivo.' }, 400);
+
+  // anexos (base64) → formato do Graph; limite ~3MB no total (envio simples)
+  let attTotal = 0;
+  const graphAtts = [];
+  for (const a of rawAtts) {
+    const b64 = String(a?.contentB64 || '');
+    if (!b64 || !a?.name) continue;
+    attTotal += Math.floor(b64.length * 0.75);
+    graphAtts.push({ '@odata.type': '#microsoft.graph.fileAttachment', name: String(a.name).slice(0, 200), contentType: String(a.contentType || 'application/octet-stream'), contentBytes: b64 });
+  }
+  if (attTotal > 3.2 * 1024 * 1024) return json({ error: 'Anexos muito grandes (máx ~3 MB no total). Envie arquivos menores.' }, 400);
 
   const admin = createClient(Deno.env.get('SUPABASE_URL') ?? '', Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '', { auth: { persistSession: false } });
   const { data: conn } = await admin.from('crm_outlook_connections').select('*').eq('member_id', user.id).maybeSingle();
@@ -68,6 +80,7 @@ serve(async (req) => {
       subject,
       body: { contentType: 'HTML', content: htmlBody },
       toRecipients: [{ emailAddress: { address: to } }],
+      ...(graphAtts.length ? { attachments: graphAtts } : {}),
     }),
   });
   const draft = await draftRes.json().catch(() => ({}));
@@ -83,7 +96,8 @@ serve(async (req) => {
   }
 
   // 3) registra no histórico do negócio
-  const snippet = text.length > 4000 ? text.slice(0, 4000) + '…' : text;
+  let snippet = text.length > 4000 ? text.slice(0, 4000) + '…' : text;
+  if (graphAtts.length) snippet += `${snippet ? '\n\n' : ''}Anexos: ${graphAtts.map(a => a.name).join(', ')}`;
   const { data: act } = await admin.from('crm_activities').insert({
     client_id: cid, deal_id: body.dealId || null, contact_id: body.contactId || null, type: 'email',
     title: subject || '(sem assunto)', notes: snippet,

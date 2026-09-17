@@ -85,6 +85,7 @@ export const CrmDeal: React.FC<Props> = ({ dealId, cid, currentUser, isAdmin, me
   const [recLoading, setRecLoading] = useState<string>('');
   const [compose, setCompose] = useState<any>(null); // {to, subject, body} | null
   const [sendingEmail, setSendingEmail] = useState(false);
+  const [composeFiles, setComposeFiles] = useState<File[]>([]); // anexos do e-mail em composição
   const [sig, setSig] = useState<any>(null);          // assinatura salva {sig_text, image_url}
   const [sigOpen, setSigOpen] = useState(false);      // editor de assinatura
   const [sigForm, setSigForm] = useState<any>({ sig_text: '', image_url: '' });
@@ -276,12 +277,18 @@ export const CrmDeal: React.FC<Props> = ({ dealId, cid, currentUser, isAdmin, me
     if (emailConnected) setCompose({ to: c.email, subject: `Contato — ${deal?.title || ''}`, body: '', contactId: c.id, contactName: c.name });
     else window.location.href = mailtoLink(c.email);
   };
+  const fileToB64 = (f: File): Promise<string> => new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(String(r.result).split(',')[1] || ''); r.onerror = rej; r.readAsDataURL(f); });
+
   const sendEmail = async () => {
     if (!compose?.to) return;
-    if (!compose.subject?.trim() && !compose.body?.trim()) return alert('Escreva o assunto ou a mensagem.');
+    if (!compose.subject?.trim() && !compose.body?.trim() && composeFiles.length === 0) return alert('Escreva o assunto, a mensagem ou anexe um arquivo.');
+    const totalBytes = composeFiles.reduce((s, f) => s + f.size, 0);
+    if (totalBytes > 3 * 1024 * 1024) return alert('Os anexos somam mais de 3 MB. Envie arquivos menores (limite atual do e-mail).');
     setSendingEmail(true);
+    const attachments = [];
+    for (const f of composeFiles) attachments.push({ name: f.name, contentType: f.type || 'application/octet-stream', contentB64: await fileToB64(f) });
     const { data, error } = await supabase.functions.invoke('outlook-send', {
-      body: { to: compose.to, subject: compose.subject, body: compose.body, dealId, contactId: compose.contactId || null },
+      body: { to: compose.to, subject: compose.subject, body: compose.body, dealId, contactId: compose.contactId || null, attachments },
     });
     setSendingEmail(false);
     if (error) {
@@ -292,7 +299,7 @@ export const CrmDeal: React.FC<Props> = ({ dealId, cid, currentUser, isAdmin, me
     }
     const act = (data as any)?.activity;
     if (act) setActs(prev => [act, ...prev]);
-    setCompose(null);
+    setCompose(null); setComposeFiles([]);
     log('CRM', `E-mail enviado para ${compose.to}`);
   };
 
@@ -839,11 +846,11 @@ export const CrmDeal: React.FC<Props> = ({ dealId, cid, currentUser, isAdmin, me
       )}
 
       {compose && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4" onClick={() => !sendingEmail && setCompose(null)}>
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4" onClick={() => { if (!sendingEmail) { setCompose(null); setComposeFiles([]); } }}>
           <div className="bg-white rounded-xl shadow-xl w-full max-w-lg p-5 space-y-3" onClick={e => e.stopPropagation()}>
             <div className="flex items-center justify-between">
               <h3 className="text-[11px] font-bold uppercase text-slate-600 tracking-widest flex items-center gap-1.5"><Mail size={14} className="text-amber-600" /> Enviar e-mail</h3>
-              <button onClick={() => setCompose(null)} className="text-slate-300 hover:text-slate-600"><X size={16} /></button>
+              <button onClick={() => { setCompose(null); setComposeFiles([]); }} className="text-slate-300 hover:text-slate-600"><X size={16} /></button>
             </div>
             <div className="space-y-1">
               <label className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">Para</label>
@@ -855,7 +862,25 @@ export const CrmDeal: React.FC<Props> = ({ dealId, cid, currentUser, isAdmin, me
             </div>
             <div className="space-y-1">
               <label className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">Mensagem</label>
-              <textarea rows={7} className="w-full p-2.5 border border-slate-200 rounded-lg text-sm outline-none focus:border-amber-500 resize-y" value={compose.body} onChange={e => setCompose({ ...compose, body: e.target.value })} />
+              <textarea rows={6} className="w-full p-2.5 border border-slate-200 rounded-lg text-sm outline-none focus:border-amber-500 resize-y" value={compose.body} onChange={e => setCompose({ ...compose, body: e.target.value })} />
+            </div>
+            {/* Anexos do e-mail */}
+            <div className="space-y-2">
+              <label className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-lg text-[10px] font-bold uppercase tracking-wide cursor-pointer transition-all w-fit">
+                <Paperclip size={12} /> Anexar arquivos
+                <input type="file" multiple className="hidden" onChange={e => { const fs = Array.from(e.target.files || []); if (fs.length) setComposeFiles(prev => [...prev, ...fs]); (e.target as HTMLInputElement).value = ''; }} />
+              </label>
+              {composeFiles.length > 0 && (
+                <div className="flex flex-wrap gap-1.5">
+                  {composeFiles.map((f, i) => (
+                    <span key={i} className="inline-flex items-center gap-1.5 bg-amber-50 border border-amber-100 text-amber-700 rounded-lg px-2 py-1 text-[11px]">
+                      <Paperclip size={11} /> <span className="max-w-[160px] truncate">{f.name}</span> <span className="text-amber-400">{fmtBytes(f.size)}</span>
+                      <button onClick={() => setComposeFiles(prev => prev.filter((_, j) => j !== i))} className="text-amber-400 hover:text-red-500"><X size={12} /></button>
+                    </span>
+                  ))}
+                  <span className="text-[10px] text-slate-400 self-center">total {fmtBytes(composeFiles.reduce((s, f) => s + f.size, 0))} / máx 3 MB</span>
+                </div>
+              )}
             </div>
             <div className="flex items-center justify-between gap-2 text-[10px]">
               <span className="text-slate-400">{(sig?.sig_text || sig?.image_url) ? '✓ Sua assinatura será adicionada ao final.' : 'Sem assinatura configurada.'}</span>
@@ -864,7 +889,7 @@ export const CrmDeal: React.FC<Props> = ({ dealId, cid, currentUser, isAdmin, me
             <div className="flex items-center justify-between gap-2 pt-1">
               <span className="text-[10px] text-slate-400 italic">Sai do seu Outlook e fica no histórico.</span>
               <div className="flex gap-2">
-                <button onClick={() => setCompose(null)} className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-500 rounded-lg font-bold text-[10px] uppercase tracking-widest">Cancelar</button>
+                <button onClick={() => { setCompose(null); setComposeFiles([]); }} className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-500 rounded-lg font-bold text-[10px] uppercase tracking-widest">Cancelar</button>
                 <button disabled={sendingEmail} onClick={sendEmail} className="px-5 py-2 bg-amber-600 hover:bg-amber-700 text-white rounded-lg font-bold text-[10px] uppercase tracking-widest flex items-center gap-1.5 disabled:opacity-50"><Mail size={13} /> {sendingEmail ? 'Enviando...' : 'Enviar'}</button>
               </div>
             </div>
