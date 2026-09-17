@@ -195,9 +195,27 @@ export const CrmDeal: React.FC<Props> = ({ dealId, cid, currentUser, isAdmin, me
     setLostOpen(false); onMutated();
   };
 
+  // telefones do contato: principal (phone) + adicionais (extra_phones)
+  const allPhones = (c: any) => [c?.phone, ...(Array.isArray(c?.extra_phones) ? c.extra_phones : [])].filter(Boolean);
+  const setPhoneAt = (i: number, val: string) => setCForm((f: any) => { const arr = [...(f.phones || [''])]; arr[i] = val; return { ...f, phones: arr }; });
+  const addPhoneField = () => setCForm((f: any) => ({ ...f, phones: [...(f.phones || ['']), ''] }));
+  const removePhoneAt = (i: number) => setCForm((f: any) => { const arr = [...(f.phones || [''])]; arr.splice(i, 1); return { ...f, phones: arr.length ? arr : [''] }; });
+  const phonesEditor = () => (
+    <div className="space-y-1.5">
+      {(cForm?.phones || ['']).map((p: string, i: number) => (
+        <div key={i} className="flex gap-1.5">
+          <input type="text" placeholder={i === 0 ? 'Telefone principal' : 'Telefone adicional'} className="flex-1 p-2 border border-slate-200 rounded-lg text-sm outline-none focus:border-amber-500" value={p} onChange={e => setPhoneAt(i, e.target.value)} />
+          {(cForm?.phones || ['']).length > 1 && <button onClick={() => removePhoneAt(i)} title="Remover" className="px-2 text-slate-400 hover:text-red-500"><X size={14} /></button>}
+        </div>
+      ))}
+      <button onClick={addPhoneField} className="text-[10px] font-bold uppercase tracking-wide text-amber-600 hover:text-amber-700 flex items-center gap-1"><Plus size={11} /> telefone</button>
+    </div>
+  );
+
   const saveContact = async () => {
     if (!cForm.name?.trim()) return alert('Informe o nome do contato.');
-    const payload: any = { client_id: cid, name: cForm.name.trim(), role_title: cForm.role_title?.trim() || null, email: cForm.email?.trim() || null, phone: cForm.phone?.trim() ? toE164(cForm.phone.trim()) : null, organization_id: deal?.organization_id || null };
+    const phonesE164 = (Array.isArray(cForm.phones) ? cForm.phones : [cForm.phone]).map((p: string) => (p || '').trim()).filter(Boolean).map((p: string) => toE164(p));
+    const payload: any = { client_id: cid, name: cForm.name.trim(), role_title: cForm.role_title?.trim() || null, email: cForm.email?.trim() || null, phone: phonesE164[0] || null, extra_phones: phonesE164.slice(1), organization_id: deal?.organization_id || null };
     if (cForm.id) {
       const { error } = await supabase.from('crm_contacts').update(payload).eq('id', cForm.id);
       if (error) { alert('Erro: ' + error.message); return; }
@@ -552,7 +570,7 @@ export const CrmDeal: React.FC<Props> = ({ dealId, cid, currentUser, isAdmin, me
           <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm space-y-3">
             <div className="flex items-center justify-between">
               <h3 className="text-[10px] font-bold uppercase text-slate-400 tracking-widest flex items-center gap-1.5"><User size={13} className="text-amber-600" /> Contatos {contacts.length > 0 && <span className="text-slate-300">({contacts.length})</span>}</h3>
-              {(cForm === null || cForm.id) && <button onClick={() => setCForm({ name: '', role_title: '', email: '', phone: '' })} className="text-[9px] font-bold uppercase tracking-wide text-amber-600 hover:text-amber-700 flex items-center gap-1"><Plus size={11} /> Adicionar</button>}
+              {(cForm === null || cForm.id) && <button onClick={() => setCForm({ name: '', role_title: '', email: '', phones: [''] })} className="text-[9px] font-bold uppercase tracking-wide text-amber-600 hover:text-amber-700 flex items-center gap-1"><Plus size={11} /> Adicionar</button>}
             </div>
 
             {contacts.length === 0 && cForm === null && <p className="text-xs text-slate-400 italic">Nenhum contato vinculado.</p>}
@@ -564,7 +582,7 @@ export const CrmDeal: React.FC<Props> = ({ dealId, cid, currentUser, isAdmin, me
                   <div key={c.id} className="py-3 first:pt-0 space-y-2">
                     <input type="text" placeholder="Nome" className="w-full p-2 border border-slate-200 rounded-lg text-sm outline-none focus:border-amber-500" value={cForm.name} onChange={e => setCForm({ ...cForm, name: e.target.value })} />
                     <input type="text" placeholder="Cargo (ex: Decisor, Secretária)" className="w-full p-2 border border-slate-200 rounded-lg text-sm outline-none focus:border-amber-500" value={cForm.role_title || ''} onChange={e => setCForm({ ...cForm, role_title: e.target.value })} />
-                    <input type="text" placeholder="Telefone" className="w-full p-2 border border-slate-200 rounded-lg text-sm outline-none focus:border-amber-500" value={cForm.phone || ''} onChange={e => setCForm({ ...cForm, phone: e.target.value })} />
+                    {phonesEditor()}
                     <input type="email" placeholder="E-mail" className="w-full p-2 border border-slate-200 rounded-lg text-sm outline-none focus:border-amber-500" value={cForm.email || ''} onChange={e => setCForm({ ...cForm, email: e.target.value })} />
                     <div className="flex gap-2">
                       <button onClick={saveContact} className="flex-1 px-3 py-2 bg-amber-600 hover:bg-amber-700 text-white rounded-lg font-bold text-[10px] uppercase tracking-widest flex items-center justify-center gap-1"><Save size={13} /> Salvar</button>
@@ -580,16 +598,20 @@ export const CrmDeal: React.FC<Props> = ({ dealId, cid, currentUser, isAdmin, me
                         {c.name}{c.role_title && <span className="text-[10px] not-italic text-slate-400 font-bold uppercase tracking-wide ml-2">{c.role_title}</span>}
                       </p>
                       <div className="flex items-center gap-1.5 shrink-0">
-                        <button onClick={() => setCForm({ ...c })} title="Editar contato" className="text-slate-300 hover:text-amber-600 transition-colors"><Pencil size={13} /></button>
+                        <button onClick={() => { const ph = allPhones(c); setCForm({ ...c, phones: ph.length ? ph : [''] }); }} title="Editar contato" className="text-slate-300 hover:text-amber-600 transition-colors"><Pencil size={13} /></button>
                         <button onClick={() => delContact(c)} title="Excluir contato" className="text-slate-300 hover:text-red-500 transition-colors"><Trash2 size={13} /></button>
                       </div>
                     </div>
-                    {c.phone && <a href={waLink(c.phone)} target="_blank" rel="noreferrer" className="text-xs flex items-center gap-1.5 text-slate-500 hover:text-emerald-600 w-fit transition-colors"><Phone size={11} /> {toE164(c.phone)}</a>}
+                    {allPhones(c).map((ph: string, i: number) => (
+                      <div key={i} className="flex items-center gap-2 flex-wrap">
+                        <span className="text-xs text-slate-500 flex items-center gap-1.5"><Phone size={11} /> {toE164(ph)}</span>
+                        <button onClick={() => webCall({ phone: ph, name: c.name, id: c.id })} title="Ligar pelo navegador (webphone)" className="text-[9px] font-bold uppercase tracking-wide text-white bg-sky-600 hover:bg-sky-700 rounded px-1.5 py-0.5 flex items-center gap-1 not-italic"><Phone size={12} /> Webphone</button>
+                        <a href={waLink(ph)} target="_blank" rel="noreferrer" className="text-[9px] font-bold uppercase tracking-wide text-emerald-600 hover:text-emerald-700 flex items-center gap-1 not-italic"><MessageSquare size={12} /> WhatsApp</a>
+                      </div>
+                    ))}
                     {c.email && <a href={mailtoLink(c.email)} className="text-xs flex items-center gap-1.5 text-slate-500 hover:text-amber-600 w-fit transition-colors"><Mail size={11} /> {c.email}</a>}
                     <div className="flex flex-wrap gap-3 pt-1">
-                      {c.phone && <button onClick={() => webCall(c)} title="Ligar pelo navegador (webphone)" className="text-[9px] font-bold uppercase tracking-wide text-white bg-sky-600 hover:bg-sky-700 rounded px-1.5 py-0.5 flex items-center gap-1 not-italic"><Phone size={12} /> Webphone</button>}
                       {c.email && <button onClick={() => openEmail(c)} title={emailConnected ? 'Enviar e-mail pelo Outlook' : 'Abrir no cliente de e-mail'} className="text-[9px] font-bold uppercase tracking-wide text-amber-600 hover:text-amber-700 flex items-center gap-1 not-italic"><Mail size={12} /> E-mail</button>}
-                      {c.phone && <a href={waLink(c.phone)} target="_blank" rel="noreferrer" className="text-[9px] font-bold uppercase tracking-wide text-emerald-600 hover:text-emerald-700 flex items-center gap-1 not-italic"><MessageSquare size={12} /> WhatsApp</a>}
                       {!isPrimary && <button onClick={() => setPrimaryContact(c.id)} className="text-[9px] font-bold uppercase tracking-wide text-slate-400 hover:text-amber-600 flex items-center gap-1 not-italic"><Star size={12} /> Tornar principal</button>}
                     </div>
                   </div>
@@ -602,7 +624,7 @@ export const CrmDeal: React.FC<Props> = ({ dealId, cid, currentUser, isAdmin, me
               <div className="space-y-2 pt-3 border-t border-slate-100">
                 <input type="text" placeholder="Nome" className="w-full p-2 border border-slate-200 rounded-lg text-sm outline-none focus:border-amber-500" value={cForm.name} onChange={e => setCForm({ ...cForm, name: e.target.value })} />
                 <input type="text" placeholder="Cargo (ex: Decisor, Secretária)" className="w-full p-2 border border-slate-200 rounded-lg text-sm outline-none focus:border-amber-500" value={cForm.role_title || ''} onChange={e => setCForm({ ...cForm, role_title: e.target.value })} />
-                <input type="text" placeholder="Telefone" className="w-full p-2 border border-slate-200 rounded-lg text-sm outline-none focus:border-amber-500" value={cForm.phone || ''} onChange={e => setCForm({ ...cForm, phone: e.target.value })} />
+                {phonesEditor()}
                 <input type="email" placeholder="E-mail" className="w-full p-2 border border-slate-200 rounded-lg text-sm outline-none focus:border-amber-500" value={cForm.email || ''} onChange={e => setCForm({ ...cForm, email: e.target.value })} />
                 <div className="flex gap-2">
                   <button onClick={saveContact} className="flex-1 px-3 py-2 bg-amber-600 hover:bg-amber-700 text-white rounded-lg font-bold text-[10px] uppercase tracking-widest flex items-center justify-center gap-1"><Save size={13} /> Adicionar contato</button>
