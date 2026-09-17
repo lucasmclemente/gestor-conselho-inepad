@@ -51,8 +51,19 @@ serve(async (req) => {
       : { name: 'Governança INEPAD', email: 'conselho@inepadconsulting.com' }
 
     const materiais = Array.isArray(meetingData?.materiais) ? meetingData.materiais : []
-    const materiaisHtml = materiais.length > 0
-      ? materiais.map((m: any, i: number) => `
+    // Re-assina os links dos materiais (7 dias) para valerem quando o e-mail for aberto
+    const admin = createClient(Deno.env.get('SUPABASE_URL') ?? '', Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '', { auth: { persistSession: false } })
+    const scheduled: any[] = []
+    for (const m of materiais) {
+      let url = String(m?.url || '')
+      try {
+        const mt = /\/(?:sign|public)\/meeting-files\/(.+?)(?:\?|$)/.exec(url)
+        if (mt && mt[1]) { const { data } = await admin.storage.from('meeting-files').createSignedUrl(decodeURIComponent(mt[1]), 60 * 60 * 24 * 7); if (data?.signedUrl) url = data.signedUrl }
+      } catch (_) { /* mantém a url salva */ }
+      scheduled.push({ ...m, url })
+    }
+    const materiaisHtml = scheduled.length > 0
+      ? scheduled.map((m: any, i: number) => `
           <div style="padding: 10px 0; border-bottom: 1px solid #f1f5f9; font-size: 14px;">
             <span style="color: #64748b; font-weight: bold;">${i + 1}.</span>
             <a href="${safeUrl(m.url)}" style="color: #b45309; text-decoration: underline; font-weight: bold;">${escapeHtml(m.name)}</a>
