@@ -85,6 +85,10 @@ export const CrmDeal: React.FC<Props> = ({ dealId, cid, currentUser, isAdmin, me
   const [recLoading, setRecLoading] = useState<string>('');
   const [compose, setCompose] = useState<any>(null); // {to, subject, body} | null
   const [sendingEmail, setSendingEmail] = useState(false);
+  const [sig, setSig] = useState<any>(null);          // assinatura salva {sig_text, image_url}
+  const [sigOpen, setSigOpen] = useState(false);      // editor de assinatura
+  const [sigForm, setSigForm] = useState<any>({ sig_text: '', image_url: '' });
+  const [sigBusy, setSigBusy] = useState(false);
   const [webphone, setWebphone] = useState<any>(null); // {number, name} | null
   const [tags, setTags] = useState<any[]>([]);
   const [lostOpen, setLostOpen] = useState(false);
@@ -290,6 +294,36 @@ export const CrmDeal: React.FC<Props> = ({ dealId, cid, currentUser, isAdmin, me
     if (act) setActs(prev => [act, ...prev]);
     setCompose(null);
     log('CRM', `E-mail enviado para ${compose.to}`);
+  };
+
+  // ── Assinatura de e-mail (por usuário) ──────────────────────
+  const loadSig = useCallback(async () => {
+    if (!currentUser?.id) return;
+    const { data } = await supabase.from('crm_email_signatures').select('sig_text, image_url').eq('member_id', currentUser.id).maybeSingle();
+    setSig(data || null);
+  }, [currentUser?.id]);
+  useEffect(() => { loadSig(); }, [loadSig]);
+
+  const openSigEditor = () => { setSigForm({ sig_text: sig?.sig_text || '', image_url: sig?.image_url || '' }); setSigOpen(true); };
+  const uploadSigImage = async (file: File) => {
+    if (!file || !currentUser?.id) return;
+    setSigBusy(true);
+    const ext = (file.name.split('.').pop() || 'png').toLowerCase().replace(/[^a-z0-9]/g, '') || 'png';
+    const path = `${currentUser.id}/sig-${Date.now()}.${ext}`;
+    const up = await supabase.storage.from('crm-signatures').upload(path, file, { contentType: file.type || 'image/png', upsert: true });
+    if (up.error) { setSigBusy(false); alert('Falha ao subir imagem: ' + up.error.message); return; }
+    const url = supabase.storage.from('crm-signatures').getPublicUrl(path).data.publicUrl;
+    setSigForm((f: any) => ({ ...f, image_url: url }));
+    setSigBusy(false);
+  };
+  const saveSig = async () => {
+    setSigBusy(true);
+    const row = { client_id: cid, member_id: currentUser?.id, sig_text: sigForm.sig_text?.trim() || null, image_url: sigForm.image_url || null, updated_at: new Date().toISOString() };
+    const { error } = await supabase.from('crm_email_signatures').upsert(row, { onConflict: 'member_id' });
+    setSigBusy(false);
+    if (error) { alert('Erro ao salvar: ' + error.message); return; }
+    setSig({ sig_text: row.sig_text, image_url: row.image_url });
+    setSigOpen(false);
   };
 
   const setCustom = (id: string, val: any) => setCustomForm(prev => ({ ...prev, [id]: val }));
@@ -823,12 +857,47 @@ export const CrmDeal: React.FC<Props> = ({ dealId, cid, currentUser, isAdmin, me
               <label className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">Mensagem</label>
               <textarea rows={7} className="w-full p-2.5 border border-slate-200 rounded-lg text-sm outline-none focus:border-amber-500 resize-y" value={compose.body} onChange={e => setCompose({ ...compose, body: e.target.value })} />
             </div>
+            <div className="flex items-center justify-between gap-2 text-[10px]">
+              <span className="text-slate-400">{(sig?.sig_text || sig?.image_url) ? '✓ Sua assinatura será adicionada ao final.' : 'Sem assinatura configurada.'}</span>
+              <button onClick={openSigEditor} className="font-bold uppercase tracking-wide text-amber-600 hover:text-amber-700">Editar assinatura</button>
+            </div>
             <div className="flex items-center justify-between gap-2 pt-1">
               <span className="text-[10px] text-slate-400 italic">Sai do seu Outlook e fica no histórico.</span>
               <div className="flex gap-2">
                 <button onClick={() => setCompose(null)} className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-500 rounded-lg font-bold text-[10px] uppercase tracking-widest">Cancelar</button>
                 <button disabled={sendingEmail} onClick={sendEmail} className="px-5 py-2 bg-amber-600 hover:bg-amber-700 text-white rounded-lg font-bold text-[10px] uppercase tracking-widest flex items-center gap-1.5 disabled:opacity-50"><Mail size={13} /> {sendingEmail ? 'Enviando...' : 'Enviar'}</button>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {sigOpen && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-900/40 p-4" onClick={() => !sigBusy && setSigOpen(false)}>
+          <div className="bg-white rounded-xl shadow-xl w-full max-w-lg p-5 space-y-3" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between">
+              <h3 className="text-[11px] font-bold uppercase text-slate-600 tracking-widest flex items-center gap-1.5"><Mail size={14} className="text-amber-600" /> Minha assinatura de e-mail</h3>
+              <button onClick={() => setSigOpen(false)} className="text-slate-300 hover:text-slate-600"><X size={16} /></button>
+            </div>
+            <p className="text-[11px] text-slate-500">Este texto e/ou imagem são adicionados ao final de todos os e-mails que você enviar pelo CRM.</p>
+            <div className="space-y-1">
+              <label className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">Texto da assinatura</label>
+              <textarea rows={5} placeholder={'Ex.:\nMaria Silva\nComercial — INEPAD\n(16) 99999-9999'} className="w-full p-2.5 border border-slate-200 rounded-lg text-sm outline-none focus:border-amber-500 resize-y" value={sigForm.sig_text} onChange={e => setSigForm({ ...sigForm, sig_text: e.target.value })} />
+            </div>
+            <div className="space-y-1">
+              <label className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">Imagem (opcional)</label>
+              <div className="flex items-center gap-2">
+                <label className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-lg text-[10px] font-bold uppercase tracking-wide cursor-pointer transition-all w-fit">
+                  <Paperclip size={12} /> {sigBusy ? 'Enviando…' : 'Enviar imagem'}
+                  <input type="file" accept="image/*" className="hidden" disabled={sigBusy} onChange={e => { const f = e.target.files?.[0]; (e.target as HTMLInputElement).value = ''; if (f) uploadSigImage(f); }} />
+                </label>
+                {sigForm.image_url && <button onClick={() => setSigForm({ ...sigForm, image_url: '' })} className="text-[10px] font-bold uppercase tracking-wide text-slate-400 hover:text-red-500">Remover</button>}
+              </div>
+              {sigForm.image_url && <img src={sigForm.image_url} alt="assinatura" className="max-h-24 rounded border border-slate-200 mt-1" />}
+            </div>
+            <div className="flex justify-end gap-2 pt-1">
+              <button onClick={() => setSigOpen(false)} className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-500 rounded-lg font-bold text-[10px] uppercase tracking-widest">Cancelar</button>
+              <button disabled={sigBusy} onClick={saveSig} className="px-5 py-2 bg-amber-600 hover:bg-amber-700 text-white rounded-lg font-bold text-[10px] uppercase tracking-widest flex items-center gap-1.5 disabled:opacity-50"><Save size={13} /> Salvar</button>
             </div>
           </div>
         </div>

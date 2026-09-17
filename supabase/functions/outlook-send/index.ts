@@ -47,7 +47,18 @@ serve(async (req) => {
   try { token = await outlookToken(admin, conn); }
   catch (e) { return json({ error: String((e as any)?.message || e) }, 400); }
 
-  const htmlBody = `<div style="font-family:Segoe UI,Arial,sans-serif;font-size:14px;color:#0f172a;white-space:pre-wrap">${esc(text)}</div>`;
+  // assinatura do usuário (texto e/ou imagem) — anexada ao final
+  let sigHtml = '';
+  try {
+    const { data: sig } = await admin.from('crm_email_signatures').select('sig_text, image_url').eq('member_id', user.id).maybeSingle();
+    if (sig && (sig.sig_text || sig.image_url)) {
+      const t = sig.sig_text ? `<div style="font-family:Segoe UI,Arial,sans-serif;font-size:13px;color:#475569;white-space:pre-wrap">${esc(sig.sig_text)}</div>` : '';
+      const img = sig.image_url ? `<div style="margin-top:8px"><img src="${String(sig.image_url).replace(/"/g, '')}" alt="assinatura" style="max-width:360px;height:auto" /></div>` : '';
+      sigHtml = `<br><br>${t}${img}`;
+    }
+  } catch { /* sem assinatura, segue */ }
+
+  const htmlBody = `<div style="font-family:Segoe UI,Arial,sans-serif;font-size:14px;color:#0f172a;white-space:pre-wrap">${esc(text)}</div>${sigHtml}`;
 
   // 1) cria o rascunho (retorna id + internetMessageId para o histórico/threading)
   const draftRes = await fetch(`${GRAPH}/me/messages`, {
