@@ -73,6 +73,8 @@ async function connect() {
     ensureAudio();
     const client = new TelnyxRTC({ login_token: (data as any).token });
     (client as any).remoteElement = 'telnyx-inbound-audio';
+    // isola ruído externo (supressão de ruído + cancelamento de eco + ganho automático)
+    try { (client as any).setAudioSettings?.({ echoCancellation: true, noiseSuppression: true, autoGainControl: true }); } catch { /* */ }
     S.client = client;
     client.on('telnyx.notification', (n: any) => {
       if (n?.type !== 'callUpdate' || !n.call || !S) return;

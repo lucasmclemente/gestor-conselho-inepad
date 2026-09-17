@@ -156,13 +156,16 @@ export const CrmWebphone: React.FC<Props> = ({ number, contactName, dealId, cid,
       const callerId = (data as any).callerId;
       const client = new TelnyxRTC({ login_token: token });
       (client as any).remoteElement = 'telnyx-remote-audio';
+      // isola ruído externo: supressão de ruído + cancelamento de eco + ganho automático
+      const AUDIO = { echoCancellation: true, noiseSuppression: true, autoGainControl: true };
+      try { (client as any).setAudioSettings?.(AUDIO); } catch { /* */ }
       clientRef.current = client;
 
       client.on('telnyx.ready', () => {
         if (cancelled) return;
         setStatus('Chamando…');
         try {
-          callRef.current = (client as any).newCall({ destinationNumber: number, callerNumber: callerId, audio: true, video: false });
+          callRef.current = (client as any).newCall({ destinationNumber: number, callerNumber: callerId, audio: AUDIO, video: false });
         } catch (e) { setStatus('Falha ao discar'); }
       });
       client.on('telnyx.error', () => setStatus('Erro de conexão'));
