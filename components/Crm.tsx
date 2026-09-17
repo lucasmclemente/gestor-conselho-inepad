@@ -59,6 +59,8 @@ export const Crm: React.FC<Props> = ({ currentUser, activeClientId, isAdmin, mem
   const [canNotify, setCanNotify] = useState<boolean>(typeof Notification !== 'undefined' && Notification.permission === 'granted');
   const [ownerFilter, setOwnerFilter] = useState('all');
   const [tagFilter, setTagFilter] = useState('all');
+  const [cityFilter, setCityFilter] = useState('all');
+  const [orgCity, setOrgCity] = useState<Record<string, string>>({}); // organization_id -> cidade
   const [emailConnected, setEmailConnected] = useState<boolean | null>(null);
   const [emailAddr, setEmailAddr] = useState<string | null>(null);
   const [emailBusy, setEmailBusy] = useState(false);
@@ -73,8 +75,11 @@ export const Crm: React.FC<Props> = ({ currentUser, activeClientId, isAdmin, mem
   // Filtro por responsável no quadro
   const visibleDeals = deals.filter(d =>
     (ownerFilter === 'all' || (ownerFilter === 'none' ? !d.owner_member_id : d.owner_member_id === ownerFilter)) &&
-    (tagFilter === 'all' || (Array.isArray(d.tag_ids) && d.tag_ids.includes(tagFilter)))
+    (tagFilter === 'all' || (Array.isArray(d.tag_ids) && d.tag_ids.includes(tagFilter))) &&
+    (cityFilter === 'all' || (d.organization_id && orgCity[d.organization_id] === cityFilter))
   );
+  // cidades presentes nos negócios do funil (para o filtro)
+  const cityOptions = [...new Set(deals.map(d => d.organization_id && orgCity[d.organization_id]).filter(Boolean))].sort((a: any, b: any) => a.localeCompare(b));
 
   // Alertas/tarefas pendentes: contagem por lead (para o sininho) e a lista do usuário (painel/popup)
   const _now = Date.now();
@@ -118,10 +123,19 @@ export const Crm: React.FC<Props> = ({ currentUser, activeClientId, isAdmin, mem
     setStages(sts || []);
     setDeals(dls || []);
     setLoading(false);
+    // cidade de cada negócio (via empresa) — para o filtro de cidade
+    const orgIds = [...new Set((dls || []).map((d: any) => d.organization_id).filter(Boolean))];
+    const cityMap: Record<string, string> = {};
+    for (let i = 0; i < orgIds.length; i += 300) {
+      const { data: orgs } = await supabase.from('crm_organizations').select('id, city').in('id', orgIds.slice(i, i + 300));
+      (orgs || []).forEach((o: any) => { if (o.city) cityMap[o.id] = o.city; });
+    }
+    setOrgCity(cityMap);
   }, [pipelineId]);
 
   useEffect(() => { loadPipelines(); }, [loadPipelines]);
   useEffect(() => { loadBoard(); }, [loadBoard]);
+  useEffect(() => { setCityFilter('all'); }, [pipelineId]);
   useEffect(() => {
     if (!cid) return;
     supabase.from('crm_field_defs').select('id, label, type, required').eq('client_id', cid).eq('active', true)
@@ -504,6 +518,13 @@ export const Crm: React.FC<Props> = ({ currentUser, activeClientId, isAdmin, mem
               className="p-2.5 border border-slate-200 rounded-lg text-sm font-bold outline-none focus:border-amber-500 transition-colors bg-white not-italic">
               <option value="all">Todas as etiquetas</option>
               {tags.map((t: any) => <option key={t.id} value={t.id}>{t.name}</option>)}
+            </select>
+          )}
+          {cityOptions.length > 0 && (
+            <select value={cityFilter} onChange={e => setCityFilter(e.target.value)} title="Filtrar por cidade"
+              className="p-2.5 border border-slate-200 rounded-lg text-sm font-bold outline-none focus:border-amber-500 transition-colors bg-white not-italic">
+              <option value="all">Todas as cidades</option>
+              {cityOptions.map((c: any) => <option key={c} value={c}>{c}</option>)}
             </select>
           )}
           {pipelines.length > 1 && (
