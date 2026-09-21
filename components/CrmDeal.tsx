@@ -112,7 +112,7 @@ export const CrmDeal: React.FC<Props> = ({ dealId, cid, currentUser, isAdmin, me
     setDeal(d);
     setDForm({
       title: d?.title || '', value: d?.value ?? '', expected_close_date: d?.expected_close_date || '',
-      source: d?.source || '', owner_member_id: d?.owner_member_id || '',
+      source: d?.source || '', owner_member_id: d?.owner_member_id || '', pipeline_id: d?.pipeline_id || '',
     });
     const [ct, og, ac, ev, fd, tg] = await Promise.all([
       // todos os contatos da empresa (sócios) — ou, sem empresa, só o contato principal
@@ -130,6 +130,14 @@ export const CrmDeal: React.FC<Props> = ({ dealId, cid, currentUser, isAdmin, me
     setLoading(false);
   }, [dealId]);
   useEffect(() => { load(); }, [load]);
+
+  // funis do cliente (para o admin mover o negócio de funil)
+  const [pipelines, setPipelines] = useState<any[]>([]);
+  useEffect(() => {
+    if (!cid) return;
+    supabase.from('crm_pipelines').select('id, name').eq('client_id', cid).eq('active', true).order('position')
+      .then(({ data }) => setPipelines(data || []));
+  }, [cid]);
 
   // assina as URLs dos anexos ainda não assinados sempre que as atividades mudam
   useEffect(() => {
@@ -149,10 +157,18 @@ export const CrmDeal: React.FC<Props> = ({ dealId, cid, currentUser, isAdmin, me
     };
     // Só Admin reatribui o dono (o banco também bloqueia via gatilho)
     if (isAdmin && dForm.owner_member_id && dForm.owner_member_id !== deal.owner_member_id) patch.owner_member_id = dForm.owner_member_id;
+    // Só Admin move de funil — leva o negócio para a 1ª etapa do novo funil
+    let movedPipeline = false;
+    if (isAdmin && dForm.pipeline_id && dForm.pipeline_id !== deal.pipeline_id) {
+      const { data: st } = await supabase.from('crm_stages').select('id').eq('pipeline_id', dForm.pipeline_id).eq('active', true).order('position').limit(1).maybeSingle();
+      if (!st?.id) { setSavingDeal(false); alert('O funil escolhido não tem etapas.'); return; }
+      patch.pipeline_id = dForm.pipeline_id; patch.stage_id = st.id; movedPipeline = true;
+    }
     const { error } = await supabase.from('crm_deals').update(patch).eq('id', dealId);
     setSavingDeal(false);
     if (error) { alert('Erro ao salvar: ' + error.message); return; }
     log('CRM', `Negócio "${patch.title}" editado`);
+    if (movedPipeline) { onMutated(); onBack(); return; } // mudou de funil → volta ao quadro (recarrega limpo)
     await load(); onMutated();
   };
 
@@ -563,6 +579,15 @@ export const CrmDeal: React.FC<Props> = ({ dealId, cid, currentUser, isAdmin, me
                   <option value="">—</option>
                   {members.map((m: any) => <option key={m.id} value={m.id}>{m.name}</option>)}
                 </select>
+              </div>
+            )}
+            {isAdmin && pipelines.length > 1 && (
+              <div className="space-y-1">
+                <label className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">Funil</label>
+                <select className="w-full p-2.5 border border-slate-200 rounded-lg text-sm font-bold outline-none focus:border-amber-500 bg-white" value={dForm.pipeline_id} onChange={e => setDForm({ ...dForm, pipeline_id: e.target.value })}>
+                  {pipelines.map((p: any) => <option key={p.id} value={p.id}>{p.name}</option>)}
+                </select>
+                {dForm.pipeline_id !== deal.pipeline_id && <p className="text-[10px] text-amber-600">Ao salvar, o negócio vai para a 1ª etapa deste funil.</p>}
               </div>
             )}
             <button disabled={savingDeal} onClick={saveDeal} className="w-full px-6 py-2.5 bg-amber-600 hover:bg-amber-700 text-white rounded-lg font-bold text-[10px] uppercase tracking-widest flex items-center justify-center gap-2 transition-all disabled:opacity-50">
