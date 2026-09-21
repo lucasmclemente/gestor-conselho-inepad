@@ -6094,8 +6094,8 @@ const App = () => {
                             </td>
                             <td className="px-6 py-4 text-center">
                               <div className="flex items-center justify-center gap-2">
-                                {isSuper && (u.role === 'Secretário' || u.role === 'Conselheiro' || u.role === 'Administrador') && (
-                                  <button onClick={() => openSecModal(u)} className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[9px] font-bold uppercase tracking-wider border border-slate-200 text-slate-500 hover:border-amber-400 hover:text-amber-600 transition-all not-italic" title={u.role === 'Conselheiro' ? 'Empresas em que é conselheiro' : u.role === 'Administrador' ? 'Clientes que este administrador pode gerir' : 'Clientes que este secretário pode atender'}>
+                                {isSuper && (u.role === 'Secretário' || u.role === 'Conselheiro' || u.role === 'Administrador' || u.role === 'SuperAdmin') && (
+                                  <button onClick={() => openSecModal(u)} className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[9px] font-bold uppercase tracking-wider border border-slate-200 text-slate-500 hover:border-amber-400 hover:text-amber-600 transition-all not-italic" title={u.role === 'Conselheiro' ? 'Empresas em que é conselheiro' : u.role === 'Administrador' ? 'Clientes que este administrador pode gerir' : u.role === 'SuperAdmin' ? 'Empresas em que aparece como participante (convocação, materiais, votação) — não altera o acesso total do SuperAdmin' : 'Clientes que este secretário pode atender'}>
                                     <Building2 size={12} /> Clientes{(u.secretary_clients?.length ? ` (${u.secretary_clients.length})` : '')}
                                   </button>
                                 )}
