@@ -267,8 +267,12 @@ export const CrmDeal: React.FC<Props> = ({ dealId, cid, currentUser, isAdmin, me
 
   // Liga pelo webphone nativo (Telnyx WebRTC) — áudio no navegador.
   // A atividade só é criada quando a chamada TOCA (dentro do CrmWebphone), não no clique.
+  // número BR plausível? (+55 + DDD + 8/9 dígitos → 12 ou 13 dígitos). Evita discar "lixo" (ligações curtíssimas cobradas pela Telnyx)
+  const isValidBRPhone = (phone: string) => { const d = digitsOnly(toE164(phone)); return (d.length === 12 || d.length === 13) && d.startsWith('55'); };
+
   const webCall = (c: any) => {
     if (!c?.phone) return;
+    if (!isValidBRPhone(c.phone)) { alert(`Número inválido: "${c.phone}".\nCorrija o telefone (DDD + número) antes de ligar.`); return; }
     setWebphone({ number: toE164(c.phone), name: c.name, contactId: c.id || null });
   };
 
