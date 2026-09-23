@@ -116,12 +116,19 @@ export const Crm: React.FC<Props> = ({ currentUser, activeClientId, isAdmin, mem
   const loadBoard = useCallback(async () => {
     if (!pipelineId) { setStages([]); setDeals([]); return; }
     setLoading(true);
-    const [{ data: sts }, { data: dls }] = await Promise.all([
-      supabase.from('crm_stages').select('*').eq('pipeline_id', pipelineId).eq('active', true).order('position'),
-      supabase.from('crm_deals').select('*').eq('pipeline_id', pipelineId).eq('status', 'open').order('position').order('created_at', { ascending: false }),
-    ]);
+    const { data: sts } = await supabase.from('crm_stages').select('*').eq('pipeline_id', pipelineId).eq('active', true).order('position');
     setStages(sts || []);
-    setDeals(dls || []);
+    // carrega TODOS os negócios abertos (o Supabase devolve no máx. 1000 por vez → pagina)
+    const dls: any[] = [];
+    for (let from = 0; from < 50000; from += 1000) {
+      const { data, error } = await supabase.from('crm_deals').select('*')
+        .eq('pipeline_id', pipelineId).eq('status', 'open')
+        .order('position').order('id').range(from, from + 999);
+      if (error || !data || !data.length) break;
+      dls.push(...data);
+      if (data.length < 1000) break;
+    }
+    setDeals(dls);
     setLoading(false);
     // cidade de cada negócio (via empresa) — para o filtro de cidade
     const orgIds = [...new Set((dls || []).map((d: any) => d.organization_id).filter(Boolean))];
@@ -639,7 +646,7 @@ export const Crm: React.FC<Props> = ({ currentUser, activeClientId, isAdmin, mem
                 </div>
 
                 <div className="flex-1 p-2 space-y-2 min-h-[120px]">
-                  {stageDeals.map((deal: any) => (
+                  {stageDeals.slice(0, 100).map((deal: any) => (
                     <div key={deal.id} draggable
                       onClick={() => setDetailId(deal.id)}
                       onDragStart={() => setDragId(deal.id)}
@@ -668,6 +675,11 @@ export const Crm: React.FC<Props> = ({ currentUser, activeClientId, isAdmin, mem
                       </div>
                     </div>
                   ))}
+                  {stageDeals.length > 100 && (
+                    <div className="text-[10px] text-slate-400 italic text-center py-2">
+                      +{stageDeals.length - 100} negócio(s) nesta etapa. Use a busca ou os filtros (responsável/cidade) para localizar.
+                    </div>
+                  )}
                 </div>
               </div>
             );
