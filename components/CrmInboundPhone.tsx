@@ -36,28 +36,67 @@ const ensureAudio = () => {
 const stopTimer = () => { if (S?.timer) { clearInterval(S.timer); S.timer = null; } };
 const startTimer = () => { stopTimer(); if (!S) return; S.seconds = 0; S.secondsRef = 0; S.timer = setInterval(() => { if (!S) return; S.secondsRef += 1; S.seconds = S.secondsRef; emit(); }, 1000); };
 
-// registra a ligação recebida (atendida) no negócio casado pelo número
+// som de "telefone tocando" enquanto chama (gerado no navegador)
+let ringCtx: any = null, ringTimer: any = null;
+const startRing = () => {
+  if (ringTimer) return;
+  try {
+    const AC = (window as any).AudioContext || (window as any).webkitAudioContext;
+    if (!AC) return;
+    ringCtx = new AC();
+    const burst = () => {
+      if (!ringCtx) return;
+      const t = ringCtx.currentTime;
+      [440, 480].forEach((f: number) => {
+        const o = ringCtx.createOscillator(); o.type = 'sine'; o.frequency.value = f;
+        const g = ringCtx.createGain();
+        g.gain.setValueAtTime(0.0001, t);
+        g.gain.exponentialRampToValueAtTime(0.12, t + 0.05);
+        g.gain.setValueAtTime(0.12, t + 1.0);
+        g.gain.exponentialRampToValueAtTime(0.0001, t + 1.1);
+        o.connect(g); g.connect(ringCtx.destination); o.start(t); o.stop(t + 1.15);
+      });
+    };
+    try { ringCtx.resume?.(); } catch { /* */ }
+    burst(); ringTimer = setInterval(burst, 3000);
+  } catch { /* */ }
+};
+const stopRing = () => { if (ringTimer) { clearInterval(ringTimer); ringTimer = null; } try { ringCtx?.close(); } catch { /* */ } ringCtx = null; };
+
+// registra a ligação recebida: casa pelo número (consulta enxuta); se desconhecido,
+// cria um LEAD com o número para poderem retornar.
 async function logInbound(num: string, secs: number) {
   if (!S) return;
   const cid = S.cid, uid = S.userId;
   try {
     const key = phoneKey(num);
-    if (!key) return;
-    const [{ data: cts }, { data: orgs }] = await Promise.all([
-      supabase.from('crm_contacts').select('id, organization_id, phone').eq('client_id', cid).not('phone', 'is', null),
-      supabase.from('crm_organizations').select('id, phone').eq('client_id', cid).not('phone', 'is', null),
-    ]);
-    const ct = (cts || []).find((c: any) => phoneKey(c.phone) === key);
-    const orgId = ct?.organization_id || (orgs || []).find((o: any) => phoneKey(o.phone) === key)?.id || null;
-    let dealId: string | null = null;
-    if (orgId) { const { data } = await supabase.from('crm_deals').select('id').eq('client_id', cid).eq('organization_id', orgId).order('created_at', { ascending: false }).limit(1).maybeSingle(); dealId = data?.id || null; }
-    if (!dealId && ct?.id) { const { data } = await supabase.from('crm_deals').select('id').eq('client_id', cid).eq('contact_id', ct.id).order('created_at', { ascending: false }).limit(1).maybeSingle(); dealId = data?.id || null; }
+    let dealId: string | null = null, contactId: string | null = null, orgId: string | null = null;
+    if (key) {
+      const { data: cts } = await supabase.from('crm_contacts').select('id, organization_id, phone').eq('client_id', cid).ilike('phone', `%${key}%`).limit(10);
+      const ct = (cts || []).find((c: any) => phoneKey(c.phone) === key) || (cts || [])[0];
+      contactId = ct?.id || null; orgId = ct?.organization_id || null;
+      if (!orgId) { const { data: os } = await supabase.from('crm_organizations').select('id, phone').eq('client_id', cid).ilike('phone', `%${key}%`).limit(10); orgId = ((os || []).find((o: any) => phoneKey(o.phone) === key) || (os || [])[0])?.id || null; }
+      if (orgId) { const { data } = await supabase.from('crm_deals').select('id').eq('client_id', cid).eq('organization_id', orgId).order('created_at', { ascending: false }).limit(1).maybeSingle(); dealId = data?.id || null; }
+      if (!dealId && contactId) { const { data } = await supabase.from('crm_deals').select('id').eq('client_id', cid).eq('contact_id', contactId).order('created_at', { ascending: false }).limit(1).maybeSingle(); dealId = data?.id || null; }
+    }
+    // número desconhecido → cria um lead para salvar o contato e poder retornar
+    if (!dealId) {
+      const { data: pipe } = await supabase.from('crm_pipelines').select('id').eq('client_id', cid).eq('is_default', true).limit(1).maybeSingle();
+      const pipeId = pipe?.id || (await supabase.from('crm_pipelines').select('id').eq('client_id', cid).order('position').limit(1).maybeSingle()).data?.id;
+      if (pipeId) {
+        const { data: stg } = await supabase.from('crm_stages').select('id').eq('pipeline_id', pipeId).order('position').limit(1).maybeSingle();
+        const nm = `Lead ${num || 'desconhecido'}`;
+        const { data: org } = await supabase.from('crm_organizations').insert({ client_id: cid, name: nm, phone: num || null }).select('id').single();
+        const { data: ctc } = org ? await supabase.from('crm_contacts').insert({ client_id: cid, organization_id: org.id, name: 'Contato (ligação recebida)', phone: num || null }).select('id').single() : { data: null } as any;
+        if (org && stg?.id) { const { data: dl } = await supabase.from('crm_deals').insert({ client_id: cid, pipeline_id: pipeId, stage_id: stg.id, title: nm, organization_id: org.id, contact_id: ctc?.id || null, status: 'open', source: 'Ligação recebida', owner_member_id: uid || null }).select('id').single(); dealId = dl?.id || null; contactId = ctc?.id || null; }
+      }
+    }
     if (!dealId) return;
     await supabase.from('crm_activities').insert({
-      client_id: cid, deal_id: dealId, type: 'call',
-      title: `Ligação recebida — ${num}`, notes: 'Atendida pelo webfone.',
+      client_id: cid, deal_id: dealId, contact_id: contactId, type: 'call',
+      title: `Ligação recebida — ${num || 'número desconhecido'}`, notes: 'Atendida pelo webfone.',
       owner_member_id: uid || null, call_direction: 'in', call_answered: true, call_seconds: secs,
-      call_number: num, call_cause: 'answered',
+      call_number: num || null, call_cause: 'answered',
     });
   } catch { /* */ }
 }
@@ -82,10 +121,12 @@ async function connect() {
       if (st === 'ringing') {
         S.call = call;
         S.caller = call.options?.remoteCallerNumber || call.remoteCallerNumber || 'Número desconhecido';
-        S.phase = 'ringing'; emit();
+        S.phase = 'ringing'; startRing(); emit();
+        try { if (typeof Notification !== 'undefined' && Notification.permission === 'granted') new Notification('📞 Ligação recebida', { body: S.caller }); } catch { /* */ }
       } else if (st === 'active') {
-        S.answeredAt = Date.now(); S.phase = 'active'; startTimer(); emit();
+        stopRing(); S.answeredAt = Date.now(); S.phase = 'active'; startTimer(); emit();
       } else if (st === 'hangup' || st === 'destroy' || st === 'purge') {
+        stopRing();
         const wasActive = S.answeredAt > 0; const secs = S.secondsRef; const num = S.caller;
         stopTimer(); if (wasActive) logInbound(num, secs);
         S.answeredAt = 0; S.call = null; S.phase = 'idle'; S.muted = false; S.caller = ''; emit();
@@ -105,7 +146,7 @@ async function ensureStarted(cid: string, currentUser: any) {
 }
 
 const answerCall = () => { try { S?.call?.answer(); } catch { /* */ } };
-const rejectCall = () => { try { S?.call?.hangup(); } catch { /* */ } if (S) { S.phase = 'idle'; S.caller = ''; emit(); } };
+const rejectCall = () => { stopRing(); try { S?.call?.hangup(); } catch { /* */ } if (S) { S.phase = 'idle'; S.caller = ''; emit(); } };
 const hangupCall = () => { try { S?.call?.hangup(); } catch { /* */ } };
 const toggleMuteCall = () => { const c = S?.call; if (!c || !S) return; try { if (S.muted) c.unmuteAudio(); else c.muteAudio(); S.muted = !S.muted; emit(); } catch { /* */ } };
 
