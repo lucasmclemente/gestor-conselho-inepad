@@ -4087,8 +4087,8 @@ const App = () => {
                       const startStr = fmtMin(base), endStr = fmtMin(base + (Number(im.dur) || 0));
                       const TYPES = [{ id: 'pauta', label: 'Pauta', Icon: FileText }, { id: 'deliberacao', label: 'Deliberação', Icon: Scale }, { id: 'intervalo', label: 'Intervalo', Icon: Coffee }];
                       return (
-                        <div className="fixed inset-0 bg-slate-900/70 backdrop-blur-sm z-[100] flex justify-end" onClick={() => setItemModal(null)}>
-                          <div className="bg-white w-full max-w-md h-full shadow-2xl overflow-hidden flex flex-col animate-in slide-in-from-right duration-300" onClick={e => e.stopPropagation()}>
+                        <div className="fixed inset-0 bg-slate-900/70 backdrop-blur-sm z-[100] flex justify-end" onMouseDown={e => { if (e.target === e.currentTarget) setItemModal(null); }}>
+                          <div className="bg-white w-full max-w-md h-full shadow-2xl overflow-hidden flex flex-col animate-in slide-in-from-right duration-300" onMouseDown={e => e.stopPropagation()}>
                             <div className="p-6 bg-slate-900 text-white shrink-0">
                               <div className="flex justify-between items-start gap-3">
                                 <div className="min-w-0">

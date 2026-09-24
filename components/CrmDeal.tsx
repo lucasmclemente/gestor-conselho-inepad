@@ -909,8 +909,8 @@ export const CrmDeal: React.FC<Props> = ({ dealId, cid, currentUser, isAdmin, me
       )}
 
       {compose && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4" onClick={() => { if (!sendingEmail) { setCompose(null); setComposeFiles([]); } }}>
-          <div className="bg-white rounded-xl shadow-xl w-full max-w-lg p-5 space-y-3" onClick={e => e.stopPropagation()}>
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4" onMouseDown={e => { if (e.target === e.currentTarget && !sendingEmail) { setCompose(null); setComposeFiles([]); } }}>
+          <div className="bg-white rounded-xl shadow-xl w-full max-w-lg p-5 space-y-3" onMouseDown={e => e.stopPropagation()}>
             <div className="flex items-center justify-between">
               <h3 className="text-[11px] font-bold uppercase text-slate-600 tracking-widest flex items-center gap-1.5"><Mail size={14} className="text-amber-600" /> Enviar e-mail</h3>
               <button onClick={() => { setCompose(null); setComposeFiles([]); }} className="text-slate-300 hover:text-slate-600"><X size={16} /></button>
@@ -961,8 +961,8 @@ export const CrmDeal: React.FC<Props> = ({ dealId, cid, currentUser, isAdmin, me
       )}
 
       {sigOpen && (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-900/40 p-4" onClick={() => !sigBusy && setSigOpen(false)}>
-          <div className="bg-white rounded-xl shadow-xl w-full max-w-lg p-5 space-y-3" onClick={e => e.stopPropagation()}>
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-900/40 p-4" onMouseDown={e => { if (e.target === e.currentTarget && !sigBusy) setSigOpen(false); }}>
+          <div className="bg-white rounded-xl shadow-xl w-full max-w-lg p-5 space-y-3" onMouseDown={e => e.stopPropagation()}>
             <div className="flex items-center justify-between">
               <h3 className="text-[11px] font-bold uppercase text-slate-600 tracking-widest flex items-center gap-1.5"><Mail size={14} className="text-amber-600" /> Minha assinatura de e-mail</h3>
               <button onClick={() => setSigOpen(false)} className="text-slate-300 hover:text-slate-600"><X size={16} /></button>
