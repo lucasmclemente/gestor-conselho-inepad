@@ -30,6 +30,9 @@ export const CrmWebphone: React.FC<Props> = ({ number, contactName, dealId, cid,
   const secondsRef = useRef(0);        // duração falada (espelho do state p/ closures)
   const finalizedRef = useRef(false);  // evita gravar métricas 2x
   const causeRef = useRef('');         // causa do encerramento (p/ analytics)
+  const dialAtRef = useRef(0);         // quando a discagem começou (p/ detectar falha de "aquecimento")
+  const progressedRef = useRef(false); // a chamada chegou a tocar/conectar?
+  const retriedRef = useRef(false);    // já refez a discagem automática 1x?
   const activityIdRef = useRef<string | null>(null);        // criada só quando a chamada toca
   const createPromiseRef = useRef<Promise<string | null> | null>(null); // single-flight da criação
   const recorderRef = useRef<any>(null);       // MediaRecorder da ligação
@@ -161,21 +164,27 @@ export const CrmWebphone: React.FC<Props> = ({ number, contactName, dealId, cid,
       try { (client as any).setAudioSettings?.(AUDIO); } catch { /* */ }
       clientRef.current = client;
 
-      client.on('telnyx.ready', () => {
+      // discagem (reutilizável p/ a rediscagem automática de "aquecimento")
+      const dial = () => {
         if (cancelled) return;
+        progressedRef.current = false;
+        dialAtRef.current = Date.now();
         setStatus('Chamando…');
         try {
           callRef.current = (client as any).newCall({ destinationNumber: number, callerNumber: callerId, audio: AUDIO, video: false });
         } catch (e) { setStatus('Falha ao discar'); }
-      });
+      };
+
+      client.on('telnyx.ready', () => dial());
       client.on('telnyx.error', () => setStatus('Erro de conexão'));
       client.on('telnyx.socket.error', () => setStatus('Erro de conexão'));
       client.on('telnyx.notification', (n: any) => {
         if (n?.type === 'callUpdate' && n.call) {
           const st = n.call.state;
-          if (st === 'ringing' || st === 'early') { setStatus('Chamando…'); ensureActivity(); } // tocou → registra a ligação
+          if (st === 'ringing' || st === 'early') { progressedRef.current = true; setStatus('Chamando…'); ensureActivity(); } // tocou → registra a ligação
           else if (st === 'requesting' || st === 'trying') setStatus('Chamando…');               // ainda não tocou
           else if (st === 'active') {
+            progressedRef.current = true;
             setStatus('Em ligação'); setLive(true); answeredRef.current = true; startTimer();
             // guarda o call_session_id da Telnyx na atividade (referência) e inicia a gravação no navegador
             try {
@@ -186,6 +195,16 @@ export const CrmWebphone: React.FC<Props> = ({ number, contactName, dealId, cid,
             startRecording(callRef.current || n.call);
           }
           else if (st === 'hangup' || st === 'destroy' || st === 'purge') {
+            // Falha de "aquecimento": a 1ª chamada cai antes de tocar (cliente ainda não pronto).
+            // Refaz a discagem 1x automaticamente com o cliente já conectado (transparente, sem registrar ligação falha).
+            if (!progressedRef.current && !retriedRef.current && (Date.now() - dialAtRef.current < 6000)) {
+              retriedRef.current = true;
+              setStatus('Reconectando…');
+              try { (callRef.current as any)?.hangup?.(); } catch { /* */ }
+              callRef.current = null;
+              setTimeout(() => dial(), 600);
+              return;
+            }
             const cause = n.call?.cause || n.call?.causeCode || n.call?.sipCode || '';
             causeRef.current = String(cause || '');
             setStatus(cause ? `Encerrada — ${cause}` : 'Encerrada');
