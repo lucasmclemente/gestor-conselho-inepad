@@ -4024,25 +4024,27 @@ const App = () => {
                       const startStr = fmtMin(base), endStr = fmtMin(base + (Number(im.dur) || 0));
                       const TYPES = [{ id: 'pauta', label: 'Pauta', Icon: FileText }, { id: 'deliberacao', label: 'Deliberação', Icon: Scale }, { id: 'intervalo', label: 'Intervalo', Icon: Coffee }];
                       return (
-                        <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-md z-[100] flex items-center justify-center p-4" onClick={() => setItemModal(null)}>
-                          <div className="bg-white w-full max-w-2xl rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[92vh] animate-in zoom-in-95" onClick={e => e.stopPropagation()}>
-                            <div className="p-6 border-b flex justify-between items-center bg-slate-50">
-                              <div>
-                                <h3 className="text-xl font-bold text-slate-800 italic flex items-center gap-2"><ListChecks size={20} className="text-amber-600" /> {im.editIndex === null || im.editIndex === undefined ? 'Adicionar Item na Agenda' : 'Editar Item'}</h3>
-                                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Ordem do dia — {currentMeeting.title || 'reunião'}</p>
+                        <div className="fixed inset-0 bg-slate-900/70 backdrop-blur-sm z-[100] flex justify-end" onClick={() => setItemModal(null)}>
+                          <div className="bg-white w-full max-w-md h-full shadow-2xl overflow-hidden flex flex-col animate-in slide-in-from-right duration-300" onClick={e => e.stopPropagation()}>
+                            <div className="p-6 bg-slate-900 text-white shrink-0">
+                              <div className="flex justify-between items-start gap-3">
+                                <div className="min-w-0">
+                                  <p className="text-[10px] font-bold text-amber-500 uppercase tracking-[0.2em]">Ordem do dia</p>
+                                  <h3 className="text-xl font-bold italic mt-0.5">{im.editIndex === null || im.editIndex === undefined ? 'Novo item' : 'Editar item'}</h3>
+                                  <p className="text-[10px] text-slate-400 truncate">{currentMeeting.title || 'reunião'}</p>
+                                </div>
+                                <button onClick={() => setItemModal(null)} className="p-2 hover:bg-white/10 rounded-full transition-colors text-slate-300 shrink-0"><X size={20} /></button>
                               </div>
-                              <button onClick={() => setItemModal(null)} className="p-2 hover:bg-slate-200 rounded-full transition-colors"><X size={20} /></button>
-                            </div>
-                            <div className="flex-1 overflow-y-auto p-6 space-y-5 bg-slate-50/30">
-                              {/* Tipo */}
-                              <div className="grid grid-cols-3 gap-3">
+                              <div className="mt-4 grid grid-cols-3 gap-1 bg-white/5 p-1 rounded-xl border border-white/10">
                                 {TYPES.map(tp => (
-                                  <button key={tp.id} onClick={() => setItemModal({ ...im, type: tp.id })} className={`p-4 rounded-xl border-2 flex flex-col items-center gap-2 transition-all ${im.type === tp.id ? 'border-amber-500 bg-amber-50 shadow-sm' : 'border-slate-200 bg-white hover:border-slate-300'}`}>
-                                    <tp.Icon size={22} className={im.type === tp.id ? 'text-amber-600' : 'text-slate-400'} />
-                                    <span className={`text-xs font-bold uppercase tracking-widest ${im.type === tp.id ? 'text-amber-700' : 'text-slate-500'}`}>{tp.label}</span>
+                                  <button key={tp.id} onClick={() => setItemModal({ ...im, type: tp.id })} className={`py-2.5 rounded-lg flex flex-col items-center gap-1 transition-all ${im.type === tp.id ? 'bg-amber-600 text-white shadow' : 'text-slate-300 hover:bg-white/10'}`}>
+                                    <tp.Icon size={16} />
+                                    <span className="text-[9px] font-bold uppercase tracking-widest">{tp.label}</span>
                                   </button>
                                 ))}
                               </div>
+                            </div>
+                            <div className="flex-1 overflow-y-auto p-6 space-y-5 bg-white">
 
                               {im.type === 'deliberacao' && (
                                 <div className="flex gap-4">
@@ -4092,7 +4094,7 @@ const App = () => {
                                 <label className="text-[10px] font-bold text-slate-400 uppercase">Duração</label>
                                 <div className="flex items-center gap-2 flex-wrap">
                                   {presets.map(pv => (
-                                    <button key={pv} onClick={() => setItemModal({ ...im, dur: pv })} className={`px-4 py-2 rounded-lg text-sm font-bold transition-all ${Number(im.dur) === pv ? 'bg-emerald-600 text-white shadow-sm' : 'bg-white border border-slate-200 text-slate-600 hover:border-slate-300'}`}>{pv === 60 ? '1h' : `${pv}min`}</button>
+                                    <button key={pv} onClick={() => setItemModal({ ...im, dur: pv })} className={`px-4 py-2 rounded-lg text-sm font-bold transition-all ${Number(im.dur) === pv ? 'bg-slate-900 text-amber-500 shadow-sm' : 'bg-white border border-slate-200 text-slate-600 hover:border-slate-300'}`}>{pv === 60 ? '1h' : `${pv}min`}</button>
                                   ))}
                                   <div className="flex items-center gap-1">
                                     <input type="number" min={1} className="w-20 p-2 border rounded-lg text-sm font-bold outline-none focus:border-amber-400" value={im.dur} onChange={e => setItemModal({ ...im, dur: e.target.value })} />
