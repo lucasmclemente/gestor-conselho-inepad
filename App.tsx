@@ -3670,12 +3670,12 @@ const App = () => {
                       if (all.length === 0) return <div className="bg-white p-12 rounded-xl border border-slate-200 shadow-sm text-center text-sm text-slate-400 italic">Nenhuma reunião cadastrada{canEdit ? ' — use "+ Nova Reunião" ou "Programar Ano"' : ''}.</div>;
                       return (
                         <div className="space-y-8">
-                          <div className="space-y-3">
-                            <div className="flex items-center gap-2 px-1"><CalendarClock size={16} className="text-amber-600" /><h2 className="text-xs font-bold uppercase tracking-widest text-slate-500">Próximas reuniões</h2><span className="text-[10px] font-bold text-slate-400 bg-slate-100 rounded-full px-2 py-0.5">{upcoming.length}</span></div>
+                          <details open className="group/fd space-y-3">
+                            <summary className="flex items-center gap-2 px-1 cursor-pointer list-none select-none [&::-webkit-details-marker]:hidden"><CalendarClock size={16} className="text-amber-600" /><h2 className="text-xs font-bold uppercase tracking-widest text-slate-500">Próximas reuniões</h2><span className="text-[10px] font-bold text-slate-400 bg-slate-100 rounded-full px-2 py-0.5">{upcoming.length}</span><ChevronDown size={14} className="text-slate-400 transition-transform group-open/fd:rotate-180 ml-0.5" /></summary>
                             {upcoming.length === 0
                               ? <div className="bg-white p-8 rounded-xl border border-dashed border-slate-300 text-center text-[11px] uppercase tracking-widest font-bold text-slate-400">Nenhuma reunião futura agendada{canEdit ? ' — use "Programar Ano"' : ''}</div>
-                              : <div className="grid gap-4">{upcoming.map((m: any, i: number) => Card(m, { next: i === 0 }))}</div>}
-                          </div>
+                              : <div className="grid gap-4 pt-3">{upcoming.map((m: any, i: number) => Card(m, { next: i === 0 }))}</div>}
+                          </details>
                           {past.length > 0 && (
                             <details open className="group/pd space-y-3">
                               <summary className="flex items-center gap-2 px-1 cursor-pointer list-none select-none [&::-webkit-details-marker]:hidden"><CalendarCheck size={16} className="text-slate-400" /><h2 className="text-xs font-bold uppercase tracking-widest text-slate-500">Reuniões anteriores</h2><span className="text-[10px] font-bold text-slate-400 bg-slate-100 rounded-full px-2 py-0.5">{past.length}</span><ChevronDown size={14} className="text-slate-400 transition-transform group-open/pd:rotate-180 ml-0.5" /></summary>
