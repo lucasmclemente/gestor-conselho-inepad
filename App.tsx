@@ -8,7 +8,7 @@ import { RelatorioGovernanca } from './components/RelatorioGovernanca';
 import { Crm } from './components/Crm';
 import {
   LayoutDashboard, Calendar, CalendarPlus, CalendarClock, CalendarCheck, ChevronRight, UserPlus,
-  Clock, CheckCircle2, AlertCircle, FileText, Send, X, Trash2,
+  Clock, CheckCircle2, AlertCircle, FileText, Send, X, Trash2, Coffee, Paperclip, Tag,
   Upload, Save, Lock, Target, FileCheck, BarChart3,
   PieChart as PieIcon, LogIn, User, Key, LogOut, UserCheck,
   Mail, UserCog, Settings, Camera, UserCircle, History, Filter, MessageSquare, Download, ExternalLink, ListChecks, Plus, Edit2, Check, Menu, ChevronUp, ChevronDown, Play, Square, Timer, SkipForward, Building2, ChevronLeft, UserMinus, ThumbsUp, ThumbsDown, CircleSlash, MinusCircle, Archive, Search, PenLine, ShieldCheck, Scale, Monitor, MapPin, Gauge, TrendingUp, TrendingDown, Bell, Compass, Sparkles, Users
@@ -111,6 +111,8 @@ const App = () => {
   const [editingPauta, setEditingPauta] = useState<number | null>(null);
   const [tmpPart, setTmpPart] = useState({ name: '', email: '', isExternal: false });
   const [tmpPauta, setTmpPauta] = useState({ title: '', resp: '', dur: '' });
+  const [itemModal, setItemModal] = useState<any>(null);       // modal "Adicionar/Editar Item na Agenda"
+  const [itemFileUploading, setItemFileUploading] = useState(false);
   // Pauta automática: sugestões de itens a partir das pendências reais do conselho
   const [suggestOpen, setSuggestOpen] = useState(false);
   const [suggestGroups, setSuggestGroups] = useState<any[]>([]);
@@ -2624,6 +2626,88 @@ const App = () => {
     setMeetings((prev: any) => prev.map((m: any) => m.id === currentMeeting.id ? { ...m, deliberacoes: newDelibs } : m));
   };
 
+  // ── Ordem do Dia: itens tipados (Pauta / Deliberação / Intervalo) ──
+  const AGENDA_THEMES = ['Estratégia', 'Risco', 'Financeiro', 'Jurídico', 'Auditoria', 'Compliance', 'Pessoas', 'Lideranças', 'Governança', 'ESG', 'Operações', 'Tecnologia'];
+  const newUid = () => (typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `id-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+  const blankItem = (type = 'pauta') => ({ editIndex: null, uid: newUid(), type, title: '', desc: '', tema: '', resp: '', dur: 15, voters: [] as string[], delibKind: 'aprovacao', materiais: [] as any[] });
+
+  const openItemModal = (editIndex: number | null = null) => {
+    if (editIndex === null) { setItemModal(blankItem('pauta')); return; }
+    const p = (currentMeeting.pautas || [])[editIndex] || {};
+    const linked = p.deliberationId ? (currentMeeting.deliberacoes || []).find((d: any) => d.id === p.deliberationId) : null;
+    setItemModal({
+      editIndex, uid: p.uid || newUid(), type: p.type || 'pauta', title: p.title || '', desc: p.desc || '',
+      tema: p.tema || '', resp: p.resp || '', dur: p.dur ?? 15, voters: linked?.voters || p.voters || [],
+      delibKind: p.delibKind || linked?.kind || 'aprovacao', materiais: p.materiais || [],
+    });
+  };
+
+  const uploadItemMaterial = async (file: File) => {
+    if (!file || !itemModal) return;
+    const cid = activeClientId || currentUser?.client_id;
+    setItemFileUploading(true);
+    try {
+      const safe = file.name.replace(/[^a-zA-Z0-9._-]/g, '_');
+      const path = `pautas/${cid}/${itemModal.uid}/${Date.now()}-${safe}`;
+      const { error: upErr } = await supabase.storage.from('meeting-files').upload(path, file, { upsert: true });
+      if (upErr) throw upErr;
+      const { data: signed } = await supabase.storage.from('meeting-files').createSignedUrl(path, 60 * 60 * 24 * 7);
+      const att = { name: file.name, url: signed?.signedUrl || '', uploadedAt: new Date().toISOString() };
+      setItemModal((prev: any) => prev ? { ...prev, materiais: [...(prev.materiais || []), att] } : prev);
+    } catch (e: any) { alert('Erro ao anexar material: ' + (e?.message || e)); }
+    finally { setItemFileUploading(false); }
+  };
+  const removeItemMaterial = (idx: number) => setItemModal((prev: any) => prev ? { ...prev, materiais: (prev.materiais || []).filter((_: any, i: number) => i !== idx) } : prev);
+
+  const saveItem = async () => {
+    const it = itemModal; if (!it) return;
+    if (it.type !== 'intervalo' && !it.title.trim()) { alert('Informe o título.'); return; }
+    if (it.type === 'deliberacao' && (!it.voters || it.voters.length === 0)) { alert('Selecione ao menos um votante para a deliberação.'); return; }
+    const title = it.type === 'intervalo' ? (it.title.trim() || 'Intervalo') : it.title.trim();
+    const pautas = [...(currentMeeting.pautas || [])];
+    let deliberacoes = [...(currentMeeting.deliberacoes || [])];
+    const isEdit = it.editIndex !== null && it.editIndex !== undefined;
+    const existing = isEdit ? (pautas[it.editIndex] || {}) : {};
+    const pauta: any = {
+      ...existing, uid: it.uid, type: it.type, title, desc: it.desc || '',
+      tema: it.type === 'intervalo' ? '' : (it.tema || ''), resp: it.type === 'intervalo' ? '' : (it.resp || ''),
+      dur: Number(it.dur) || 0, materiais: it.materiais || [],
+      realDur: existing.realDur || 0, completed: existing.completed || false, notes: existing.notes || '',
+    };
+    if (it.type === 'deliberacao') {
+      let delibId = existing.deliberationId;
+      if (delibId && deliberacoes.some((d: any) => d.id === delibId)) {
+        deliberacoes = deliberacoes.map((d: any) => d.id === delibId ? { ...d, title, voters: it.voters || [], kind: it.delibKind } : d);
+      } else {
+        delibId = newUid();
+        deliberacoes = [...deliberacoes, { id: delibId, title, voters: it.voters || [], votes: {}, kind: it.delibKind }];
+      }
+      pauta.deliberationId = delibId;
+    } else if (existing.deliberationId) {
+      // deixou de ser deliberação → remove a deliberação órfã vinculada
+      deliberacoes = deliberacoes.filter((d: any) => d.id !== existing.deliberationId);
+      delete pauta.deliberationId;
+    }
+    if (isEdit) pautas[it.editIndex] = pauta; else pautas.push(pauta);
+    const updated = { ...currentMeeting, pautas, deliberacoes };
+    setCurrentMeeting(updated);
+    if (currentMeeting.id) {
+      try { await supabase.from('meetings').update({ pautas, deliberacoes }).eq('id', currentMeeting.id); setMeetings((prev: any) => prev.map((m: any) => m.id === currentMeeting.id ? updated : m)); } catch { /* persiste ao Salvar */ }
+    }
+    addLog('Pauta', `${isEdit ? 'Item atualizado' : 'Item adicionado'} — ${title}`);
+    setItemModal(null);
+  };
+
+  const deletePautaItem = (i: number) => {
+    const p = (currentMeeting.pautas || [])[i];
+    const pautas = (currentMeeting.pautas || []).filter((_: any, idx: number) => idx !== i);
+    let deliberacoes = currentMeeting.deliberacoes || [];
+    if (p?.deliberationId) deliberacoes = deliberacoes.filter((d: any) => d.id !== p.deliberationId);
+    const updated = { ...currentMeeting, pautas, deliberacoes };
+    setCurrentMeeting(updated);
+    if (currentMeeting.id) { supabase.from('meetings').update({ pautas, deliberacoes }).eq('id', currentMeeting.id).then(() => setMeetings((prev: any) => prev.map((m: any) => m.id === currentMeeting.id ? updated : m)), () => { }); }
+  };
+
   const formatTime = (seconds: number) => {
     const m = Math.floor(seconds / 60);
     const s = seconds % 60;
@@ -3836,26 +3920,49 @@ const App = () => {
                           </div>
                         )}
                         <div className="space-y-3">
-                          {(currentMeeting.pautas || []).map((p: any, i: any) => (
-                            <div key={i} className={`flex flex-col border rounded-lg transition-all group border-l-4 font-bold italic overflow-hidden ${activePautaIndex === i ? 'bg-amber-50 border-amber-500 scale-[1.01] shadow-sm' : 'bg-white border-slate-200'}`}>
+                          {(currentMeeting.pautas || []).map((p: any, i: any) => {
+                            const t = p.type || 'pauta';
+                            const tMeta = t === 'deliberacao' ? { Icon: Scale, label: 'Deliberação', cls: 'bg-amber-100 text-amber-700 border-amber-200' }
+                              : t === 'intervalo' ? { Icon: Coffee, label: 'Intervalo', cls: 'bg-sky-100 text-sky-700 border-sky-200' }
+                              : { Icon: FileText, label: 'Pauta', cls: 'bg-slate-100 text-slate-600 border-slate-200' };
+                            const linkedDelib = p.deliberationId ? (currentMeeting.deliberacoes || []).find((d: any) => d.id === p.deliberationId) : null;
+                            return (
+                            <div key={i} className={`flex flex-col border rounded-lg transition-all group border-l-4 font-bold italic overflow-hidden ${activePautaIndex === i ? 'bg-amber-50 border-amber-500 scale-[1.01] shadow-sm' : t === 'intervalo' ? 'bg-sky-50/40 border-slate-200' : 'bg-white border-slate-200'}`}>
                               <div className="flex justify-between items-center p-4">
-                                <div className="flex items-center gap-4 flex-1">
+                                <div className="flex items-center gap-4 flex-1 min-w-0">
                                   <div className="flex flex-col gap-1 mr-2">
                                     {!isSessionActive && canEdit && (<><button onClick={() => handleMovePauta(i, 'up')} className="text-slate-300 hover:text-amber-600 disabled:opacity-0" disabled={i === 0}><ChevronUp size={16} /></button><button onClick={() => handleMovePauta(i, 'down')} className="text-slate-300 hover:text-amber-600 disabled:opacity-0" disabled={i === currentMeeting.pautas.length - 1}><ChevronDown size={16} /></button></>)}
                                     {isSessionActive && activePautaIndex === i && <Play size={16} className="text-amber-500 animate-pulse" />}
                                   </div>
                                   <span className="text-slate-300">#{i + 1}</span>
-                                  <div>
-                                    <p className="text-sm text-slate-800">{p.title}</p>
-                                    <p className="text-[10px] text-slate-500 font-bold uppercase">{p.resp} • {p.dur} min{pautaTimes[i] ? <span className="text-amber-600 ml-2">⏰ {pautaTimes[i].start}–{pautaTimes[i].end}</span> : null} {p.realDur && <span className="text-emerald-600 ml-2">Gasto: {p.realDur}min</span>}</p>
+                                  <div className="min-w-0">
+                                    <div className="flex items-center gap-2 flex-wrap">
+                                      <span className={`inline-flex items-center gap-1 text-[8px] font-bold uppercase tracking-widest px-2 py-0.5 rounded border not-italic ${tMeta.cls}`}><tMeta.Icon size={10} /> {tMeta.label}</span>
+                                      {p.tema && <span className="inline-flex items-center gap-1 text-[8px] font-bold uppercase tracking-widest px-2 py-0.5 rounded bg-slate-50 text-slate-500 border border-slate-200 not-italic"><Tag size={9} /> {p.tema}</span>}
+                                      <p className="text-sm text-slate-800 truncate">{p.title}</p>
+                                    </div>
+                                    {t !== 'intervalo'
+                                      ? <p className="text-[10px] text-slate-500 font-bold uppercase mt-0.5">{p.resp}{p.resp && ' • '}{p.dur} min{pautaTimes[i] ? <span className="text-amber-600 ml-2">⏰ {pautaTimes[i].start}–{pautaTimes[i].end}</span> : null} {p.realDur ? <span className="text-emerald-600 ml-2">Gasto: {p.realDur}min</span> : null}</p>
+                                      : <p className="text-[10px] text-slate-500 font-bold uppercase mt-0.5">{p.dur} min{pautaTimes[i] ? <span className="text-amber-600 ml-2">⏰ {pautaTimes[i].start}–{pautaTimes[i].end}</span> : null}</p>}
+                                    {p.desc && <p className="text-[10px] text-slate-500 font-normal not-italic mt-1 leading-snug">{p.desc}</p>}
+                                    {linkedDelib && <button onClick={() => setTab('delib')} className="mt-1 inline-flex items-center gap-1 text-[9px] font-bold uppercase tracking-widest text-amber-600 hover:text-amber-700 not-italic"><Scale size={10} /> {(linkedDelib.voters || []).length} votante(s) — ver deliberação</button>}
+                                    {(p.materiais || []).length > 0 && (
+                                      <div className="flex flex-wrap gap-2 mt-1.5">
+                                        {(p.materiais || []).map((mat: any, mi: number) => (
+                                          <button key={mi} onClick={() => openAtaUrl(mat.url)} className="inline-flex items-center gap-1 text-[9px] font-bold text-slate-600 hover:text-amber-600 bg-slate-50 border border-slate-200 rounded px-2 py-1 not-italic transition-colors" title={mat.name}><Paperclip size={10} /> <span className="max-w-[140px] truncate">{mat.name}</span></button>
+                                        ))}
+                                      </div>
+                                    )}
                                   </div>
                                 </div>
-                                <div className="flex items-center gap-4">
+                                <div className="flex items-center gap-4 shrink-0">
                                   {isSessionActive && activePautaIndex === i && (<><div className={`font-mono text-xl ${timeElapsed > (parseInt(p.dur) * 60) ? 'text-red-600 animate-pulse' : 'text-amber-600'}`}>{formatTime(timeElapsed)}</div><button onClick={() => handleFinalizePauta(i)} className="bg-emerald-600 text-white px-3 py-1.5 rounded-lg text-[10px] font-bold uppercase flex items-center gap-2">Próxima <SkipForward size={14} /></button></>)}
-                                  {!isSessionActive && canEdit && <button onClick={() => setCurrentMeeting({ ...currentMeeting, pautas: (currentMeeting.pautas || []).filter((_: any, idx: any) => idx !== i) })} className="p-2 text-slate-200 hover:text-red-500 transition-all"><Trash2 size={18} /></button>}
+                                  {!isSessionActive && canEdit && <button onClick={() => openItemModal(i)} className="p-2 text-slate-300 hover:text-amber-600 transition-all" title="Editar item"><Edit2 size={16} /></button>}
+                                  {!isSessionActive && canEdit && <button onClick={() => deletePautaItem(i)} className="p-2 text-slate-200 hover:text-red-500 transition-all" title="Excluir item"><Trash2 size={18} /></button>}
                                   {p.completed && <CheckCircle2 size={20} className="text-emerald-500" />}
                                 </div>
                               </div>
+                              {t !== 'intervalo' && (
                               <div className="px-4 pb-3 border-t border-slate-50 bg-white" onClick={e => e.stopPropagation()}>
                                   {canEdit && editingObsKey === `pauta-notes-${i}` ? (
                                     <>
@@ -3894,19 +4001,154 @@ const App = () => {
                                     ><MessageSquare size={10} /> adicionar notas de discussão</button>
                                   ) : null}
                                 </div>
+                              )}
                             </div>
-                          ))}
+                            );
+                          })}
                         </div>
                         {canEdit && !isSessionActive && (
-                          <div className="p-5 bg-slate-50 rounded-xl border border-dashed border-slate-300 grid grid-cols-1 sm:grid-cols-5 gap-4 items-end">
-                            <div className="sm:col-span-2"><label className="text-[10px] font-bold text-slate-400 uppercase">Assunto</label><input placeholder="Título" className="w-full p-3 border rounded-lg text-sm bg-white font-bold" value={tmpPauta.title} onChange={e => setTmpPauta({ ...tmpPauta, title: e.target.value })} /></div>
-                            <div><label className="text-[10px] font-bold text-slate-400 uppercase">Resp.</label><select className="w-full p-3 border rounded-lg text-sm bg-white font-bold" value={tmpPauta.resp} onChange={e => setTmpPauta({ ...tmpPauta, resp: e.target.value })}><option value="">Selecione...</option>{(currentMeeting.participants || []).map((p: any, i: number) => <option key={i} value={p.name}>{p.name}</option>)}</select></div>
-                            <div><label className="text-[10px] font-bold text-slate-400 uppercase">Minutos</label><input type="number" className="w-full p-3 border rounded-lg text-sm bg-white font-bold" value={tmpPauta.dur} onChange={e => setTmpPauta({ ...tmpPauta, dur: e.target.value })} /></div>
-                            <button onClick={() => { if (tmpPauta.title) { setCurrentMeeting({ ...currentMeeting, pautas: [...(currentMeeting.pautas || []), tmpPauta] }); setTmpPauta({ title: '', resp: '', dur: '' }); } }} className="h-12 bg-amber-600 text-white rounded-lg flex items-center justify-center shadow-md"><Plus size={24} /></button>
-                          </div>
+                          <button onClick={() => openItemModal(null)} className="w-full py-4 bg-amber-600 hover:bg-amber-700 text-white rounded-xl font-bold uppercase text-[10px] tracking-widest flex items-center justify-center gap-2 transition-all shadow-md"><Plus size={16} /> Adicionar Item na Agenda</button>
                         )}
                       </div>
                     )}
+
+                    {itemModal && (() => {
+                      const im = itemModal;
+                      const internals = (currentMeeting.participants || []).filter((p: any) => !p.isExternal);
+                      const presets = [15, 30, 45, 60];
+                      const fmtMin = (mins: number) => `${String(Math.floor(mins / 60) % 24).padStart(2, '0')}:${String(mins % 60).padStart(2, '0')}`;
+                      const [hh, mm] = String(currentMeeting.time || '09:00').split(':').map(Number);
+                      let base = (isNaN(hh) ? 9 : hh) * 60 + (isNaN(mm) ? 0 : mm);
+                      const upto = (im.editIndex === null || im.editIndex === undefined) ? (currentMeeting.pautas || []).length : im.editIndex;
+                      for (let k = 0; k < upto; k++) base += Number((currentMeeting.pautas || [])[k]?.dur) || 0;
+                      const startStr = fmtMin(base), endStr = fmtMin(base + (Number(im.dur) || 0));
+                      const TYPES = [{ id: 'pauta', label: 'Pauta', Icon: FileText }, { id: 'deliberacao', label: 'Deliberação', Icon: Scale }, { id: 'intervalo', label: 'Intervalo', Icon: Coffee }];
+                      return (
+                        <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-md z-[100] flex items-center justify-center p-4" onClick={() => setItemModal(null)}>
+                          <div className="bg-white w-full max-w-2xl rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[92vh] animate-in zoom-in-95" onClick={e => e.stopPropagation()}>
+                            <div className="p-6 border-b flex justify-between items-center bg-slate-50">
+                              <div>
+                                <h3 className="text-xl font-bold text-slate-800 italic flex items-center gap-2"><ListChecks size={20} className="text-amber-600" /> {im.editIndex === null || im.editIndex === undefined ? 'Adicionar Item na Agenda' : 'Editar Item'}</h3>
+                                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Ordem do dia — {currentMeeting.title || 'reunião'}</p>
+                              </div>
+                              <button onClick={() => setItemModal(null)} className="p-2 hover:bg-slate-200 rounded-full transition-colors"><X size={20} /></button>
+                            </div>
+                            <div className="flex-1 overflow-y-auto p-6 space-y-5 bg-slate-50/30">
+                              {/* Tipo */}
+                              <div className="grid grid-cols-3 gap-3">
+                                {TYPES.map(tp => (
+                                  <button key={tp.id} onClick={() => setItemModal({ ...im, type: tp.id })} className={`p-4 rounded-xl border-2 flex flex-col items-center gap-2 transition-all ${im.type === tp.id ? 'border-amber-500 bg-amber-50 shadow-sm' : 'border-slate-200 bg-white hover:border-slate-300'}`}>
+                                    <tp.Icon size={22} className={im.type === tp.id ? 'text-amber-600' : 'text-slate-400'} />
+                                    <span className={`text-xs font-bold uppercase tracking-widest ${im.type === tp.id ? 'text-amber-700' : 'text-slate-500'}`}>{tp.label}</span>
+                                  </button>
+                                ))}
+                              </div>
+
+                              {im.type === 'deliberacao' && (
+                                <div className="flex gap-4">
+                                  {[{ id: 'aprovacao', label: 'Aprovação' }, { id: 'personalizada', label: 'Personalizada' }].map(k => (
+                                    <label key={k.id} className="flex items-center gap-2 text-sm font-bold text-slate-600 cursor-pointer">
+                                      <input type="radio" name="delibKind" checked={im.delibKind === k.id} onChange={() => setItemModal({ ...im, delibKind: k.id })} className="accent-amber-600" /> {k.label}
+                                    </label>
+                                  ))}
+                                </div>
+                              )}
+
+                              {/* Título */}
+                              <div>
+                                <label className="text-[10px] font-bold text-slate-400 uppercase">{im.type === 'deliberacao' ? 'Título da matéria' : im.type === 'intervalo' ? 'Título do intervalo' : 'Assunto'}{im.type !== 'intervalo' && <span className="text-red-500">*</span>}</label>
+                                <input maxLength={1000} placeholder={im.type === 'intervalo' ? 'Ex.: Intervalo para café' : 'Digite o título'} className="w-full p-3 border rounded-lg text-sm font-bold outline-none focus:border-amber-400" value={im.title} onChange={e => setItemModal({ ...im, title: e.target.value })} />
+                              </div>
+
+                              {im.type !== 'intervalo' && (
+                                <>
+                                  {/* Descrição */}
+                                  <div>
+                                    <label className="text-[10px] font-bold text-slate-400 uppercase">Descrição</label>
+                                    <textarea maxLength={1000} rows={2} placeholder="Contextualize este item (opcional)" className="w-full p-3 border rounded-lg text-sm font-normal not-italic outline-none focus:border-amber-400 resize-none" value={im.desc} onChange={e => setItemModal({ ...im, desc: e.target.value })} />
+                                  </div>
+                                  {/* Tema + Responsável */}
+                                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                                    <div>
+                                      <label className="text-[10px] font-bold text-slate-400 uppercase flex items-center gap-1"><Tag size={11} /> Tema</label>
+                                      <select className="w-full p-3 border rounded-lg text-sm font-bold outline-none focus:border-amber-400 bg-white" value={im.tema} onChange={e => setItemModal({ ...im, tema: e.target.value })}>
+                                        <option value="">Sem tema</option>
+                                        {AGENDA_THEMES.map(th => <option key={th} value={th}>{th}</option>)}
+                                      </select>
+                                    </div>
+                                    <div>
+                                      <label className="text-[10px] font-bold text-slate-400 uppercase">Responsável</label>
+                                      <select className="w-full p-3 border rounded-lg text-sm font-bold outline-none focus:border-amber-400 bg-white" value={im.resp} onChange={e => setItemModal({ ...im, resp: e.target.value })}>
+                                        <option value="">Selecione...</option>
+                                        {(currentMeeting.participants || []).map((p: any, idx: number) => <option key={idx} value={p.name}>{p.name}</option>)}
+                                      </select>
+                                    </div>
+                                  </div>
+                                </>
+                              )}
+
+                              {/* Duração */}
+                              <div>
+                                <label className="text-[10px] font-bold text-slate-400 uppercase">Duração</label>
+                                <div className="flex items-center gap-2 flex-wrap">
+                                  {presets.map(pv => (
+                                    <button key={pv} onClick={() => setItemModal({ ...im, dur: pv })} className={`px-4 py-2 rounded-lg text-sm font-bold transition-all ${Number(im.dur) === pv ? 'bg-emerald-600 text-white shadow-sm' : 'bg-white border border-slate-200 text-slate-600 hover:border-slate-300'}`}>{pv === 60 ? '1h' : `${pv}min`}</button>
+                                  ))}
+                                  <div className="flex items-center gap-1">
+                                    <input type="number" min={1} className="w-20 p-2 border rounded-lg text-sm font-bold outline-none focus:border-amber-400" value={im.dur} onChange={e => setItemModal({ ...im, dur: e.target.value })} />
+                                    <span className="text-[10px] font-bold text-slate-400 uppercase">min</span>
+                                  </div>
+                                </div>
+                                {currentMeeting.time && <p className="text-[11px] text-slate-400 mt-1.5 italic">Previsto das {startStr} às {endStr}</p>}
+                              </div>
+
+                              {/* Votantes (deliberação) */}
+                              {im.type === 'deliberacao' && (
+                                <div>
+                                  <label className="text-[10px] font-bold text-slate-400 uppercase flex items-center gap-1"><Users size={11} /> Votantes<span className="text-red-500">*</span></label>
+                                  {internals.length === 0 ? (
+                                    <p className="text-[11px] text-slate-400 italic">Adicione participantes internos à reunião (aba Informações) para definir os votantes.</p>
+                                  ) : (
+                                    <div className="flex flex-wrap gap-2">
+                                      {internals.map((p: any, idx: number) => {
+                                        const on = (im.voters || []).includes(p.name);
+                                        return <button key={idx} onClick={() => setItemModal({ ...im, voters: on ? im.voters.filter((v: string) => v !== p.name) : [...(im.voters || []), p.name] })} className={`px-3 py-1.5 rounded-full text-xs font-bold border transition-all ${on ? 'bg-amber-600 text-white border-amber-600' : 'bg-white text-slate-600 border-slate-200 hover:border-amber-300'}`}>{on ? '✓ ' : ''}{p.name}</button>;
+                                      })}
+                                    </div>
+                                  )}
+                                  <p className="text-[10px] text-slate-400 mt-1.5 italic">A deliberação aparece na aba "Deliberações" com estes votantes.</p>
+                                </div>
+                              )}
+
+                              {/* Materiais por item */}
+                              {im.type !== 'intervalo' && (
+                                <div>
+                                  <label className="text-[10px] font-bold text-slate-400 uppercase flex items-center gap-1"><Paperclip size={11} /> Materiais deste item</label>
+                                  <div className="space-y-2">
+                                    {(im.materiais || []).map((mat: any, mi: number) => (
+                                      <div key={mi} className="flex items-center gap-2 bg-white border border-slate-200 rounded-lg px-3 py-2">
+                                        <FileText size={14} className="text-amber-600 shrink-0" />
+                                        <span className="flex-1 text-xs font-bold italic truncate">{mat.name}</span>
+                                        <button onClick={() => openAtaUrl(mat.url)} className="text-slate-400 hover:text-amber-600" title="Abrir"><ExternalLink size={14} /></button>
+                                        <button onClick={() => removeItemMaterial(mi)} className="text-slate-300 hover:text-red-500" title="Remover"><X size={14} /></button>
+                                      </div>
+                                    ))}
+                                    <label className={`inline-flex items-center gap-2 px-4 py-2 rounded-lg text-[10px] font-bold uppercase tracking-widest cursor-pointer transition-all ${itemFileUploading ? 'bg-slate-100 text-slate-400' : 'bg-slate-100 text-slate-700 hover:bg-slate-200'}`}>
+                                      <Upload size={14} /> {itemFileUploading ? 'Enviando...' : 'Anexar material'}
+                                      <input type="file" className="hidden" disabled={itemFileUploading} onChange={e => { const f = e.target.files?.[0]; if (f) uploadItemMaterial(f); (e.target as HTMLInputElement).value = ''; }} />
+                                    </label>
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+                            <div className="p-5 border-t bg-white flex items-center justify-end gap-3">
+                              <button onClick={() => setItemModal(null)} className="px-5 py-2.5 rounded-lg text-xs font-bold uppercase tracking-widest text-slate-500 hover:bg-slate-100 transition-colors">Cancelar</button>
+                              <button onClick={saveItem} className="px-6 py-2.5 rounded-lg bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold uppercase tracking-widest shadow-md transition-all flex items-center gap-2"><Check size={16} /> {im.editIndex === null || im.editIndex === undefined ? 'Adicionar item' : 'Salvar alterações'}</button>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })()}
 
                     {tab === 'materiais' && (
                       <div className="bg-white p-8 rounded-xl border border-slate-200 shadow-sm animate-in fade-in space-y-6">
