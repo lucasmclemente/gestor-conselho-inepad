@@ -539,3 +539,13 @@ entrypoint = "./functions/clicksign-webhook/index.ts"
 enabled = true
 verify_jwt = true
 entrypoint = "./functions/clicksign-check/index.ts"
+
+[functions.request-pauta-materials]
+enabled = true
+verify_jwt = true
+entrypoint = "./functions/request-pauta-materials/index.ts"
+
+[functions.pauta-materials]
+enabled = true
+verify_jwt = false
+entrypoint = "./functions/pauta-materials/index.ts"

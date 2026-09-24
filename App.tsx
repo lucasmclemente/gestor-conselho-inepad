@@ -20,6 +20,7 @@ import { BoardplanMark, BoardplanLogo } from './components/Brand';
 import { PublicVote } from './components/PublicVote';
 import { PublicAtaApproval } from './components/PublicAtaApproval';
 import { PublicCollect } from './components/PublicCollect';
+import { PublicPautaMaterials } from './components/PublicPautaMaterials';
 import { SealVerify } from './components/SealVerify';
 import { Diretorio } from './components/Diretorio';
 import { generateSealCertificate } from './services/generateSealCertificate';
@@ -31,6 +32,9 @@ const App = () => {
   });
   const [collectToken] = useState<string | null>(() => {
     try { return new URLSearchParams(window.location.search).get('coleta'); } catch { return null; }
+  });
+  const [pautaMatToken] = useState<string | null>(() => {
+    try { return new URLSearchParams(window.location.search).get('pautamat'); } catch { return null; }
   });
   const [ataToken] = useState<string | null>(() => {
     try { return new URLSearchParams(window.location.search).get('atatoken'); } catch { return null; }
@@ -113,6 +117,8 @@ const App = () => {
   const [tmpPauta, setTmpPauta] = useState({ title: '', resp: '', dur: '' });
   const [itemModal, setItemModal] = useState<any>(null);       // modal "Adicionar/Editar Item na Agenda"
   const [itemFileUploading, setItemFileUploading] = useState(false);
+  const [requestingMaterials, setRequestingMaterials] = useState(false); // enviando e-mail de solicitação
+  const [pautaMatBusy, setPautaMatBusy] = useState<number | null>(null);  // upload inline por pauta
   // Pauta automática: sugestões de itens a partir das pendências reais do conselho
   const [suggestOpen, setSuggestOpen] = useState(false);
   const [suggestGroups, setSuggestGroups] = useState<any[]>([]);
@@ -2698,6 +2704,47 @@ const App = () => {
     setItemModal(null);
   };
 
+  // envia e-mail a cada responsável pedindo os materiais das pautas dele
+  const requestPautaMaterials = async () => {
+    if (!currentMeeting.id) { alert('Salve a reunião antes de solicitar materiais.'); return; }
+    const comResp = (currentMeeting.pautas || []).filter((p: any) => p.type !== 'intervalo' && p.resp);
+    if (!comResp.length) { alert('Defina o responsável nas pautas antes de solicitar materiais.'); return; }
+    if (!window.confirm('Enviar e-mail aos responsáveis solicitando os materiais das pautas deles?')) return;
+    setRequestingMaterials(true);
+    try {
+      const { data, error } = await supabase.functions.invoke('request-pauta-materials', { body: { meetingId: currentMeeting.id, appOrigin: window.location.origin } });
+      if (error || data?.error) throw new Error(error?.message || data?.error);
+      let msg = `Solicitação enviada a ${data.sent} responsável(is).`;
+      if (data.skipped?.length) msg += `\n\nSem e-mail cadastrado (não enviado): ${data.skipped.join(', ')}.`;
+      if (data.failed?.length) msg += `\n\nFalha ao enviar: ${data.failed.join(', ')}.`;
+      alert(msg);
+      const { data: fresh } = await supabase.from('meetings').select('*').eq('id', currentMeeting.id).single();
+      if (fresh) { setCurrentMeeting(fresh); setMeetings(prev => prev.map(m => m.id === fresh.id ? fresh : m)); }
+      addLog('Materiais', `Solicitação de materiais enviada (${data.sent}) — ${currentMeeting.title}`);
+    } catch (e: any) { alert('Erro: ' + (e?.message || e)); }
+    finally { setRequestingMaterials(false); }
+  };
+
+  // upload inline de material numa pauta (responsável ou editor) — grava via Edge Function (service role)
+  const uploadMaterialToPauta = async (i: number, file: File) => {
+    if (!file) return;
+    if (!currentMeeting.id) { alert('Salve a reunião antes de anexar materiais.'); return; }
+    const p = (currentMeeting.pautas || [])[i];
+    const target: any = p?.uid ? { pautaUid: p.uid } : { pautaIndex: i };
+    setPautaMatBusy(i);
+    try {
+      const { data: su, error: e1 } = await supabase.functions.invoke('pauta-materials', { body: { action: 'signUpload', meetingId: currentMeeting.id, fileName: file.name, ...target } });
+      if (e1 || su?.error) throw new Error(e1?.message || su?.error);
+      const up = await supabase.storage.from('meeting-files').uploadToSignedUrl(su.path, su.token, file);
+      if (up.error) throw new Error(up.error.message);
+      const { data: cf, error: e2 } = await supabase.functions.invoke('pauta-materials', { body: { action: 'confirm', meetingId: currentMeeting.id, path: su.path, fileName: file.name, ...target } });
+      if (e2 || cf?.error) throw new Error(e2?.message || cf?.error);
+      const { data: fresh } = await supabase.from('meetings').select('*').eq('id', currentMeeting.id).single();
+      if (fresh) { setCurrentMeeting(fresh); setMeetings(prev => prev.map(m => m.id === fresh.id ? fresh : m)); }
+    } catch (e: any) { alert('Erro ao anexar: ' + (e?.message || e)); }
+    finally { setPautaMatBusy(null); }
+  };
+
   const deletePautaItem = (i: number) => {
     const p = (currentMeeting.pautas || [])[i];
     const pautas = (currentMeeting.pautas || []).filter((_: any, idx: number) => idx !== i);
@@ -3238,6 +3285,11 @@ const App = () => {
   // ── Coleta de indicadores (página pública, sem login) ──
   if (collectToken) {
     return <PublicCollect token={collectToken} />;
+  }
+
+  // ── Envio de materiais das pautas pelo responsável (página pública, sem login) ──
+  if (pautaMatToken) {
+    return <PublicPautaMaterials token={pautaMatToken} />;
   }
 
   // ── Diretório público de conselhos certificados (sem login) ──
@@ -3904,6 +3956,11 @@ const App = () => {
                             <Sparkles size={18} /> Sugerir Pauta com Base nas Pendências
                           </button>
                         )}
+                        {canEdit && !isSessionActive && (currentMeeting.pautas || []).some((p: any) => p.type !== 'intervalo' && p.resp) && (
+                          <button onClick={requestPautaMaterials} disabled={requestingMaterials} className="w-full py-4 bg-slate-900 hover:bg-slate-800 rounded-xl text-amber-500 font-bold uppercase text-[10px] tracking-widest flex items-center justify-center gap-3 transition-all shadow-sm disabled:opacity-50">
+                            <Mail size={16} /> {requestingMaterials ? 'Enviando...' : 'Solicitar materiais aos responsáveis'}
+                          </button>
+                        )}
                         {canEdit && (currentMeeting.pautas || []).length > 0 && (
                           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-amber-50/60 border border-amber-200 rounded-xl px-4 py-3">
                             <div className="min-w-0">
@@ -3952,6 +4009,12 @@ const App = () => {
                                           <button key={mi} onClick={() => openAtaUrl(mat.url)} className="inline-flex items-center gap-1 text-[9px] font-bold text-slate-600 hover:text-amber-600 bg-slate-50 border border-slate-200 rounded px-2 py-1 not-italic transition-colors" title={mat.name}><Paperclip size={10} /> <span className="max-w-[140px] truncate">{mat.name}</span></button>
                                         ))}
                                       </div>
+                                    )}
+                                    {t !== 'intervalo' && !isSessionActive && (canEdit || currentUser?.name === p.resp) && (
+                                      <label className={`mt-1.5 inline-flex items-center gap-1 text-[9px] font-bold uppercase tracking-widest not-italic cursor-pointer transition-colors ${pautaMatBusy === i ? 'text-slate-300' : 'text-slate-400 hover:text-amber-600'}`} title="Anexar material a esta pauta">
+                                        <Paperclip size={10} /> {pautaMatBusy === i ? 'Enviando…' : 'anexar material'}
+                                        <input type="file" className="hidden" disabled={pautaMatBusy === i} onChange={e => { const f = e.target.files?.[0]; if (f) uploadMaterialToPauta(i, f); (e.target as HTMLInputElement).value = ''; }} />
+                                      </label>
                                     )}
                                   </div>
                                 </div>
