@@ -7,7 +7,7 @@ import { Certificacao } from './components/Certificacao';
 import { RelatorioGovernanca } from './components/RelatorioGovernanca';
 import { Crm } from './components/Crm';
 import {
-  LayoutDashboard, Calendar, CalendarPlus, CalendarClock, ChevronRight, UserPlus,
+  LayoutDashboard, Calendar, CalendarPlus, CalendarClock, CalendarCheck, ChevronRight, UserPlus,
   Clock, CheckCircle2, AlertCircle, FileText, Send, X, Trash2,
   Upload, Save, Lock, Target, FileCheck, BarChart3,
   PieChart as PieIcon, LogIn, User, Key, LogOut, UserCheck,
@@ -3631,7 +3631,60 @@ const App = () => {
                 view === 'list' ? (
                   <div className="space-y-6 animate-in fade-in">
                     <div className="flex justify-between items-center gap-4 bg-white p-4 rounded-xl border border-slate-200 shadow-sm"><h1 className="text-2xl font-bold text-slate-800 tracking-tight italic">Conselho Deliberativo</h1>{canEdit && (<div className="flex items-center gap-3 flex-wrap">{strategyEnabled && <button onClick={generateRAE} className="border border-amber-300 text-amber-700 hover:bg-amber-50 px-4 py-3 rounded-lg font-bold text-xs uppercase flex items-center justify-center gap-2 transition-all tracking-widest" title="Reunião de Análise Estratégica com pauta automática"><Compass size={15} /> Gerar RAE</button>}<button onClick={openScheduleModal} className="bg-slate-900 hover:bg-slate-800 text-amber-500 px-5 py-3 rounded-lg font-bold text-xs uppercase flex items-center justify-center gap-2 transition-all shadow-md tracking-widest"><CalendarPlus size={16} /> Programar Ano</button><button onClick={() => { setCurrentMeeting(blankMeeting); setView('details'); setTab('info'); }} className="bg-amber-600 hover:bg-amber-700 text-white px-6 py-3 rounded-lg font-bold text-xs uppercase flex items-center justify-center gap-2 transition-all shadow-md tracking-widest">+ Nova Reunião</button></div>)}</div>
-                    <div className="grid gap-4">{meetings.filter((m: any) => !isExtraContainer(m) && m.type !== 'Indicadores').map((m) => (<div key={m.id} onClick={() => { setCurrentMeeting(m); setView('details'); setTab('info'); }} className="bg-white p-6 rounded-xl border border-slate-200 flex justify-between items-center group cursor-pointer hover:border-amber-500 hover:shadow-md transition-all shadow-sm"><div className="flex items-center gap-4"><div className="p-3 bg-slate-100 text-slate-500 rounded-lg group-hover:bg-amber-100 group-hover:text-amber-700 transition-all"><Calendar size={24} /></div><div><h3 className="font-bold text-lg text-slate-800 group-hover:text-amber-600 transition-all italic">{m.title}</h3><p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">{m.status} • {m.date || 'DATA N/D'}</p></div></div><div className="flex items-center gap-3">{canEdit && (<button onClick={(e) => { e.stopPropagation(); deleteMeeting(m.id, m.title); }} className="p-3 text-slate-200 hover:text-red-600 rounded-lg"><Trash2 size={20} /></button>)}<ChevronRight size={20} className="text-slate-300 group-hover:text-amber-500 transition-all" /></div></div>))}</div>
+                    {(() => {
+                      const all = meetings.filter((m: any) => !isExtraContainer(m) && m.type !== 'Indicadores');
+                      const todayStr = new Date().toLocaleDateString('en-CA'); // YYYY-MM-DD local
+                      const isPast = (m: any) => m.status === 'Concluída' || (!!m.date && m.date < todayStr);
+                      const upcoming = all.filter((m: any) => !isPast(m)).sort((a: any, b: any) => (a.date || '9999-12-31').localeCompare(b.date || '9999-12-31'));
+                      const past = all.filter((m: any) => isPast(m)).sort((a: any, b: any) => (b.date || '').localeCompare(a.date || ''));
+                      const relLabel = (dateStr: string) => {
+                        if (!dateStr) return '';
+                        const d = new Date(dateStr + 'T00:00:00'); const t0 = new Date(); t0.setHours(0, 0, 0, 0);
+                        const days = Math.round((d.getTime() - t0.getTime()) / 86400000);
+                        if (days === 0) return 'hoje'; if (days === 1) return 'amanhã'; if (days === -1) return 'ontem';
+                        if (days > 1 && days < 45) return `em ${days} dias`; if (days < -1 && days > -45) return `há ${Math.abs(days)} dias`;
+                        return '';
+                      };
+                      const fmtBR = (dateStr: string) => dateStr ? new Date(dateStr + 'T00:00:00').toLocaleDateString('pt-BR', { weekday: 'short', day: '2-digit', month: 'short', year: 'numeric' }) : 'Data não definida';
+                      const statusStyle = (s: string) => s === 'Concluída' ? 'bg-slate-100 text-slate-500 border-slate-200' : s === 'Em Andamento' ? 'bg-sky-50 text-sky-700 border-sky-200' : 'bg-amber-50 text-amber-700 border-amber-200';
+                      const Card = (m: any, opts: { past?: boolean; next?: boolean }) => (
+                        <div key={m.id} onClick={() => { setCurrentMeeting(m); setView('details'); setTab('info'); }}
+                          className={`bg-white p-5 rounded-xl border flex justify-between items-center group cursor-pointer transition-all shadow-sm hover:shadow-md ${opts.next ? 'border-amber-400 ring-1 ring-amber-200' : 'border-slate-200 hover:border-amber-500'} ${opts.past ? 'opacity-70 hover:opacity-100' : ''}`}>
+                          <div className="flex items-center gap-4 min-w-0">
+                            <div className={`p-3 rounded-lg transition-all shrink-0 ${opts.past ? 'bg-slate-50 text-slate-400' : 'bg-slate-100 text-slate-500 group-hover:bg-amber-100 group-hover:text-amber-700'}`}>{opts.past ? <CalendarCheck size={22} /> : <Calendar size={22} />}</div>
+                            <div className="min-w-0">
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <h3 className="font-bold text-lg text-slate-800 group-hover:text-amber-600 transition-all italic truncate">{m.title}</h3>
+                                {opts.next && <span className="text-[8px] font-bold uppercase tracking-widest bg-amber-500 text-white px-2 py-0.5 rounded shrink-0">Próxima</span>}
+                              </div>
+                              <p className="mt-1 flex items-center gap-2 flex-wrap">
+                                <span className={`px-2 py-0.5 rounded border text-[9px] font-bold uppercase tracking-widest ${statusStyle(m.status)}`}>{m.status}</span>
+                                <span className="text-[11px] font-bold text-slate-500 capitalize">{fmtBR(m.date)}</span>
+                                {relLabel(m.date) && <span className="text-[11px] text-slate-400">· {relLabel(m.date)}</span>}
+                              </p>
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-3 shrink-0">{canEdit && (<button onClick={(e) => { e.stopPropagation(); deleteMeeting(m.id, m.title); }} className="p-3 text-slate-200 hover:text-red-600 rounded-lg"><Trash2 size={20} /></button>)}<ChevronRight size={20} className="text-slate-300 group-hover:text-amber-500 transition-all" /></div>
+                        </div>
+                      );
+                      if (all.length === 0) return <div className="bg-white p-12 rounded-xl border border-slate-200 shadow-sm text-center text-sm text-slate-400 italic">Nenhuma reunião cadastrada{canEdit ? ' — use "+ Nova Reunião" ou "Programar Ano"' : ''}.</div>;
+                      return (
+                        <div className="space-y-8">
+                          <div className="space-y-3">
+                            <div className="flex items-center gap-2 px-1"><CalendarClock size={16} className="text-amber-600" /><h2 className="text-xs font-bold uppercase tracking-widest text-slate-500">Próximas reuniões</h2><span className="text-[10px] font-bold text-slate-400 bg-slate-100 rounded-full px-2 py-0.5">{upcoming.length}</span></div>
+                            {upcoming.length === 0
+                              ? <div className="bg-white p-8 rounded-xl border border-dashed border-slate-300 text-center text-[11px] uppercase tracking-widest font-bold text-slate-400">Nenhuma reunião futura agendada{canEdit ? ' — use "Programar Ano"' : ''}</div>
+                              : <div className="grid gap-4">{upcoming.map((m: any, i: number) => Card(m, { next: i === 0 }))}</div>}
+                          </div>
+                          {past.length > 0 && (
+                            <details open className="group/pd space-y-3">
+                              <summary className="flex items-center gap-2 px-1 cursor-pointer list-none select-none [&::-webkit-details-marker]:hidden"><CalendarCheck size={16} className="text-slate-400" /><h2 className="text-xs font-bold uppercase tracking-widest text-slate-500">Reuniões anteriores</h2><span className="text-[10px] font-bold text-slate-400 bg-slate-100 rounded-full px-2 py-0.5">{past.length}</span><ChevronDown size={14} className="text-slate-400 transition-transform group-open/pd:rotate-180 ml-0.5" /></summary>
+                              <div className="grid gap-4 pt-3">{past.map((m: any) => Card(m, { past: true }))}</div>
+                            </details>
+                          )}
+                        </div>
+                      );
+                    })()}
                   </div>
                 ) : (
                   <div className="animate-in fade-in duration-300 pb-20">
