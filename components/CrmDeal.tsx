@@ -841,7 +841,8 @@ export const CrmDeal: React.FC<Props> = ({ dealId, cid, currentUser, isAdmin, me
                       </div>
                     )}
                     <div className="flex items-center gap-3 mt-1.5 text-[10px] text-slate-400 font-bold uppercase tracking-wide flex-wrap">
-                      {a.due_at && <span className="flex items-center gap-1"><Clock size={10} /> {fmtDateTime(a.due_at)}</span>}
+                      {a.created_at && <span className="flex items-center gap-1 text-slate-500" title="Quando a atividade foi feita"><Calendar size={10} /> {fmtDateTime(a.created_at)}</span>}
+                      {a.due_at && <span className="flex items-center gap-1" title="Agendada para"><Clock size={10} /> Agendada: {fmtDateTime(a.due_at)}</span>}
                       {a.remind_at && !a.done && <span className="flex items-center gap-1 text-amber-600"><Bell size={10} /> {remindLabel(a.remind_minutes)}</span>}
                       {a.owner_member_id && <span>{ownerName(a.owner_member_id)}</span>}
                       <button onClick={() => startEdit(a)} title="Editar" className="flex items-center gap-1 hover:text-amber-600 transition-colors"><Pencil size={11} /> Editar</button>
