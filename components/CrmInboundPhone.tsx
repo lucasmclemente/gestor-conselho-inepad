@@ -18,7 +18,7 @@ type Sng = {
   client: any; call: any;
   phase: 'idle' | 'ringing' | 'active'; caller: string; seconds: number; muted: boolean;
   timer: any; secondsRef: number; answeredAt: number;
-  cid: string; userId: string | null;
+  cid: string; userId: string | null; ext: string;
   subs: Set<() => void>; started: boolean; reinit: any;
 };
 let S: Sng | null = null;
@@ -63,24 +63,36 @@ const startRing = () => {
 };
 const stopRing = () => { if (ringTimer) { clearInterval(ringTimer); ringTimer = null; } try { ringCtx?.close(); } catch { /* */ } ringCtx = null; };
 
-// registra a ligação recebida: casa pelo número (consulta enxuta); se desconhecido,
-// cria um LEAD com o número para poderem retornar.
-async function logInbound(num: string, secs: number) {
+// REGISTRA a ligação assim que TOCA (não só a atendida) para virar item de retorno.
+// Como o "toque simultâneo" faz o telefone tocar em várias abas ao mesmo tempo,
+// usamos uma CHAVE COMPARTILHADA (número + janela de tempo) no external_id: o índice
+// único (client_id, external_id) garante que só a 1ª aba grave — as demais tomam
+// 23505 e saem em silêncio. A aba que atender depois só ATUALIZA esse registro.
+async function claimInbound(ext: string, num: string) {
   if (!S) return;
-  const cid = S.cid, uid = S.userId;
+  const cid = S.cid;
   try {
     const key = phoneKey(num);
-    let dealId: string | null = null, contactId: string | null = null, orgId: string | null = null;
+    let dealId: string | null = null, contactId: string | null = null, orgId: string | null = null, matchedName: string | null = null;
     if (key) {
-      const { data: cts } = await supabase.from('crm_contacts').select('id, organization_id, phone').eq('client_id', cid).ilike('phone', `%${key}%`).limit(10);
+      const { data: cts } = await supabase.from('crm_contacts').select('id, name, organization_id, phone').eq('client_id', cid).ilike('phone', `%${key}%`).limit(10);
       const ct = (cts || []).find((c: any) => phoneKey(c.phone) === key) || (cts || [])[0];
-      contactId = ct?.id || null; orgId = ct?.organization_id || null;
-      if (!orgId) { const { data: os } = await supabase.from('crm_organizations').select('id, phone').eq('client_id', cid).ilike('phone', `%${key}%`).limit(10); orgId = ((os || []).find((o: any) => phoneKey(o.phone) === key) || (os || [])[0])?.id || null; }
+      if (ct) { contactId = ct.id; orgId = ct.organization_id || null; matchedName = ct.name || null; }
+      if (!orgId) { const { data: os } = await supabase.from('crm_organizations').select('id, name, phone').eq('client_id', cid).ilike('phone', `%${key}%`).limit(10); const o = (os || []).find((x: any) => phoneKey(x.phone) === key) || (os || [])[0]; if (o) { orgId = o.id; if (!matchedName) matchedName = o.name || null; } }
       if (orgId) { const { data } = await supabase.from('crm_deals').select('id').eq('client_id', cid).eq('organization_id', orgId).order('created_at', { ascending: false }).limit(1).maybeSingle(); dealId = data?.id || null; }
       if (!dealId && contactId) { const { data } = await supabase.from('crm_deals').select('id').eq('client_id', cid).eq('contact_id', contactId).order('created_at', { ascending: false }).limit(1).maybeSingle(); dealId = data?.id || null; }
     }
-    // número desconhecido → cria um lead para salvar o contato e poder retornar
-    if (!dealId) {
+    const title = `Ligação recebida — ${matchedName || num || 'número desconhecido'}`;
+    // claim atômico: só a 1ª aba grava (índice único em external_id barra o resto)
+    const { data: act, error } = await supabase.from('crm_activities').insert({
+      client_id: cid, type: 'call', call_direction: 'in', call_answered: false,
+      call_number: num || null, external_id: ext, done: false,
+      title, notes: 'Ligação recebida — aguardando retorno.',
+      contact_id: contactId, organization_id: orgId, deal_id: dealId,
+    }).select('id').single();
+    if (error || !act) return; // 23505 (outra aba já registrou) ou falha → sai silencioso
+    // número desconhecido → cria um lead com o número para poderem retornar
+    if (!orgId) {
       const { data: pipe } = await supabase.from('crm_pipelines').select('id').eq('client_id', cid).eq('is_default', true).limit(1).maybeSingle();
       const pipeId = pipe?.id || (await supabase.from('crm_pipelines').select('id').eq('client_id', cid).order('position').limit(1).maybeSingle()).data?.id;
       if (pipeId) {
@@ -88,15 +100,31 @@ async function logInbound(num: string, secs: number) {
         const nm = `Lead ${num || 'desconhecido'}`;
         const { data: org } = await supabase.from('crm_organizations').insert({ client_id: cid, name: nm, phone: num || null }).select('id').single();
         const { data: ctc } = org ? await supabase.from('crm_contacts').insert({ client_id: cid, organization_id: org.id, name: 'Contato (ligação recebida)', phone: num || null }).select('id').single() : { data: null } as any;
-        if (org && stg?.id) { const { data: dl } = await supabase.from('crm_deals').insert({ client_id: cid, pipeline_id: pipeId, stage_id: stg.id, title: nm, organization_id: org.id, contact_id: ctc?.id || null, status: 'open', source: 'Ligação recebida', owner_member_id: uid || null }).select('id').single(); dealId = dl?.id || null; contactId = ctc?.id || null; }
+        if (org && stg?.id) { const { data: dl } = await supabase.from('crm_deals').insert({ client_id: cid, pipeline_id: pipeId, stage_id: stg.id, title: nm, organization_id: org.id, contact_id: ctc?.id || null, status: 'open', source: 'Ligação recebida' }).select('id').single(); await supabase.from('crm_activities').update({ deal_id: dl?.id || null, contact_id: ctc?.id || null, organization_id: org.id }).eq('id', act.id); }
       }
     }
-    if (!dealId) return;
+  } catch { /* */ }
+}
+
+// a aba que ATENDEU atualiza o registro compartilhado (por external_id): atendida + fora da fila de retorno
+async function markAnswered(ext: string, num: string, secs: number) {
+  if (!S) return;
+  const cid = S.cid, uid = S.userId;
+  try {
+    // o claim (feito ao tocar) pode ter sido gravado por OUTRA aba → tenta algumas vezes
+    for (let i = 0; i < 4; i++) {
+      const { data } = await supabase.from('crm_activities')
+        .update({ call_answered: true, done: true, done_at: new Date().toISOString(), owner_member_id: uid || null, call_seconds: secs, call_cause: 'answered', notes: 'Atendida pelo webfone.' })
+        .eq('client_id', cid).eq('external_id', ext).select('id');
+      if (data && data.length) return;
+      await new Promise(r => setTimeout(r, 700));
+    }
+    // fallback: nenhum claim gravou (falha de rede ao tocar) → cria já o registro atendido
     await supabase.from('crm_activities').insert({
-      client_id: cid, deal_id: dealId, contact_id: contactId, type: 'call',
-      title: `Ligação recebida — ${num || 'número desconhecido'}`, notes: 'Atendida pelo webfone.',
-      owner_member_id: uid || null, call_direction: 'in', call_answered: true, call_seconds: secs,
-      call_number: num || null, call_cause: 'answered',
+      client_id: cid, type: 'call', call_direction: 'in', call_answered: true, done: true,
+      done_at: new Date().toISOString(), owner_member_id: uid || null, call_seconds: secs,
+      call_number: num || null, external_id: ext, title: `Ligação recebida — ${num || 'número desconhecido'}`,
+      notes: 'Atendida pelo webfone.',
     });
   } catch { /* */ }
 }
@@ -121,15 +149,18 @@ async function connect() {
       if (st === 'ringing') {
         S.call = call;
         S.caller = call.options?.remoteCallerNumber || call.remoteCallerNumber || 'Número desconhecido';
+        // chave compartilhada entre as abas que tocam juntas (número + janela de 2min)
+        S.ext = `in:${phoneKey(S.caller)}:${Math.floor(Date.now() / 120000)}`;
         S.phase = 'ringing'; startRing(); emit();
+        claimInbound(S.ext, S.caller); // registra já ao tocar; se ninguém atender fica na fila de retorno
         try { if (typeof Notification !== 'undefined' && Notification.permission === 'granted') new Notification('📞 Ligação recebida', { body: S.caller }); } catch { /* */ }
       } else if (st === 'active') {
         stopRing(); S.answeredAt = Date.now(); S.phase = 'active'; startTimer(); emit();
       } else if (st === 'hangup' || st === 'destroy' || st === 'purge') {
         stopRing();
-        const wasActive = S.answeredAt > 0; const secs = S.secondsRef; const num = S.caller;
-        stopTimer(); if (wasActive) logInbound(num, secs);
-        S.answeredAt = 0; S.call = null; S.phase = 'idle'; S.muted = false; S.caller = ''; emit();
+        const wasActive = S.answeredAt > 0; const secs = S.secondsRef; const num = S.caller; const ext = S.ext;
+        stopTimer(); if (wasActive) markAnswered(ext, num, secs);
+        S.answeredAt = 0; S.call = null; S.phase = 'idle'; S.muted = false; S.caller = ''; S.ext = ''; emit();
       }
     });
     client.on('telnyx.error', () => { /* reinit periódico recupera */ });
@@ -140,7 +171,7 @@ async function connect() {
 // inicia uma única vez; chamadas seguintes só atualizam cid/userId
 async function ensureStarted(cid: string, currentUser: any) {
   if (S && S.started) { S.cid = cid; S.userId = currentUser?.id || null; return; }
-  S = { client: null, call: null, phase: 'idle', caller: '', seconds: 0, muted: false, timer: null, secondsRef: 0, answeredAt: 0, cid, userId: currentUser?.id || null, subs: S?.subs || new Set(), started: true, reinit: null };
+  S = { client: null, call: null, phase: 'idle', caller: '', seconds: 0, muted: false, timer: null, secondsRef: 0, answeredAt: 0, cid, userId: currentUser?.id || null, ext: '', subs: S?.subs || new Set(), started: true, reinit: null };
   await connect();
   S.reinit = setInterval(() => { if (S && S.phase === 'idle') { try { S.client?.disconnect(); } catch { /* */ } S.client = null; connect(); } }, 45 * 60 * 1000);
 }

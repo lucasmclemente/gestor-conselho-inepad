@@ -7,6 +7,7 @@ import { CrmImport } from './CrmImport';
 import { CrmLeads } from './CrmLeads';
 import { CrmResults } from './CrmResults';
 import { CrmCalls } from './CrmCalls';
+import { CrmReceivedCalls } from './CrmReceivedCalls';
 import { CrmTasks } from './CrmTasks';
 import { CrmBriefing } from './CrmBriefing';
 import { CrmLostModal } from './CrmLostModal';
@@ -42,6 +43,8 @@ export const Crm: React.FC<Props> = ({ currentUser, activeClientId, isAdmin, mem
   const [leadsOpen, setLeadsOpen] = useState(false);
   const [resultsOpen, setResultsOpen] = useState(false);
   const [callsOpen, setCallsOpen] = useState(false);
+  const [receivedOpen, setReceivedOpen] = useState(false);   // worklist "Ligações Recebidas"
+  const [receivedCount, setReceivedCount] = useState(0);     // recebidas aguardando retorno (badge)
   const [tasksOpen, setTasksOpen] = useState(false);
   const [alerts, setAlerts] = useState<any[]>([]);      // tarefas pendentes (agendadas) do cliente
   const [alertsOpen, setAlertsOpen] = useState(false);  // painel "Meus alertas"
@@ -202,6 +205,16 @@ export const Crm: React.FC<Props> = ({ currentUser, activeClientId, isAdmin, mem
     setAlerts(data || []);
   }, [cid]);
   useEffect(() => { loadAlerts(); const t = setInterval(loadAlerts, 60000); return () => clearInterval(t); }, [loadAlerts]);
+
+  // Ligações recebidas aguardando retorno (badge) — RLS filtra por dono do negócio/atividade
+  const loadReceived = useCallback(async () => {
+    if (!cid) return;
+    const { count } = await supabase.from('crm_activities')
+      .select('id', { count: 'exact', head: true })
+      .eq('client_id', cid).eq('type', 'call').eq('call_direction', 'in').eq('done', false);
+    setReceivedCount(count || 0);
+  }, [cid]);
+  useEffect(() => { loadReceived(); const t = setInterval(loadReceived, 60000); return () => clearInterval(t); }, [loadReceived]);
 
   // grupo "quem recebe ligações" (inbound)
   const loadInboundAgents = useCallback(async () => {
@@ -434,6 +447,13 @@ export const Crm: React.FC<Props> = ({ currentUser, activeClientId, isAdmin, mem
     <CrmCalls cid={cid} currentUser={currentUser} members={members} onBack={() => setCallsOpen(false)} /></>
   );
 
+  if (receivedOpen) return (
+    <>{inboundPhone}
+    <CrmReceivedCalls cid={cid} currentUser={currentUser} members={members}
+      onBack={() => { setReceivedOpen(false); loadReceived(); }}
+      onOpenDeal={(id) => { setReceivedOpen(false); setDetailId(id); }} /></>
+  );
+
   if (tasksOpen) return (
     <>{inboundPhone}
     <CrmTasks cid={cid} currentUser={currentUser} members={members}
@@ -544,6 +564,11 @@ export const Crm: React.FC<Props> = ({ currentUser, activeClientId, isAdmin, mem
             className="relative p-2.5 rounded-lg bg-slate-100 text-slate-700 hover:bg-slate-200 transition-all flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest">
             <Bell size={16} /><span className="hidden sm:inline">Alertas</span>
             {myActiveCount > 0 && <span className="absolute -top-1.5 -right-1.5 min-w-[18px] h-[18px] px-1 rounded-full bg-red-500 text-white text-[10px] font-bold flex items-center justify-center">{myActiveCount}</span>}
+          </button>
+          <button onClick={() => setReceivedOpen(true)} title="Ligações recebidas para retornar"
+            className="relative p-2.5 rounded-lg bg-slate-100 text-slate-700 hover:bg-slate-200 transition-all flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest">
+            <PhoneIncoming size={16} /><span className="hidden sm:inline">Recebidas</span>
+            {receivedCount > 0 && <span className="absolute -top-1.5 -right-1.5 min-w-[18px] h-[18px] px-1 rounded-full bg-red-500 text-white text-[10px] font-bold flex items-center justify-center">{receivedCount}</span>}
           </button>
           {isAdmin && (
             <button onClick={() => setInboundOpen(true)} title="Quem recebe as ligações"
