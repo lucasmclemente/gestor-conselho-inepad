@@ -43,6 +43,7 @@ serve(async (req) => {
   }
   const role = (user.app_metadata as any)?.role
   const clientId = (user.app_metadata as any)?.client_id
+  const secClients: string[] = Array.isArray((user.app_metadata as any)?.secretary_clients) ? (user.app_metadata as any).secretary_clients : []
   const callerName = (user.user_metadata as any)?.name || user.email
   if (!ALLOWED_ROLES.includes(role)) {
     return new Response(JSON.stringify({ error: 'Forbidden' }), { status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
@@ -59,7 +60,7 @@ serve(async (req) => {
     const { data, error } = await admin.from('meetings').select('id, client_id, materiais').eq('id', meetingId).maybeSingle()
     if (error) throw new Error(error.message)
     if (!data) throw new Error('Reunião não encontrada.')
-    if (!isSuper && data.client_id !== clientId) throw new Error('Sem permissão para esta reunião.')
+    if (!isSuper && data.client_id !== clientId && !secClients.includes(data.client_id)) throw new Error('Sem permissão para esta reunião.')
     return data
   }
 

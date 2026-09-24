@@ -68,6 +68,7 @@ serve(async (req) => {
 
   const role = (user.app_metadata as any)?.role
   const clientId = (user.app_metadata as any)?.client_id
+  const secClients: string[] = Array.isArray((user.app_metadata as any)?.secretary_clients) ? (user.app_metadata as any).secretary_clients : []
   const isSuper = role === 'SuperAdmin'
   if (!['Administrador', 'Secretário', 'SuperAdmin'].includes(role)) {
     return new Response(JSON.stringify({ error: 'Apenas Administrador/Secretário podem enviar convites de voto.' }), { status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
@@ -83,7 +84,7 @@ serve(async (req) => {
     const { data: meeting, error: mErr } = await admin.from('meetings').select('id, client_id, deliberacoes, participants').eq('id', meetingId).maybeSingle()
     if (mErr) throw new Error(mErr.message)
     if (!meeting) return new Response(JSON.stringify({ error: 'Deliberação não encontrada.' }), { status: 404, headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
-    if (!isSuper && meeting.client_id !== clientId) return new Response(JSON.stringify({ error: 'Sem permissão.' }), { status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
+    if (!isSuper && meeting.client_id !== clientId && !secClients.includes(meeting.client_id)) return new Response(JSON.stringify({ error: 'Sem permissão.' }), { status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
 
     const delibs = meeting.deliberacoes || []
     const delib = (delibId != null) ? delibs.find((d: any) => d.id === delibId) : delibs[delibIndex]

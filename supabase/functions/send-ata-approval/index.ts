@@ -49,6 +49,7 @@ serve(async (req) => {
   if (authErr || !user) return json({ error: 'Unauthorized' }, 401)
   const role = (user.app_metadata as any)?.role
   const clientId = (user.app_metadata as any)?.client_id
+  const secClients: string[] = Array.isArray((user.app_metadata as any)?.secretary_clients) ? (user.app_metadata as any).secretary_clients : []
   const isSuper = role === 'SuperAdmin'
   if (!['Administrador', 'Secretário', 'SuperAdmin'].includes(role)) return json({ error: 'Apenas Administrador/Secretário podem solicitar aprovação.' }, 403)
 
@@ -63,7 +64,7 @@ serve(async (req) => {
     const { data: meeting, error: mErr } = await admin.from('meetings').select('id, title, client_id, atas, participants').eq('id', meetingId).maybeSingle()
     if (mErr) throw new Error(mErr.message)
     if (!meeting) return json({ error: 'Reunião não encontrada.' }, 404)
-    if (!isSuper && meeting.client_id !== clientId) return json({ error: 'Sem permissão.' }, 403)
+    if (!isSuper && meeting.client_id !== clientId && !secClients.includes(meeting.client_id)) return json({ error: 'Sem permissão.' }, 403)
 
     const atas = [...(meeting.atas || [])]
     if (atas.length === 0) return json({ error: 'Não há ata publicada nesta reunião.' }, 400)

@@ -49,6 +49,7 @@ serve(async (req) => {
 
   const role = (user.app_metadata as any)?.role
   const clientId = (user.app_metadata as any)?.client_id
+  const secClients: string[] = Array.isArray((user.app_metadata as any)?.secretary_clients) ? (user.app_metadata as any).secretary_clients : []
   const callerName = (user.user_metadata as any)?.name
   const callerEmail = user.email
   const isSuper = role === 'SuperAdmin'
@@ -63,7 +64,7 @@ serve(async (req) => {
     const { data: meeting, error: mErr } = await admin.from('meetings').select('id, client_id, status, deliberacoes, acoes, participants').eq('id', meetingId).maybeSingle()
     if (mErr) throw new Error(mErr.message)
     if (!meeting) return new Response(JSON.stringify({ error: 'Reunião não encontrada.' }), { status: 404, headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
-    if (!isSuper && meeting.client_id !== clientId) return new Response(JSON.stringify({ error: 'Sem permissão.' }), { status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
+    if (!isSuper && meeting.client_id !== clientId && !secClients.includes(meeting.client_id)) return new Response(JSON.stringify({ error: 'Sem permissão.' }), { status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
     // Trava de encerramento: reunião concluída não aceita mais votos
     if (meeting.status === 'Concluída') return new Response(JSON.stringify({ error: 'Votação encerrada — esta reunião já foi concluída.' }), { status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
 
