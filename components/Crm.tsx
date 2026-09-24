@@ -54,6 +54,7 @@ export const Crm: React.FC<Props> = ({ currentUser, activeClientId, isAdmin, mem
   const [inboundBusy, setInboundBusy] = useState('');   // member_id sendo alterado
   const [searchQ, setSearchQ] = useState('');
   const [searchRes, setSearchRes] = useState<any>(null); // {deals, contacts, orgs} | null
+  const [boardQuery, setBoardQuery] = useState(''); // filtro de palavra-chave aplicado ao quadro
   const boardRef = useRef<HTMLDivElement>(null);
   const scrollTimer = useRef<any>(null);
   const [canScrollL, setCanScrollL] = useState(false);
@@ -64,6 +65,7 @@ export const Crm: React.FC<Props> = ({ currentUser, activeClientId, isAdmin, mem
   const [tagFilter, setTagFilter] = useState('all');
   const [cityFilter, setCityFilter] = useState('all');
   const [orgCity, setOrgCity] = useState<Record<string, string>>({}); // organization_id -> cidade
+  const [orgText, setOrgText] = useState<Record<string, string>>({}); // organization_id -> texto p/ busca (cidade+nome+cnpj)
   const [emailConnected, setEmailConnected] = useState<boolean | null>(null);
   const [emailAddr, setEmailAddr] = useState<string | null>(null);
   const [emailBusy, setEmailBusy] = useState(false);
@@ -75,11 +77,16 @@ export const Crm: React.FC<Props> = ({ currentUser, activeClientId, isAdmin, mem
 
   const ownerName = (id: string) => (members.find((m: any) => m.id === id)?.name) || (id === currentUser?.id ? currentUser?.name : '');
   const crmUsers = members.filter((m: any) => ['SuperAdmin', 'Administrador', 'Comercial'].includes(m.role));
+  // Filtro por palavra-chave (AND entre palavras, ignora acentos) — casa título + nome/cidade/UF/CNPJ da empresa
+  const norm = (s: any) => String(s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
+  const kwTokens = norm(boardQuery).split(/\s+/).filter(Boolean);
+  const matchKw = (d: any) => { if (!kwTokens.length) return true; const text = norm((d.title || '') + ' ' + (orgText[d.organization_id] || '')); return kwTokens.every(t => text.includes(t)); };
   // Filtro por responsável no quadro
   const visibleDeals = deals.filter(d =>
     (ownerFilter === 'all' || (ownerFilter === 'none' ? !d.owner_member_id : d.owner_member_id === ownerFilter)) &&
     (tagFilter === 'all' || (Array.isArray(d.tag_ids) && d.tag_ids.includes(tagFilter))) &&
-    (cityFilter === 'all' || (d.organization_id && orgCity[d.organization_id] === cityFilter))
+    (cityFilter === 'all' || (d.organization_id && orgCity[d.organization_id] === cityFilter)) &&
+    matchKw(d)
   );
   // cidades presentes nos negócios do funil (para o filtro)
   const cityOptions = [...new Set(deals.map(d => d.organization_id && orgCity[d.organization_id]).filter(Boolean))].sort((a: any, b: any) => a.localeCompare(b));
@@ -136,11 +143,13 @@ export const Crm: React.FC<Props> = ({ currentUser, activeClientId, isAdmin, mem
     // cidade de cada negócio (via empresa) — para o filtro de cidade
     const orgIds = [...new Set((dls || []).map((d: any) => d.organization_id).filter(Boolean))];
     const cityMap: Record<string, string> = {};
+    const textMap: Record<string, string> = {};
     for (let i = 0; i < orgIds.length; i += 300) {
-      const { data: orgs } = await supabase.from('crm_organizations').select('id, city').in('id', orgIds.slice(i, i + 300));
-      (orgs || []).forEach((o: any) => { if (o.city) cityMap[o.id] = o.city; });
+      const { data: orgs } = await supabase.from('crm_organizations').select('id, city, uf, name, cnpj').in('id', orgIds.slice(i, i + 300));
+      (orgs || []).forEach((o: any) => { if (o.city) cityMap[o.id] = o.city; textMap[o.id] = [o.name, o.city, o.uf, o.cnpj].filter(Boolean).join(' '); });
     }
     setOrgCity(cityMap);
+    setOrgText(textMap);
   }, [pipelineId]);
 
   useEffect(() => { loadPipelines(); }, [loadPipelines]);
@@ -275,7 +284,9 @@ export const Crm: React.FC<Props> = ({ currentUser, activeClientId, isAdmin, mem
     return () => clearTimeout(t);
   }, [searchQ, cid]);
 
-  const clearSearch = () => { setSearchQ(''); setSearchRes(null); };
+  const clearSearch = () => { setSearchQ(''); setSearchRes(null); setBoardQuery(''); };
+  // aplica o texto como filtro de palavra-chave do quadro (Enter ou lupa) e fecha o dropdown
+  const applyBoardSearch = () => { setBoardQuery(searchQ.trim()); setSearchRes(null); };
   const openSearchDeal = (id: string) => { clearSearch(); setDetailId(id); };
   const openFromOrg = async (orgId: string | null) => {
     if (!orgId) return;
@@ -486,11 +497,21 @@ export const Crm: React.FC<Props> = ({ currentUser, activeClientId, isAdmin, mem
       {/* Busca global */}
       <div className="relative">
         <div className="flex items-center gap-2 bg-white rounded-xl border border-slate-200 shadow-sm px-4 py-2.5 focus-within:border-amber-400 transition-colors">
-          <Search size={16} className="text-slate-400 shrink-0" />
-          <input value={searchQ} onChange={e => setSearchQ(e.target.value)} placeholder="Pesquisar negócio, contato, empresa, telefone, e-mail, CNPJ..."
+          <button onClick={applyBoardSearch} title="Filtrar o quadro por palavra-chave" className="text-slate-400 hover:text-amber-600 shrink-0 transition-colors"><Search size={16} /></button>
+          <input value={searchQ} onChange={e => setSearchQ(e.target.value)}
+            onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); applyBoardSearch(); } }}
+            placeholder="Filtrar por palavra-chave (ex.: são paulo) — Enter. Ou busque negócio, contato, empresa..."
             className="flex-1 text-sm outline-none bg-transparent placeholder:text-slate-400" />
-          {searchQ && <button onClick={clearSearch} className="text-slate-400 hover:text-slate-600 shrink-0"><X size={15} /></button>}
+          {(searchQ || boardQuery) && <button onClick={clearSearch} className="text-slate-400 hover:text-slate-600 shrink-0"><X size={15} /></button>}
         </div>
+        {boardQuery && (
+          <div className="mt-2 flex items-center gap-2 flex-wrap">
+            <span className="inline-flex items-center gap-2 text-[11px] font-bold text-amber-800 bg-amber-50 border border-amber-200 rounded-full pl-3 pr-2 py-1">
+              <Filter size={12} /> Filtrando o quadro por "{boardQuery}" — {visibleDeals.length} negócio(s)
+              <button onClick={() => { setBoardQuery(''); setSearchQ(''); }} className="text-amber-700 hover:text-amber-900" title="Remover filtro"><X size={13} /></button>
+            </span>
+          </div>
+        )}
         {searchRes && (
           <div className="absolute z-30 mt-1 w-full bg-white rounded-xl border border-slate-200 shadow-xl max-h-[26rem] overflow-y-auto">
             {(searchRes.deals.length + searchRes.contacts.length + searchRes.orgs.length) === 0 ? (
