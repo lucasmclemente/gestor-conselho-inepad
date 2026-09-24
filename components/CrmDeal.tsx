@@ -106,8 +106,8 @@ export const CrmDeal: React.FC<Props> = ({ dealId, cid, currentUser, isAdmin, me
   const [attUrls, setAttUrls] = useState<Record<string, string>>({}); // path do anexo -> signed URL
   const [attBusy, setAttBusy] = useState('');                     // id da atividade recebendo anexo
 
-  const load = useCallback(async () => {
-    setLoading(true);
+  const load = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true);
     const { data: d } = await supabase.from('crm_deals').select('*').eq('id', dealId).maybeSingle();
     setDeal(d);
     setDForm({
@@ -134,7 +134,7 @@ export const CrmDeal: React.FC<Props> = ({ dealId, cid, currentUser, isAdmin, me
     }
     setContacts(contactsList); setOrg(og.data); setActs(ac.data || []); setEvents(ev.data || []);
     setFieldDefs(fd.data || []); setCustomForm(d?.custom || {}); setTags(tg.data || []);
-    setLoading(false);
+    if (!silent) setLoading(false);
   }, [dealId]);
   useEffect(() => { load(); }, [load]);
 
@@ -176,7 +176,7 @@ export const CrmDeal: React.FC<Props> = ({ dealId, cid, currentUser, isAdmin, me
     if (error) { alert('Erro ao salvar: ' + error.message); return; }
     log('CRM', `Negócio "${patch.title}" editado`);
     if (movedPipeline) { onMutated(); onBack(); return; } // mudou de funil → volta ao quadro (recarrega limpo)
-    await load(); onMutated();
+    await load(true); onMutated();
   };
 
   const moveStage = async (stageId: string) => {
@@ -248,7 +248,7 @@ export const CrmDeal: React.FC<Props> = ({ dealId, cid, currentUser, isAdmin, me
       // se o negócio ainda não tem contato principal, o novo vira o principal
       if (!deal?.contact_id) { await supabase.from('crm_deals').update({ contact_id: data.id }).eq('id', dealId); setDeal((p: any) => ({ ...p, contact_id: data.id })); }
     }
-    setCForm(null); await load();
+    setCForm(null); await load(true);
   };
 
   const setPrimaryContact = async (contactId: string) => {
@@ -262,7 +262,7 @@ export const CrmDeal: React.FC<Props> = ({ dealId, cid, currentUser, isAdmin, me
     if (deal?.contact_id === c.id) await supabase.from('crm_deals').update({ contact_id: null }).eq('id', dealId);
     const { error } = await supabase.from('crm_contacts').delete().eq('id', c.id);
     if (error) { alert('Erro: ' + error.message); return; }
-    await load();
+    await load(true);
   };
 
   const saveOrg = async () => {
@@ -280,7 +280,7 @@ export const CrmDeal: React.FC<Props> = ({ dealId, cid, currentUser, isAdmin, me
       if (deal?.contact_id && !cids.includes(deal.contact_id)) cids.push(deal.contact_id);
       if (cids.length) await supabase.from('crm_contacts').update({ organization_id: data.id }).in('id', cids);
     }
-    setOForm(null); await load();
+    setOForm(null); await load(true);
   };
 
   const toggleTag = async (tagId: string) => {
@@ -288,7 +288,7 @@ export const CrmDeal: React.FC<Props> = ({ dealId, cid, currentUser, isAdmin, me
     const next = cur.includes(tagId) ? cur.filter((id: string) => id !== tagId) : [...cur, tagId];
     setDeal((prev: any) => ({ ...prev, tag_ids: next }));
     const { error } = await supabase.from('crm_deals').update({ tag_ids: next }).eq('id', dealId);
-    if (error) { alert('Erro: ' + error.message); load(); return; }
+    if (error) { alert('Erro: ' + error.message); load(true); return; }
     onMutated();
   };
 
@@ -502,7 +502,21 @@ export const CrmDeal: React.FC<Props> = ({ dealId, cid, currentUser, isAdmin, me
     setActs(prev => prev.filter(x => x.id !== a.id));
   };
 
-  if (loading) return <div className="flex items-center justify-center h-64 text-amber-600 font-bold uppercase animate-pulse">Carregando negócio...</div>;
+  // Webfone hoisted: fica montado mesmo durante loading/erro → salvar durante a ligação NÃO derruba a chamada.
+  const webphoneEl = webphone ? (
+    <CrmWebphone
+      number={webphone.number}
+      contactName={webphone.name}
+      dealId={dealId}
+      cid={cid}
+      contactId={webphone.contactId}
+      ownerId={currentUser?.id || null}
+      onLogged={(a) => setActs(prev => [a, ...prev])}
+      onClose={() => setWebphone(null)}
+    />
+  ) : null;
+
+  if (loading) return <>{webphoneEl}<div className="flex items-center justify-center h-64 text-amber-600 font-bold uppercase animate-pulse">Carregando negócio...</div></>;
   if (!deal) return (
     <div className="space-y-4">
       <button onClick={onBack} className="text-[10px] font-bold uppercase tracking-widest text-amber-600 hover:text-amber-700 flex items-center gap-1"><ChevronLeft size={14} /> Voltar ao funil</button>
@@ -895,18 +909,7 @@ export const CrmDeal: React.FC<Props> = ({ dealId, cid, currentUser, isAdmin, me
         <CrmLostModal dealTitle={deal.title} onConfirm={confirmLost} onClose={() => setLostOpen(false)} />
       )}
 
-      {webphone && (
-        <CrmWebphone
-          number={webphone.number}
-          contactName={webphone.name}
-          dealId={dealId}
-          cid={cid}
-          contactId={webphone.contactId}
-          ownerId={currentUser?.id || null}
-          onLogged={(a) => setActs(prev => [a, ...prev])}
-          onClose={() => setWebphone(null)}
-        />
-      )}
+      {webphoneEl}
 
       {compose && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4" onMouseDown={e => { if (e.target === e.currentTarget && !sendingEmail) { setCompose(null); setComposeFiles([]); } }}>
