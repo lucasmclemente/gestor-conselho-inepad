@@ -125,7 +125,14 @@ export const CrmDeal: React.FC<Props> = ({ dealId, cid, currentUser, isAdmin, me
       supabase.from('crm_field_defs').select('*').eq('client_id', cid).eq('active', true).order('position'),
       supabase.from('crm_tags').select('*').eq('client_id', cid).order('position'),
     ]);
-    setContacts(ct.data || []); setOrg(og.data); setActs(ac.data || []); setEvents(ev.data || []);
+    // garante que o contato principal do negócio (contact_id) sempre apareça,
+    // mesmo que ainda não esteja vinculado à empresa (evita "sumir" ao criar a empresa)
+    let contactsList = ct.data || [];
+    if (d?.contact_id && !contactsList.some((c: any) => c.id === d.contact_id)) {
+      const { data: main } = await supabase.from('crm_contacts').select('*').eq('id', d.contact_id).maybeSingle();
+      if (main) contactsList = [main, ...contactsList];
+    }
+    setContacts(contactsList); setOrg(og.data); setActs(ac.data || []); setEvents(ev.data || []);
     setFieldDefs(fd.data || []); setCustomForm(d?.custom || {}); setTags(tg.data || []);
     setLoading(false);
   }, [dealId]);
@@ -268,6 +275,10 @@ export const CrmDeal: React.FC<Props> = ({ dealId, cid, currentUser, isAdmin, me
       const { data, error } = await supabase.from('crm_organizations').insert(payload).select().single();
       if (error) { alert('Erro: ' + error.message); return; }
       await supabase.from('crm_deals').update({ organization_id: data.id }).eq('id', dealId);
+      // vincula os contatos já existentes deste negócio à nova empresa (senão somem da tela)
+      const cids = (contacts || []).map((c: any) => c.id);
+      if (deal?.contact_id && !cids.includes(deal.contact_id)) cids.push(deal.contact_id);
+      if (cids.length) await supabase.from('crm_contacts').update({ organization_id: data.id }).in('id', cids);
     }
     setOForm(null); await load();
   };
