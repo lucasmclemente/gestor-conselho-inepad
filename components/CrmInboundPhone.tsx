@@ -13,6 +13,8 @@ import { PhoneIncoming, PhoneOff, Phone, Mic, MicOff } from 'lucide-react';
 const fmt = (s: number) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
 const digits = (s: string) => (s || '').replace(/\D/g, '');
 const phoneKey = (s: string) => { const d = digits(s); return d.length >= 8 ? d.slice(-8) : d; };
+// tratamento de ruído do microfone (headset): eco + supressão + ganho automático + isolamento de voz (Chrome) + mono
+const AUDIO_IN: any = { echoCancellation: true, noiseSuppression: true, autoGainControl: true, voiceIsolation: true, channelCount: 1 };
 
 type Sng = {
   client: any; call: any;
@@ -140,8 +142,8 @@ async function connect() {
     ensureAudio();
     const client = new TelnyxRTC({ login_token: (data as any).token });
     (client as any).remoteElement = 'telnyx-inbound-audio';
-    // isola ruído externo (supressão de ruído + cancelamento de eco + ganho automático)
-    try { (client as any).setAudioSettings?.({ echoCancellation: true, noiseSuppression: true, autoGainControl: true }); } catch { /* */ }
+    // isola ruído externo: eco + supressão + ganho automático + ISOLAMENTO DE VOZ (Chrome) + mono
+    try { (client as any).setAudioSettings?.(AUDIO_IN); } catch { /* */ }
     S.client = client;
     client.on('telnyx.notification', (n: any) => {
       if (n?.type !== 'callUpdate' || !n.call || !S) return;
@@ -156,6 +158,8 @@ async function connect() {
         try { if (typeof Notification !== 'undefined' && Notification.permission === 'granted') new Notification('📞 Ligação recebida', { body: S.caller }); } catch { /* */ }
       } else if (st === 'active') {
         stopRing(); S.answeredAt = Date.now(); S.phase = 'active'; startTimer(); emit();
+        // reforça o tratamento de ruído na trilha real do microfone
+        try { const ls: MediaStream | null = call.localStream || call.options?.localStream || null; ls?.getAudioTracks?.()[0]?.applyConstraints?.(AUDIO_IN).catch(() => {}); } catch { /* */ }
       } else if (st === 'hangup' || st === 'destroy' || st === 'purge') {
         stopRing();
         const wasActive = S.answeredAt > 0; const secs = S.secondsRef; const num = S.caller; const ext = S.ext;

@@ -159,8 +159,8 @@ export const CrmWebphone: React.FC<Props> = ({ number, contactName, dealId, cid,
       const callerId = (data as any).callerId;
       const client = new TelnyxRTC({ login_token: token });
       (client as any).remoteElement = 'telnyx-remote-audio';
-      // isola ruído externo: supressão de ruído + cancelamento de eco + ganho automático
-      const AUDIO = { echoCancellation: true, noiseSuppression: true, autoGainControl: true };
+      // isola ruído externo: eco + supressão de ruído + ganho automático + ISOLAMENTO DE VOZ (Chrome) + mono
+      const AUDIO: any = { echoCancellation: true, noiseSuppression: true, autoGainControl: true, voiceIsolation: true, channelCount: 1 };
       try { (client as any).setAudioSettings?.(AUDIO); } catch { /* */ }
       clientRef.current = client;
 
@@ -191,6 +191,12 @@ export const CrmWebphone: React.FC<Props> = ({ number, contactName, dealId, cid,
               const ids = (callRef.current as any)?.telnyxIDs || n.call?.telnyxIDs;
               const sid = ids?.telnyxSessionId;
               ensureActivity().then(id => { if (sid && id) supabase.from('crm_activities').update({ external_id: sid }).eq('id', id).then(() => {}, () => {}); });
+            } catch { /* */ }
+            // reforça o tratamento de ruído aplicando as constraints na trilha real do microfone
+            try {
+              const ls: MediaStream | null = (callRef.current as any)?.localStream || n.call?.localStream || (callRef.current as any)?.options?.localStream || null;
+              const tr = ls?.getAudioTracks?.()[0];
+              tr?.applyConstraints?.(AUDIO).catch(() => {});
             } catch { /* */ }
             startRecording(callRef.current || n.call);
           }
