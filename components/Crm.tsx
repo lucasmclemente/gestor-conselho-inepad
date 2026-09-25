@@ -281,10 +281,23 @@ export const Crm: React.FC<Props> = ({ currentUser, activeClientId, isAdmin, mem
         supabase.from('crm_contacts').select('id, name, email, phone, organization_id').eq('client_id', cid).or(`name.ilike.${like},email.ilike.${like},phone.ilike.${like},role_title.ilike.${like}`).limit(8),
         supabase.from('crm_organizations').select('id, name, cnpj, phone, city, uf').eq('client_id', cid).or(`name.ilike.${like},cnpj.ilike.${like},phone.ilike.${like},city.ilike.${like},uf.ilike.${like},address.ilike.${like},segment.ilike.${like}`).limit(12),
       ]);
-      setSearchRes({ deals: d.data || [], contacts: c.data || [], orgs: o.data || [] });
+      let deals = d.data || [], contacts = c.data || [], orgs = o.data || [];
+      // Negócios já vêm filtrados pela RLS (dono/admin). Para não-admin, filtra
+      // empresas/contatos aos que o usuário realmente acessa (têm negócio dele).
+      if (!isAdmin) {
+        const candidateOrgs = [...new Set([...contacts.map((x: any) => x.organization_id), ...orgs.map((x: any) => x.id)].filter(Boolean))] as string[];
+        const accessible = new Set<string>();
+        if (candidateOrgs.length) {
+          const { data: myDeals } = await supabase.from('crm_deals').select('organization_id').eq('client_id', cid).in('organization_id', candidateOrgs); // RLS → só os do usuário
+          (myDeals || []).forEach((x: any) => { if (x.organization_id) accessible.add(x.organization_id); });
+        }
+        contacts = contacts.filter((x: any) => x.organization_id && accessible.has(x.organization_id));
+        orgs = orgs.filter((x: any) => accessible.has(x.id));
+      }
+      setSearchRes({ deals, contacts, orgs });
     }, 300);
     return () => clearTimeout(t);
-  }, [searchQ, cid]);
+  }, [searchQ, cid, isAdmin]);
 
   const clearSearch = () => { setSearchQ(''); setSearchRes(null); setBoardQuery(''); };
   // aplica o texto como filtro de palavra-chave do quadro (Enter ou lupa) e fecha o dropdown
