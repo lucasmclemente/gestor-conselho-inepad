@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { supabase } from '../services/supabaseClient';
-import { Filter, Plus, X, Save, Trash2, Trophy, Ban, Settings, Upload, Users, TrendingUp, Phone, RefreshCw, Mail, CheckSquare, Search, User, Building2, ChevronLeft, ChevronRight, Bell, Clock, Check, PhoneIncoming } from 'lucide-react';
+import { Filter, Plus, X, Save, Trash2, Trophy, Ban, Settings, Upload, Users, TrendingUp, Phone, RefreshCw, Mail, CheckSquare, Search, User, Building2, ChevronLeft, ChevronRight, Bell, Clock, Check, PhoneIncoming, CalendarDays } from 'lucide-react';
 import { CrmDeal } from './CrmDeal';
 import { CrmSettings } from './CrmSettings';
 import { CrmImport } from './CrmImport';
@@ -9,6 +9,7 @@ import { CrmResults } from './CrmResults';
 import { CrmCalls } from './CrmCalls';
 import { CrmReceivedCalls } from './CrmReceivedCalls';
 import { CrmTasks } from './CrmTasks';
+import { CrmCalendar } from './CrmCalendar';
 import { CrmBriefing } from './CrmBriefing';
 import { CrmLostModal } from './CrmLostModal';
 import { CrmInboundPhone } from './CrmInboundPhone';
@@ -46,6 +47,7 @@ export const Crm: React.FC<Props> = ({ currentUser, activeClientId, isAdmin, mem
   const [receivedOpen, setReceivedOpen] = useState(false);   // worklist "Ligações Recebidas"
   const [receivedCount, setReceivedCount] = useState(0);     // recebidas aguardando retorno (badge)
   const [tasksOpen, setTasksOpen] = useState(false);
+  const [calendarOpen, setCalendarOpen] = useState(false);
   const [alerts, setAlerts] = useState<any[]>([]);      // tarefas pendentes (agendadas) do cliente
   const [alertsOpen, setAlertsOpen] = useState(false);  // painel "Meus alertas"
   const [toast, setToast] = useState<any>(null);        // popup de alerta que disparou
@@ -465,6 +467,13 @@ export const Crm: React.FC<Props> = ({ currentUser, activeClientId, isAdmin, mem
       onOpenDeal={(id) => { setReceivedOpen(false); setDetailId(id); }} /></>
   );
 
+  if (calendarOpen) return (
+    <>{inboundPhone}
+    <CrmCalendar cid={cid} currentUser={currentUser} members={members} isAdmin={isAdmin}
+      onBack={() => setCalendarOpen(false)}
+      onOpenDeal={(id) => { setCalendarOpen(false); setDetailId(id); }} /></>
+  );
+
   if (tasksOpen) return (
     <>{inboundPhone}
     <CrmTasks cid={cid} currentUser={currentUser} members={members}
@@ -590,6 +599,10 @@ export const Crm: React.FC<Props> = ({ currentUser, activeClientId, isAdmin, mem
             className="relative p-2.5 rounded-lg bg-slate-100 text-slate-700 hover:bg-slate-200 transition-all flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest">
             <PhoneIncoming size={16} /><span className="hidden sm:inline">Recebidas</span>
             {receivedCount > 0 && <span className="absolute -top-1.5 -right-1.5 min-w-[18px] h-[18px] px-1 rounded-full bg-red-500 text-white text-[10px] font-bold flex items-center justify-center">{receivedCount}</span>}
+          </button>
+          <button onClick={() => setCalendarOpen(true)} title="Agenda de atividades"
+            className="p-2.5 rounded-lg bg-slate-100 text-slate-700 hover:bg-slate-200 transition-all flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest">
+            <CalendarDays size={16} /><span className="hidden sm:inline">Agenda</span>
           </button>
           {isAdmin && (
             <button onClick={() => setInboundOpen(true)} title="Quem recebe as ligações"

@@ -10,6 +10,7 @@ import { CrmWebphone } from './CrmWebphone';
 
 const BRL = (n: any) => (Number(n) || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 const fmtDateTime = (s: string) => { try { return new Date(s).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' }); } catch { return s; } };
+const fmtTime = (s: string) => { try { return new Date(s).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }); } catch { return s; } };
 const fmtDate = (s: string) => { try { return new Date(s + 'T00:00:00').toLocaleDateString('pt-BR'); } catch { return s; } };
 
 const ACT_TYPES = [
@@ -98,7 +99,7 @@ export const CrmDeal: React.FC<Props> = ({ dealId, cid, currentUser, isAdmin, me
   const [savingDeal, setSavingDeal] = useState(false);
   const [cForm, setCForm] = useState<any>(null); // null = escondido
   const [oForm, setOForm] = useState<any>(null);
-  const [actForm, setActForm] = useState<any>({ type: 'call', title: '', notes: '', due_at: '', remind: '' });
+  const [actForm, setActForm] = useState<any>({ type: 'call', title: '', notes: '', due_at: '', end_at: '', remind: '', assignees: [] as string[] });
   const [addingAct, setAddingAct] = useState(false);
   const [editingId, setEditingId] = useState('');           // atividade em edição
   const [editForm, setEditForm] = useState<any>({ title: '', notes: '', due_at: '', remind: '' });
@@ -415,12 +416,14 @@ export const CrmDeal: React.FC<Props> = ({ dealId, cid, currentUser, isAdmin, me
     if (!actForm.title.trim() && !actForm.notes.trim() && pendingFiles.length === 0) return alert('Preencha o título, a descrição ou anexe um arquivo.');
     setAddingAct(true);
     const dueIso = actForm.due_at ? new Date(actForm.due_at).toISOString() : null;
+    const endIso = actForm.end_at ? new Date(actForm.end_at).toISOString() : null;
     const remindMin = (dueIso && actForm.remind !== '') ? Number(actForm.remind) : null;
+    const assignees: string[] = (actForm.assignees && actForm.assignees.length) ? actForm.assignees : (currentUser?.id ? [currentUser.id] : []);
     const payload: any = {
       client_id: cid, deal_id: dealId, type: actForm.type,
       title: actForm.title.trim() || null, notes: actForm.notes.trim() || null,
-      due_at: dueIso, remind_minutes: remindMin, remind_at: calcRemindAt(dueIso, remindMin),
-      owner_member_id: currentUser?.id || null,
+      due_at: dueIso, end_at: endIso, remind_minutes: remindMin, remind_at: calcRemindAt(dueIso, remindMin),
+      assignees, owner_member_id: assignees[0] || currentUser?.id || null,
     };
     const { data, error } = await supabase.from('crm_activities').insert(payload).select().single();
     if (error) { setAddingAct(false); alert('Erro: ' + error.message); return; }
@@ -443,7 +446,7 @@ export const CrmDeal: React.FC<Props> = ({ dealId, cid, currentUser, isAdmin, me
         }
       } catch { /* */ }
     }
-    setActForm({ type: 'call', title: '', notes: '', due_at: '', remind: '' });
+    setActForm({ type: 'call', title: '', notes: '', due_at: '', end_at: '', remind: '', assignees: [] });
     setPendingFiles([]);
   };
 
@@ -515,6 +518,9 @@ export const CrmDeal: React.FC<Props> = ({ dealId, cid, currentUser, isAdmin, me
       onClose={() => setWebphone(null)}
     />
   ) : null;
+
+  // responsáveis efetivos do compositor (default = eu)
+  const effAssignees: string[] = (actForm.assignees?.length ? actForm.assignees : (currentUser?.id ? [currentUser.id] : []));
 
   if (loading) return <>{webphoneEl}<div className="flex items-center justify-center h-64 text-amber-600 font-bold uppercase animate-pulse">Carregando negócio...</div></>;
   if (!deal) return (
@@ -800,8 +806,22 @@ export const CrmDeal: React.FC<Props> = ({ dealId, cid, currentUser, isAdmin, me
                 </div>
               )}
             </div>
+            <div className="flex flex-wrap items-center gap-1.5">
+              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest flex items-center gap-1"><User size={12} /> Responsáveis</span>
+              {effAssignees.map((id: string) => (
+                <span key={id} className="inline-flex items-center gap-1 bg-amber-50 border border-amber-200 text-amber-700 rounded-full px-2 py-0.5 text-[11px] font-bold not-italic">
+                  {ownerName(id)}
+                  <button onClick={() => setActForm({ ...actForm, assignees: effAssignees.filter((x: string) => x !== id) })} className="text-amber-400 hover:text-red-500"><X size={11} /></button>
+                </span>
+              ))}
+              <select value="" onChange={e => { const id = e.target.value; if (id && !effAssignees.includes(id)) setActForm({ ...actForm, assignees: [...effAssignees, id] }); }} className="p-1.5 border border-slate-200 rounded-lg text-[11px] outline-none focus:border-amber-500 bg-white">
+                <option value="">+ adicionar</option>
+                {members.filter((m: any) => !effAssignees.includes(m.id)).map((m: any) => <option key={m.id} value={m.id}>{m.name}</option>)}
+              </select>
+            </div>
             <div className="flex flex-wrap items-center gap-2">
-              <div className="flex items-center gap-1.5 text-slate-400"><Clock size={13} /><input type="datetime-local" className="p-2 border border-slate-200 rounded-lg text-sm outline-none focus:border-amber-500 text-slate-600" value={actForm.due_at} onChange={e => setActForm({ ...actForm, due_at: e.target.value })} /></div>
+              <div className="flex items-center gap-1.5 text-slate-400" title="Início / prazo"><Clock size={13} /><input type="datetime-local" className="p-2 border border-slate-200 rounded-lg text-sm outline-none focus:border-amber-500 text-slate-600" value={actForm.due_at} onChange={e => setActForm({ ...actForm, due_at: e.target.value })} /></div>
+              <div className="flex items-center gap-1.5 text-slate-400" title="Fim (opcional)"><span className="text-[10px] font-bold uppercase">até</span><input type="datetime-local" disabled={!actForm.due_at} className="p-2 border border-slate-200 rounded-lg text-sm outline-none focus:border-amber-500 text-slate-600 disabled:opacity-40" value={actForm.end_at} onChange={e => setActForm({ ...actForm, end_at: e.target.value })} /></div>
               <div className="flex items-center gap-1.5 text-slate-400" title={actForm.due_at ? 'Quando avisar antes do prazo' : 'Defina um prazo para ativar o alerta'}>
                 <Bell size={13} />
                 <select disabled={!actForm.due_at} value={actForm.remind} onChange={e => setActForm({ ...actForm, remind: e.target.value })} className="p-2 border border-slate-200 rounded-lg text-sm outline-none focus:border-amber-500 text-slate-600 bg-white disabled:opacity-50">
@@ -867,9 +887,9 @@ export const CrmDeal: React.FC<Props> = ({ dealId, cid, currentUser, isAdmin, me
                     )}
                     <div className="flex items-center gap-3 mt-1.5 text-[10px] text-slate-400 font-bold uppercase tracking-wide flex-wrap">
                       {a.created_at && <span className="flex items-center gap-1 text-slate-500" title="Quando a atividade foi feita"><Calendar size={10} /> {fmtDateTime(a.created_at)}</span>}
-                      {a.due_at && <span className="flex items-center gap-1" title="Agendada para"><Clock size={10} /> Agendada: {fmtDateTime(a.due_at)}</span>}
+                      {a.due_at && <span className="flex items-center gap-1" title="Agendada para"><Clock size={10} /> Agendada: {fmtDateTime(a.due_at)}{a.end_at ? `–${fmtTime(a.end_at)}` : ''}</span>}
                       {a.remind_at && !a.done && <span className="flex items-center gap-1 text-amber-600"><Bell size={10} /> {remindLabel(a.remind_minutes)}</span>}
-                      {a.owner_member_id && <span>{ownerName(a.owner_member_id)}</span>}
+                      {(() => { const who = (Array.isArray(a.assignees) && a.assignees.length) ? a.assignees : (a.owner_member_id ? [a.owner_member_id] : []); return who.length ? <span title="Responsáveis">{who.map((id: string) => ownerName(id)).join(', ')}</span> : null; })()}
                       <button onClick={() => startEdit(a)} title="Editar" className="flex items-center gap-1 hover:text-amber-600 transition-colors"><Pencil size={11} /> Editar</button>
                       <label className={`flex items-center gap-1 cursor-pointer transition-colors ${attBusy === a.id ? 'text-amber-500' : 'hover:text-amber-600'}`} title="Anexar arquivo a esta atividade">
                         <Paperclip size={11} /> {attBusy === a.id ? 'Anexando…' : 'Anexar'}
