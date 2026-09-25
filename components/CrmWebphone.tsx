@@ -38,6 +38,8 @@ export const CrmWebphone: React.FC<Props> = ({ number, contactName, dealId, cid,
   const recorderRef = useRef<any>(null);       // MediaRecorder da ligação
   const audioCtxRef = useRef<any>(null);        // AudioContext do mix (mic + remoto)
   const chunksRef = useRef<BlobPart[]>([]);     // pedaços do áudio gravado
+  const gateCtxRef = useRef<any>(null);         // AudioContext do noise gate
+  const gateNodeRef = useRef<any>(null);        // ScriptProcessor do noise gate
   const recStartedRef = useRef(false);          // evita iniciar a gravação 2x
   const uploadStartedRef = useRef(false);       // evita subir a gravação 2x
 
@@ -67,6 +69,51 @@ export const CrmWebphone: React.FC<Props> = ({ number, contactName, dealId, cid,
       recorderRef.current = rec;
       recStartedRef.current = true;
     } catch (e) { console.warn('[webphone] gravação não iniciou', e); }
+  };
+
+  // Noise gate: silencia o microfone nas pausas do atendente (reduz o vazamento de vozes ao redor).
+  // Processa o áudio do mic e substitui a trilha enviada ao par pela versão "portada".
+  const startNoiseGate = (call: any) => {
+    if (gateCtxRef.current) return;
+    try {
+      const local: MediaStream | null = call?.localStream || call?.options?.localStream || null;
+      const track = local?.getAudioTracks?.()[0];
+      const pc = call?.peer?.instance || (call as any)?.rtcPeerConnection || (call as any)?.pc || null;
+      const AC: any = (window as any).AudioContext || (window as any).webkitAudioContext;
+      if (!track || !pc || !AC || !pc.getSenders) return;
+      const ctx = new AC();
+      const src = ctx.createMediaStreamSource(new MediaStream([track]));
+      const sp = ctx.createScriptProcessor(2048, 1, 1);
+      const dest = ctx.createMediaStreamDestination();
+      // limiares (RMS) conservadores: corta só quase-silêncio → não corta a fala
+      const OPEN = 0.012, CLOSE = 0.006, HOLD = 300; // abre ao falar; segura 300ms; fecha no silêncio
+      const ATTACK = 0.02, RELEASE = 0.0006;         // suavização por amostra (abre rápido, fecha suave)
+      let env = 1, open = true, holdUntil = 0;
+      sp.onaudioprocess = (e: any) => {
+        const inp = e.inputBuffer.getChannelData(0);
+        const out = e.outputBuffer.getChannelData(0);
+        let sum = 0; for (let i = 0; i < inp.length; i++) sum += inp[i] * inp[i];
+        const rms = Math.sqrt(sum / inp.length);
+        const now = ctx.currentTime * 1000;
+        if (rms > OPEN) { open = true; holdUntil = now + HOLD; }
+        else if (rms < CLOSE && now > holdUntil) { open = false; }
+        const target = open ? 1 : 0;
+        for (let i = 0; i < inp.length; i++) { env += (target - env) * (target > env ? ATTACK : RELEASE); out[i] = inp[i] * env; }
+      };
+      src.connect(sp); sp.connect(dest);
+      try { ctx.resume?.(); } catch { /* */ }
+      const processed = dest.stream.getAudioTracks()[0];
+      const sender = pc.getSenders().find((s: any) => s.track && s.track.kind === 'audio');
+      if (sender && processed) sender.replaceTrack(processed).catch(() => {});
+      gateCtxRef.current = ctx; gateNodeRef.current = sp;
+    } catch (e) { console.warn('[webphone] noise gate não iniciou', e); }
+  };
+  const stopNoiseGate = () => {
+    try { if (gateNodeRef.current) gateNodeRef.current.onaudioprocess = null; } catch { /* */ }
+    try { gateNodeRef.current?.disconnect?.(); } catch { /* */ }
+    gateNodeRef.current = null;
+    try { gateCtxRef.current?.close?.(); } catch { /* */ }
+    gateCtxRef.current = null;
   };
 
   // Encerra a gravação e envia o áudio para a Edge Function (idempotente lá também).
@@ -139,6 +186,7 @@ export const CrmWebphone: React.FC<Props> = ({ number, contactName, dealId, cid,
 
   const cleanup = () => {
     stopTimer();
+    stopNoiseGate();
     try { callRef.current?.hangup(); } catch { /* */ }
     try { clientRef.current?.disconnect(); } catch { /* */ }
     callRef.current = null; clientRef.current = null;
@@ -199,6 +247,7 @@ export const CrmWebphone: React.FC<Props> = ({ number, contactName, dealId, cid,
               tr?.applyConstraints?.(AUDIO).catch(() => {});
             } catch { /* */ }
             startRecording(callRef.current || n.call);
+            startNoiseGate(callRef.current || n.call);
           }
           else if (st === 'hangup' || st === 'destroy' || st === 'purge') {
             // Falha de "aquecimento": a 1ª chamada cai antes de tocar (cliente ainda não pronto).

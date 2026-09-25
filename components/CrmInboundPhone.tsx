@@ -65,6 +65,46 @@ const startRing = () => {
 };
 const stopRing = () => { if (ringTimer) { clearInterval(ringTimer); ringTimer = null; } try { ringCtx?.close(); } catch { /* */ } ringCtx = null; };
 
+// Noise gate (recebimento): silencia o microfone nas pausas do atendente → reduz vazamento de vozes ao redor.
+let gateCtx: any = null, gateNode: any = null;
+const startGateIn = (call: any) => {
+  if (gateCtx) return;
+  try {
+    const local: MediaStream | null = call?.localStream || call?.options?.localStream || null;
+    const track = local?.getAudioTracks?.()[0];
+    const pc = call?.peer?.instance || call?.rtcPeerConnection || call?.pc || null;
+    const AC: any = (window as any).AudioContext || (window as any).webkitAudioContext;
+    if (!track || !pc || !AC || !pc.getSenders) return;
+    const ctx = new AC();
+    const src = ctx.createMediaStreamSource(new MediaStream([track]));
+    const sp = ctx.createScriptProcessor(2048, 1, 1);
+    const dest = ctx.createMediaStreamDestination();
+    const OPEN = 0.012, CLOSE = 0.006, HOLD = 300, ATTACK = 0.02, RELEASE = 0.0006;
+    let env = 1, open = true, holdUntil = 0;
+    sp.onaudioprocess = (e: any) => {
+      const inp = e.inputBuffer.getChannelData(0); const out = e.outputBuffer.getChannelData(0);
+      let sum = 0; for (let i = 0; i < inp.length; i++) sum += inp[i] * inp[i];
+      const rms = Math.sqrt(sum / inp.length); const now = ctx.currentTime * 1000;
+      if (rms > OPEN) { open = true; holdUntil = now + HOLD; } else if (rms < CLOSE && now > holdUntil) { open = false; }
+      const target = open ? 1 : 0;
+      for (let i = 0; i < inp.length; i++) { env += (target - env) * (target > env ? ATTACK : RELEASE); out[i] = inp[i] * env; }
+    };
+    src.connect(sp); sp.connect(dest);
+    try { ctx.resume?.(); } catch { /* */ }
+    const processed = dest.stream.getAudioTracks()[0];
+    const sender = pc.getSenders().find((s: any) => s.track && s.track.kind === 'audio');
+    if (sender && processed) sender.replaceTrack(processed).catch(() => {});
+    gateCtx = ctx; gateNode = sp;
+  } catch { /* */ }
+};
+const stopGateIn = () => {
+  try { if (gateNode) gateNode.onaudioprocess = null; } catch { /* */ }
+  try { gateNode?.disconnect?.(); } catch { /* */ }
+  gateNode = null;
+  try { gateCtx?.close?.(); } catch { /* */ }
+  gateCtx = null;
+};
+
 // REGISTRA a ligação assim que TOCA (não só a atendida) para virar item de retorno.
 // Como o "toque simultâneo" faz o telefone tocar em várias abas ao mesmo tempo,
 // usamos uma CHAVE COMPARTILHADA (número + janela de tempo) no external_id: o índice
@@ -158,10 +198,11 @@ async function connect() {
         try { if (typeof Notification !== 'undefined' && Notification.permission === 'granted') new Notification('📞 Ligação recebida', { body: S.caller }); } catch { /* */ }
       } else if (st === 'active') {
         stopRing(); S.answeredAt = Date.now(); S.phase = 'active'; startTimer(); emit();
-        // reforça o tratamento de ruído na trilha real do microfone
+        // reforça o tratamento de ruído na trilha real do microfone + noise gate
         try { const ls: MediaStream | null = call.localStream || call.options?.localStream || null; ls?.getAudioTracks?.()[0]?.applyConstraints?.(AUDIO_IN).catch(() => {}); } catch { /* */ }
+        startGateIn(call);
       } else if (st === 'hangup' || st === 'destroy' || st === 'purge') {
-        stopRing();
+        stopRing(); stopGateIn();
         const wasActive = S.answeredAt > 0; const secs = S.secondsRef; const num = S.caller; const ext = S.ext;
         stopTimer(); if (wasActive) markAnswered(ext, num, secs);
         S.answeredAt = 0; S.call = null; S.phase = 'idle'; S.muted = false; S.caller = ''; S.ext = ''; emit();
