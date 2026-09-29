@@ -21,6 +21,8 @@ import { PublicVote } from './components/PublicVote';
 import { PublicAtaApproval } from './components/PublicAtaApproval';
 import { PublicCollect } from './components/PublicCollect';
 import { PublicPautaMaterials } from './components/PublicPautaMaterials';
+import { PublicQA } from './components/PublicQA';
+import { LiveQA } from './components/LiveQA';
 import { SealVerify } from './components/SealVerify';
 import { Diretorio } from './components/Diretorio';
 import { generateSealCertificate } from './services/generateSealCertificate';
@@ -41,6 +43,9 @@ const App = () => {
   });
   const [sealCode] = useState<string | null>(() => {
     try { return new URLSearchParams(window.location.search).get('selo'); } catch { return null; }
+  });
+  const [qaCode] = useState<string | null>(() => {
+    try { return new URLSearchParams(window.location.search).get('perguntas'); } catch { return null; }
   });
   const [showDirectory] = useState<boolean>(() => {
     try { return new URLSearchParams(window.location.search).has('diretorio'); } catch { return false; }
@@ -2259,6 +2264,23 @@ const App = () => {
     }
   };
 
+  const toggleManagedQA = async () => {
+    if (!managedClientId) return;
+    const newVal = !managedClientProfile?.qa_enabled;
+    const payload = {
+      client_id: managedClientId,
+      name: managedClientForm.name || managedClientId,
+      logo_url: managedClientForm.logo_url || '',
+      qa_enabled: newVal
+    };
+    const { data, error } = await supabase.from('clients').upsert(payload, { onConflict: 'client_id' }).select().single();
+    if (!error && data) {
+      setManagedClientProfile(data);
+      setAllClientsList(prev => prev.map((c: any) => c.client_id === managedClientId ? data : c));
+      addLog('Configuração', `Perguntas ao Vivo ${newVal ? 'ativado' : 'desativado'} para ${managedClientId}`);
+    }
+  };
+
   // Cria um novo cliente (tenant) — apenas SuperAdmin
   const createClient = async () => {
     if (!isSuper) return;
@@ -3302,6 +3324,11 @@ const App = () => {
     return <SealVerify code={sealCode} />;
   }
 
+  // ── Perguntas ao vivo (Q&A de evento, página pública sem login) ──
+  if (qaCode) {
+    return <PublicQA code={qaCode} />;
+  }
+
   // ── Tela de definição de nova senha (após clicar no link do e-mail de recuperação) ──
   if (isRecovering) {
     return <RecoverPassword onDone={() => setIsRecovering(false)} />;
@@ -3355,12 +3382,13 @@ const App = () => {
             { id: 'indicadores', icon: <Gauge size={18} />, label: 'Indicadores', addon: true },
             { id: 'estrategia', icon: <Compass size={18} />, label: 'Estratégia', addon: true },
             { id: 'repositorio-atas', icon: <Archive size={18} />, label: 'Repositório de Atas' },
+            { id: 'perguntas-vivo', icon: <MessageSquare size={18} />, label: 'Perguntas ao Vivo', qa: true, staff: true },
             { id: 'crm', icon: <Filter size={18} />, label: 'CRM', crm: true },
             { id: 'usuarios', icon: <UserCog size={18} />, label: isSuper ? 'Contas de Clientes' : 'Membros', adm: true },
             { id: 'rubrica', icon: <Settings size={18} />, label: 'Rubrica', super: true },
             { id: 'auditoria', icon: <History size={18} />, label: 'Auditoria', adm: true }
           ]).map((item: any) => (
-            (!item.adm || isAdm) && (!item.addon || strategyEnabled) && (!item.super || isSuper) && (!item.crm || clientProfile?.crm_enabled) && (
+            (!item.adm || isAdm) && (!item.addon || strategyEnabled) && (!item.super || isSuper) && (!item.crm || clientProfile?.crm_enabled) && (!item.qa || clientProfile?.qa_enabled) && (!item.staff || canEdit) && (
               <button key={item.id} onClick={() => { setActiveMenu(item.id); if (item.action) item.action(); setIsMobileMenuOpen(false); }} className={`w-full flex items-center gap-3 rounded-lg transition-all ${activeMenu === item.id ? 'bg-amber-600 text-white shadow-sm' : 'hover:bg-slate-700 hover:text-white'} ${isSidebarCollapsed ? 'justify-center p-3' : 'px-4 py-3'}`}>
                 <span className="shrink-0">{item.icon}</span>
                 {!isSidebarCollapsed && <span className="truncate">{item.label}</span>}
@@ -3541,6 +3569,9 @@ const App = () => {
 
               {activeMenu === 'crm' && (
                 <Crm currentUser={currentUser} activeClientId={activeClientId} isAdmin={isAdm} members={users} addLog={addLog} />
+              )}
+              {activeMenu === 'perguntas-vivo' && clientProfile?.qa_enabled && canEdit && (
+                <LiveQA currentUser={currentUser} activeClientId={activeClientId} addLog={addLog} />
               )}
               {activeMenu === 'dashboard' && (
                 <div className="space-y-6 animate-in fade-in">
@@ -6335,6 +6366,25 @@ const App = () => {
                             {managedClientProfile?.crm_enabled
                               ? <p className="text-[10px] text-emerald-600 font-bold not-italic flex items-center gap-1.5"><CheckCircle2 size={12} /> Add-on ativo — menu CRM visível e papel Comercial disponível</p>
                               : <p className="text-[10px] text-slate-400 font-normal not-italic">Add-on inativo — o cliente não verá o CRM</p>}
+                          </div>
+
+                          {/* Add-on: Perguntas ao Vivo (Q&A de eventos) */}
+                          <div className="border-t border-slate-100 pt-5 space-y-3">
+                            <h4 className="text-[10px] font-bold uppercase text-slate-400 tracking-widest flex items-center gap-2">
+                              <MessageSquare size={13} className="text-amber-600" /> Add-on: Perguntas ao Vivo
+                            </h4>
+                            <div className="flex items-center justify-between p-4 bg-slate-50 rounded-xl border border-slate-200">
+                              <div>
+                                <p className="text-sm font-bold text-slate-800 italic">Perguntas ao Vivo — {managedClientForm.name || managedClientId}</p>
+                                <p className="text-[10px] text-slate-400 font-normal not-italic mt-0.5">Q&A de eventos: o público envia perguntas por QR code (sem login) e a plataforma modera em tempo real.</p>
+                              </div>
+                              <button onClick={toggleManagedQA} className={`relative inline-flex h-7 w-12 shrink-0 items-center rounded-full transition-colors duration-200 focus:outline-none ${managedClientProfile?.qa_enabled ? 'bg-amber-600' : 'bg-slate-200'}`}>
+                                <span className={`inline-block h-5 w-5 transform rounded-full bg-white shadow-md transition-transform duration-200 ${managedClientProfile?.qa_enabled ? 'translate-x-6' : 'translate-x-1'}`} />
+                              </button>
+                            </div>
+                            {managedClientProfile?.qa_enabled
+                              ? <p className="text-[10px] text-emerald-600 font-bold not-italic flex items-center gap-1.5"><CheckCircle2 size={12} /> Add-on ativo — menu "Perguntas ao Vivo" visível para o cliente</p>
+                              : <p className="text-[10px] text-slate-400 font-normal not-italic">Add-on inativo — o cliente não verá as Perguntas ao Vivo</p>}
                           </div>
 
                           {/* Status da conta — ativar/inativar (reversível) */}
