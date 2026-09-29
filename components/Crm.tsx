@@ -13,6 +13,8 @@ import { CrmCalendar } from './CrmCalendar';
 import { CrmBriefing } from './CrmBriefing';
 import { CrmLostModal } from './CrmLostModal';
 import { CrmInboundPhone } from './CrmInboundPhone';
+import { CrmDialer } from './CrmDialer';
+import { CrmWebphone } from './CrmWebphone';
 
 type Props = {
   currentUser: any;
@@ -48,6 +50,28 @@ export const Crm: React.FC<Props> = ({ currentUser, activeClientId, isAdmin, mem
   const [receivedCount, setReceivedCount] = useState(0);     // recebidas aguardando retorno (badge)
   const [tasksOpen, setTasksOpen] = useState(false);
   const [calendarOpen, setCalendarOpen] = useState(false);
+  const [dialerOpen, setDialerOpen] = useState(false);   // discador avulso (teclado)
+  const [outCall, setOutCall] = useState<any>(null);     // ligação avulsa em andamento
+
+  // liga para um número avulso: tenta casar com contato/negócio acessível; senão, ligação sem negócio
+  const dialNumber = async (e164: string) => {
+    setDialerOpen(false);
+    const d = (e164 || '').replace(/\D/g, '');
+    const last8 = d.slice(-8);
+    let dealId: string | null = null, contactId: string | null = null, name = e164;
+    try {
+      if (last8) {
+        const { data: cts } = await supabase.from('crm_contacts').select('id, name, organization_id, phone').eq('client_id', cid).ilike('phone', `%${last8}%`).limit(5);
+        const ct = (cts || []).find((c: any) => (c.phone || '').replace(/\D/g, '').slice(-8) === last8) || (cts || [])[0];
+        if (ct) {
+          contactId = ct.id; name = ct.name || e164;
+          if (ct.organization_id) { const { data: dl } = await supabase.from('crm_deals').select('id').eq('client_id', cid).eq('organization_id', ct.organization_id).order('created_at', { ascending: false }).limit(1).maybeSingle(); dealId = dl?.id || null; }
+          if (!dealId) { const { data: dl } = await supabase.from('crm_deals').select('id').eq('client_id', cid).eq('contact_id', ct.id).order('created_at', { ascending: false }).limit(1).maybeSingle(); dealId = dl?.id || null; }
+        }
+      }
+    } catch { /* ligação avulsa sem vínculo */ }
+    setOutCall({ number: e164, name, dealId, contactId });
+  };
   const [alerts, setAlerts] = useState<any[]>([]);      // tarefas pendentes (agendadas) do cliente
   const [alertsOpen, setAlertsOpen] = useState(false);  // painel "Meus alertas"
   const [toast, setToast] = useState<any>(null);        // popup de alerta que disparou
@@ -446,7 +470,13 @@ export const Crm: React.FC<Props> = ({ currentUser, activeClientId, isAdmin, mem
 
   const boardTotal = visibleDeals.reduce((s, d) => s + (Number(d.value) || 0), 0);
 
-  const inboundPhone = <CrmInboundPhone cid={cid} currentUser={currentUser} />;
+  const inboundPhone = (
+    <>
+      <CrmInboundPhone cid={cid} currentUser={currentUser} />
+      {outCall && <CrmWebphone number={outCall.number} contactName={outCall.name} dealId={outCall.dealId} cid={cid} contactId={outCall.contactId} ownerId={currentUser?.id || null} onClose={() => setOutCall(null)} />}
+      {dialerOpen && <CrmDialer onCall={dialNumber} onClose={() => setDialerOpen(false)} />}
+    </>
+  );
 
   if (settingsOpen) return (
     <>{inboundPhone}
@@ -497,18 +527,18 @@ export const Crm: React.FC<Props> = ({ currentUser, activeClientId, isAdmin, mem
   // Detalhe do negócio (abre ao clicar num card). Antes do loading para não desmontar ao recarregar o board.
   if (detailId) return (
     <>
-      <CrmInboundPhone cid={cid} currentUser={currentUser} />
+      {inboundPhone}
       <CrmDeal dealId={detailId} cid={cid} currentUser={currentUser} isAdmin={isAdmin} members={members}
         stages={stages} emailConnected={!!emailConnected} addLog={addLog}
         onBack={() => { setDetailId(null); loadAlerts(); }} onMutated={() => { loadBoard(); loadAlerts(); }} />
     </>
   );
 
-  if (loading) return <div className="flex items-center justify-center h-64 text-amber-600 font-bold uppercase animate-pulse">Carregando CRM...</div>;
+  if (loading) return <>{inboundPhone}<div className="flex items-center justify-center h-64 text-amber-600 font-bold uppercase animate-pulse">Carregando CRM...</div></>;
 
   return (
     <div className="space-y-6 animate-in fade-in">
-      <CrmInboundPhone cid={cid} currentUser={currentUser} />
+      {inboundPhone}
       {brief && (
         <CrmBriefing overdue={brief.overdue} today={brief.today} canNotify={canNotify}
           onEnableNotify={enableNotify}
@@ -616,6 +646,10 @@ export const Crm: React.FC<Props> = ({ currentUser, activeClientId, isAdmin, mem
           <button onClick={() => setCalendarOpen(true)} title="Agenda de atividades"
             className="p-2.5 rounded-lg bg-slate-100 text-slate-700 hover:bg-slate-200 transition-all flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest">
             <CalendarDays size={16} /><span className="hidden sm:inline">Agenda</span>
+          </button>
+          <button onClick={() => setDialerOpen(true)} title="Ligar para um número (discador)"
+            className="p-2.5 rounded-lg bg-slate-100 text-slate-700 hover:bg-slate-200 transition-all flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest">
+            <Phone size={16} /><span className="hidden sm:inline">Discar</span>
           </button>
           {isAdmin && (
             <button onClick={() => setInboundOpen(true)} title="Quem recebe as ligações"

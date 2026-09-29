@@ -6,7 +6,7 @@ import { PhoneOff, Mic, MicOff, Phone, Grid3x3 } from 'lucide-react';
 type Props = {
   number: string;        // destino em E.164 (+55...)
   contactName?: string;
-  dealId: string;
+  dealId: string | null;   // null = ligação avulsa (sem negócio vinculado)
   cid: string;
   contactId?: string | null;
   ownerId?: string | null;      // usuário que discou (atribuição)
