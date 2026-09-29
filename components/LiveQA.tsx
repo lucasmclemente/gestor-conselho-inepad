@@ -3,7 +3,7 @@ import QRCode from 'qrcode';
 import { supabase } from '../services/supabaseClient';
 import {
   MessageSquare, Plus, QrCode, ExternalLink, Copy, CheckCircle2, Lock, Unlock,
-  Trash2, Archive, RotateCcw, ChevronLeft, RefreshCw
+  Trash2, Archive, RotateCcw, ChevronLeft, RefreshCw, Paperclip, FileText, X
 } from 'lucide-react';
 
 // Módulo de moderação "Perguntas ao Vivo" (staff). O público envia pelo link/QR
@@ -19,6 +19,9 @@ export const LiveQA: React.FC<{ currentUser: any; activeClientId: string | null;
   const [copied, setCopied] = useState(false);
   const [showArchived, setShowArchived] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [uploading, setUploading] = useState(false);
+
+  const materials: any[] = Array.isArray(selected?.materials) ? selected.materials : [];
 
   const publicUrl = selected ? `${window.location.origin}/?perguntas=${selected.code}` : '';
 
@@ -113,6 +116,40 @@ export const LiveQA: React.FC<{ currentUser: any; activeClientId: string | null;
 
   const copyLink = () => { navigator.clipboard?.writeText(publicUrl); setCopied(true); setTimeout(() => setCopied(false), 2000); };
 
+  // ── Materiais anexos (o público baixa pela página; a Edge Function assina na hora) ──
+  const saveMaterials = async (mats: any[]) => {
+    const { data, error } = await supabase.from('qa_sessions').update({ materials: mats }).eq('id', selected.id).select().single();
+    if (!error && data) { setSelected(data); setSessions(prev => prev.map(s => s.id === data.id ? data : s)); }
+    return !error;
+  };
+
+  const uploadMaterial = async (file: File) => {
+    if (!file || !selected) return;
+    setUploading(true);
+    const safe = file.name.replace(/[^a-zA-Z0-9._-]/g, '_');
+    const path = `qa/${clientId}/${selected.id}/${Date.now()}-${safe}`;
+    const { error: upErr } = await supabase.storage.from('meeting-files').upload(path, file, { upsert: true });
+    if (upErr) { alert('Erro ao enviar o arquivo: ' + upErr.message); setUploading(false); return; }
+    const next = [...materials, { name: file.name, path, uploadedAt: new Date().toISOString() }];
+    const ok = await saveMaterials(next);
+    if (ok) addLog('Upload', `Material anexado à sessão de perguntas "${selected.title}": ${file.name}`);
+    else alert('Arquivo enviado, mas não foi possível salvar na sessão.');
+    setUploading(false);
+  };
+
+  const removeMaterial = async (m: any) => {
+    if (!window.confirm(`Remover "${m.name}"?`)) return;
+    if (m.path) await supabase.storage.from('meeting-files').remove([m.path]).catch(() => {});
+    await saveMaterials(materials.filter(x => x !== m));
+  };
+
+  const openMaterial = async (m: any) => {
+    if (!m?.path) return;
+    const { data, error } = await supabase.storage.from('meeting-files').createSignedUrl(m.path, 300);
+    if (!error && data?.signedUrl) window.open(data.signedUrl, '_blank');
+    else alert('Não foi possível abrir o arquivo.');
+  };
+
   // ── Lista de sessões ──
   if (!selected) {
     return (
@@ -191,6 +228,27 @@ export const LiveQA: React.FC<{ currentUser: any; activeClientId: string | null;
               {selected.open ? <><Lock size={14} /> Encerrar perguntas</> : <><Unlock size={14} /> Reabrir perguntas</>}
             </button>
             <button onClick={deleteSession} className="w-full py-2.5 rounded-lg font-bold uppercase tracking-wider text-[10px] flex items-center justify-center gap-2 text-red-600 hover:bg-red-50 border border-red-100"><Trash2 size={14} /> Excluir sessão</button>
+          </div>
+
+          {/* Materiais para download do público */}
+          <div className="mt-4 pt-4 border-t border-slate-100">
+            <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400 mb-2 flex items-center gap-1.5"><Paperclip size={12} /> Materiais para o público</p>
+            {materials.length > 0 && (
+              <div className="space-y-1.5 mb-2">
+                {materials.map((m, i) => (
+                  <div key={i} className="flex items-center gap-2 p-2 bg-slate-50 rounded-lg border border-slate-200">
+                    <FileText size={14} className="text-amber-500 shrink-0" />
+                    <button onClick={() => openMaterial(m)} className="flex-1 text-left text-[11px] text-slate-700 truncate hover:text-amber-700">{m.name}</button>
+                    <button onClick={() => removeMaterial(m)} className="text-slate-300 hover:text-red-500 shrink-0" title="Remover"><X size={14} /></button>
+                  </div>
+                ))}
+              </div>
+            )}
+            <label className={`w-full py-2.5 rounded-lg font-bold uppercase tracking-wider text-[10px] flex items-center justify-center gap-2 cursor-pointer border ${uploading ? 'opacity-50 pointer-events-none' : 'bg-slate-100 text-slate-700 border-slate-200 hover:border-amber-300'}`}>
+              <Plus size={14} /> {uploading ? 'Enviando…' : 'Anexar material'}
+              <input type="file" className="hidden" disabled={uploading} onChange={e => { const f = e.target.files?.[0]; if (f) uploadMaterial(f); (e.target as HTMLInputElement).value = ''; }} />
+            </label>
+            <p className="text-[9px] text-slate-400 mt-1.5 text-center">Aparecem na página pública para os participantes baixarem.</p>
           </div>
         </div>
 

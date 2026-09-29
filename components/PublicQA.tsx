@@ -73,6 +73,23 @@ export const PublicQA: React.FC<{ code: string }> = ({ code }) => {
 
         {status === 'ready' && (
           <>
+            {/* Materiais para download */}
+            {(info?.materials || []).length > 0 && (
+              <div className="bg-white rounded-2xl shadow-xl p-4 mb-5">
+                <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400 mb-2">📎 Materiais do evento</p>
+                <div className="space-y-1.5">
+                  {info.materials.map((m: any, i: number) => (
+                    <a key={i} href={m.url} target="_blank" rel="noreferrer"
+                      className="flex items-center gap-2 p-2.5 bg-slate-50 rounded-lg border border-slate-200 hover:border-amber-300 transition-colors">
+                      <span className="text-amber-500 shrink-0">📄</span>
+                      <span className="flex-1 text-sm text-slate-700 truncate">{m.name}</span>
+                      <span className="text-[10px] font-bold uppercase tracking-wider text-amber-600 shrink-0">Baixar</span>
+                    </a>
+                  ))}
+                </div>
+              </div>
+            )}
+
             {/* Formulário de envio */}
             {info?.open ? (
               <div className="bg-white rounded-2xl shadow-xl p-5 mb-5">

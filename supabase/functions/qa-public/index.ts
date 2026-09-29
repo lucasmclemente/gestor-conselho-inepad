@@ -31,7 +31,7 @@ serve(async (req) => {
     const code = String(body.code || '').trim()
     if (!code) return json({ error: 'Sessão inválida.' }, 400)
 
-    const { data: session } = await admin.from('qa_sessions').select('id, title, open, client_id').eq('code', code).maybeSingle()
+    const { data: session } = await admin.from('qa_sessions').select('id, title, open, client_id, materials').eq('code', code).maybeSingle()
     if (!session) return json({ error: 'Sessão não encontrada.' }, 404)
 
     if (action === 'info') {
@@ -39,7 +39,16 @@ serve(async (req) => {
         .select('id, body, author_name, votes, status')
         .eq('session_id', session.id).neq('status', 'archived')
         .order('votes', { ascending: false }).order('created_at', { ascending: true }).limit(200)
-      return json({ ok: true, title: session.title, open: session.open, questions: qs || [] })
+      // Assina os materiais na hora (o caminho é guardado no banco; o link nunca "expira" para o público)
+      const mats = Array.isArray(session.materials) ? session.materials : []
+      const materials: any[] = []
+      for (const m of mats) {
+        if (m?.path) {
+          const { data: signed } = await admin.storage.from('meeting-files').createSignedUrl(m.path, 60 * 60 * 6)
+          if (signed?.signedUrl) materials.push({ name: m.name, url: signed.signedUrl })
+        }
+      }
+      return json({ ok: true, title: session.title, open: session.open, questions: qs || [], materials })
     }
 
     if (action === 'submit') {
