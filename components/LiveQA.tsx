@@ -3,7 +3,8 @@ import QRCode from 'qrcode';
 import { supabase } from '../services/supabaseClient';
 import {
   MessageSquare, Plus, QrCode, ExternalLink, Copy, CheckCircle2, Lock, Unlock,
-  Trash2, Archive, RotateCcw, ChevronLeft, RefreshCw, Paperclip, FileText, X
+  Trash2, Archive, RotateCcw, ChevronLeft, RefreshCw, Paperclip, FileText, X,
+  BarChart3, Edit2
 } from 'lucide-react';
 
 // Módulo de moderação "Perguntas ao Vivo" (staff). O público envia pelo link/QR
@@ -20,8 +21,14 @@ export const LiveQA: React.FC<{ currentUser: any; activeClientId: string | null;
   const [showArchived, setShowArchived] = useState(false);
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
+  const [editingSurvey, setEditingSurvey] = useState(false);
+  const [surveyDraft, setSurveyDraft] = useState<any[]>([]);
+  const [savingSurvey, setSavingSurvey] = useState(false);
+  const [responses, setResponses] = useState<any[]>([]);
 
   const materials: any[] = Array.isArray(selected?.materials) ? selected.materials : [];
+  const mode = selected?.mode || 'questions';
+  const survey: any[] = Array.isArray(selected?.survey) ? selected.survey : [];
 
   const publicUrl = selected ? `${window.location.origin}/?perguntas=${selected.code}` : '';
 
@@ -150,6 +157,54 @@ export const LiveQA: React.FC<{ currentUser: any; activeClientId: string | null;
     else alert('Não foi possível abrir o arquivo.');
   };
 
+  // ── Pesquisa de satisfação: modo, questionário e resultados ──
+  const setMode = async (m: string) => {
+    if (!selected) return;
+    if (m === 'survey' && survey.length === 0) { alert('Monte o questionário antes de ativar o modo pesquisa.'); setEditingSurvey(true); setSurveyDraft([]); return; }
+    const { data, error } = await supabase.from('qa_sessions').update({ mode: m }).eq('id', selected.id).select().single();
+    if (!error && data) {
+      setSelected(data); setSessions(prev => prev.map(s => s.id === data.id ? data : s));
+      addLog('Configuração', `Sessão "${data.title}" alternada para modo ${m === 'survey' ? 'Pesquisa' : 'Perguntas'}`);
+    }
+  };
+
+  const openSurveyEditor = () => { setSurveyDraft(JSON.parse(JSON.stringify(survey))); setEditingSurvey(true); };
+  const addSurveyQuestion = (type: string) => setSurveyDraft(prev => [...prev, { id: (crypto?.randomUUID?.() || Math.random().toString(36).slice(2)), type, label: '', options: type === 'choice' ? ['', ''] : undefined, multi: false }]);
+  const updateSurveyQuestion = (i: number, patch: any) => setSurveyDraft(prev => prev.map((q, idx) => idx === i ? { ...q, ...patch } : q));
+  const removeSurveyQuestion = (i: number) => setSurveyDraft(prev => prev.filter((_, idx) => idx !== i));
+  const addOption = (i: number) => setSurveyDraft(prev => prev.map((q, idx) => idx === i ? { ...q, options: [...(q.options || []), ''] } : q));
+  const updateOption = (i: number, oi: number, val: string) => setSurveyDraft(prev => prev.map((q, idx) => idx === i ? { ...q, options: (q.options || []).map((o: string, k: number) => k === oi ? val : o) } : q));
+  const removeOption = (i: number, oi: number) => setSurveyDraft(prev => prev.map((q, idx) => idx === i ? { ...q, options: (q.options || []).filter((_: string, k: number) => k !== oi) } : q));
+
+  const saveSurvey = async () => {
+    // validação
+    for (const q of surveyDraft) {
+      if (!q.label.trim()) { alert('Toda pergunta precisa de um enunciado.'); return; }
+      if (q.type === 'choice') {
+        const opts = (q.options || []).map((o: string) => o.trim()).filter(Boolean);
+        if (opts.length < 2) { alert(`A pergunta "${q.label}" precisa de ao menos 2 opções.`); return; }
+      }
+    }
+    // limpa opções vazias
+    const clean = surveyDraft.map(q => q.type === 'choice' ? { ...q, options: (q.options || []).map((o: string) => o.trim()).filter(Boolean) } : { id: q.id, type: q.type, label: q.label.trim() });
+    setSavingSurvey(true);
+    const { data, error } = await supabase.from('qa_sessions').update({ survey: clean }).eq('id', selected.id).select().single();
+    setSavingSurvey(false);
+    if (!error && data) {
+      setSelected(data); setSessions(prev => prev.map(s => s.id === data.id ? data : s));
+      setEditingSurvey(false);
+      addLog('Configuração', `Questionário da pesquisa "${data.title}" salvo`);
+    } else alert('Erro ao salvar o questionário.');
+  };
+
+  const loadResponses = useCallback(async () => {
+    if (!selected) return;
+    const { data } = await supabase.from('qa_survey_responses').select('answers, created_at').eq('session_id', selected.id).order('created_at', { ascending: false });
+    setResponses(data || []);
+  }, [selected]);
+
+  useEffect(() => { if (selected && mode === 'survey' && !editingSurvey) loadResponses(); }, [selected, mode, editingSurvey, loadResponses]);
+
   // ── Lista de sessões ──
   if (!selected) {
     return (
@@ -211,7 +266,10 @@ export const LiveQA: React.FC<{ currentUser: any; activeClientId: string | null;
         {/* Painel do QR / link */}
         <div className="lg:col-span-1 bg-white rounded-xl border border-slate-200 shadow-sm p-5 h-fit">
           <h2 className="font-bold text-slate-800 italic leading-tight">{selected.title}</h2>
-          <span className={`inline-block mt-2 text-[9px] font-bold uppercase tracking-widest px-2 py-0.5 rounded-full ${selected.open ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-500'}`}>{selected.open ? '● Aberta para perguntas' : 'Encerrada'}</span>
+          <div className="flex flex-wrap items-center gap-1.5 mt-2">
+            <span className={`text-[9px] font-bold uppercase tracking-widest px-2 py-0.5 rounded-full ${mode === 'survey' ? 'bg-sky-100 text-sky-700' : 'bg-amber-100 text-amber-700'}`}>{mode === 'survey' ? '📊 Modo pesquisa' : '💬 Modo perguntas'}</span>
+            <span className={`text-[9px] font-bold uppercase tracking-widest px-2 py-0.5 rounded-full ${selected.open ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-500'}`}>{selected.open ? '● Aberta' : 'Encerrada'}</span>
+          </div>
 
           {qr && <img src={qr} alt="QR code" className="w-full max-w-[260px] mx-auto mt-4 rounded-lg border border-slate-100" />}
 
@@ -223,9 +281,19 @@ export const LiveQA: React.FC<{ currentUser: any; activeClientId: string | null;
             <a href={publicUrl} target="_blank" rel="noreferrer" className="py-2 rounded-lg bg-slate-100 text-slate-700 font-bold uppercase tracking-wider text-[10px] flex items-center justify-center gap-1.5"><ExternalLink size={13} /> Abrir</a>
           </div>
 
+          {/* Modo da sessão: Perguntas ↔ Pesquisa (muda o que o público vê no mesmo link) */}
+          <div className="mt-4 pt-4 border-t border-slate-100">
+            <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400 mb-2 flex items-center gap-1.5"><BarChart3 size={12} /> O que o público vê</p>
+            <div className="grid grid-cols-2 gap-1.5">
+              <button onClick={() => setMode('questions')} className={`py-2 rounded-lg font-bold uppercase tracking-wider text-[10px] border transition-all ${mode === 'questions' ? 'bg-amber-600 text-white border-amber-600' : 'bg-white text-slate-500 border-slate-200 hover:border-amber-300'}`}>Perguntas</button>
+              <button onClick={() => setMode('survey')} className={`py-2 rounded-lg font-bold uppercase tracking-wider text-[10px] border transition-all ${mode === 'survey' ? 'bg-sky-600 text-white border-sky-600' : 'bg-white text-slate-500 border-slate-200 hover:border-sky-300'}`}>Pesquisa</button>
+            </div>
+            <button onClick={openSurveyEditor} className="w-full mt-1.5 py-2 rounded-lg font-bold uppercase tracking-wider text-[10px] bg-slate-100 text-slate-700 hover:bg-slate-200 flex items-center justify-center gap-1.5"><Edit2 size={13} /> {survey.length ? `Editar questionário (${survey.length})` : 'Montar questionário'}</button>
+          </div>
+
           <div className="mt-4 pt-4 border-t border-slate-100 space-y-2">
             <button onClick={toggleOpen} className={`w-full py-2.5 rounded-lg font-bold uppercase tracking-wider text-[10px] flex items-center justify-center gap-2 ${selected.open ? 'bg-amber-50 text-amber-700 border border-amber-200' : 'bg-emerald-600 text-white'}`}>
-              {selected.open ? <><Lock size={14} /> Encerrar perguntas</> : <><Unlock size={14} /> Reabrir perguntas</>}
+              {selected.open ? <><Lock size={14} /> {mode === 'survey' ? 'Encerrar pesquisa' : 'Encerrar perguntas'}</> : <><Unlock size={14} /> {mode === 'survey' ? 'Reabrir pesquisa' : 'Reabrir perguntas'}</>}
             </button>
             <button onClick={deleteSession} className="w-full py-2.5 rounded-lg font-bold uppercase tracking-wider text-[10px] flex items-center justify-center gap-2 text-red-600 hover:bg-red-50 border border-red-100"><Trash2 size={14} /> Excluir sessão</button>
           </div>
@@ -252,49 +320,149 @@ export const LiveQA: React.FC<{ currentUser: any; activeClientId: string | null;
           </div>
         </div>
 
-        {/* Lista de perguntas */}
+        {/* Painel direito: construtor de pesquisa | resultados | perguntas */}
         <div className="lg:col-span-2 space-y-3">
-          <div className="flex items-center justify-between">
-            <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400">
-              {showArchived ? `Arquivadas` : `Perguntas (${questions.filter(q => q.status !== 'archived').length})`}{answeredCount > 0 && !showArchived ? ` · ${answeredCount} respondidas` : ''}
-            </p>
-            <div className="flex items-center gap-3">
-              <button onClick={loadQuestions} className="text-slate-400 hover:text-amber-600" title="Atualizar"><RefreshCw size={14} /></button>
-              <button onClick={() => setShowArchived(v => !v)} className="text-[10px] font-bold uppercase tracking-widest text-slate-500 hover:text-amber-600">{showArchived ? 'Ver ativas' : 'Ver arquivadas'}</button>
-            </div>
-          </div>
-
-          {visible.length === 0 ? (
-            <div className="text-center py-16 bg-white rounded-xl border border-dashed border-slate-200">
-              <MessageSquare className="mx-auto text-slate-300 mb-3" size={36} />
-              <p className="text-slate-500 font-bold">{showArchived ? 'Nada arquivado' : 'Aguardando perguntas…'}</p>
-              {!showArchived && <p className="text-sm text-slate-400 mt-1">Projete o QR code. As perguntas aparecem aqui automaticamente.</p>}
-            </div>
-          ) : visible.map(q => {
-            const answered = q.status === 'answered';
-            return (
-              <div key={q.id} className={`bg-white rounded-xl border shadow-sm p-4 flex items-start gap-3 ${answered ? 'border-emerald-200 bg-emerald-50/40' : 'border-slate-200'}`}>
-                <div className="flex flex-col items-center justify-center rounded-lg px-2.5 py-1.5 bg-slate-50 border border-slate-200 shrink-0">
-                  <span className="text-xs text-amber-600 leading-none">▲</span>
-                  <span className="text-sm font-bold text-slate-700 mt-0.5">{q.votes || 0}</span>
-                </div>
-                <div className="flex-1 min-w-0">
-                  <p className={`text-sm ${answered ? 'text-slate-500' : 'text-slate-800'}`}>{q.body}</p>
-                  <p className="text-[10px] text-slate-400 mt-1">{q.author_name || 'Anônimo'} · {new Date(q.created_at).toLocaleString('pt-BR')}</p>
-                </div>
-                <div className="flex flex-col gap-1.5 shrink-0">
-                  {q.status !== 'archived' && (
-                    <button onClick={() => setStatus(q, answered ? 'new' : 'answered')} title={answered ? 'Marcar como não respondida' : 'Marcar como respondida'}
-                      className={`p-1.5 rounded-md ${answered ? 'bg-emerald-600 text-white' : 'bg-slate-100 text-slate-500 hover:text-emerald-600'}`}><CheckCircle2 size={15} /></button>
+          {editingSurvey ? (
+            /* ===== CONSTRUTOR DO QUESTIONÁRIO ===== */
+            <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-5 space-y-4">
+              <div className="flex items-center justify-between">
+                <h3 className="font-bold text-slate-800 italic">Questionário da pesquisa</h3>
+                <button onClick={() => setEditingSurvey(false)} className="text-slate-400 hover:text-slate-700"><X size={18} /></button>
+              </div>
+              {surveyDraft.length === 0 && <p className="text-sm text-slate-400 text-center py-4">Adicione perguntas abaixo.</p>}
+              {surveyDraft.map((q, i) => (
+                <div key={q.id} className="border border-slate-200 rounded-lg p-3 space-y-2 bg-slate-50/50">
+                  <div className="flex items-start gap-2">
+                    <span className="text-xs font-bold text-slate-400 mt-2.5">{i + 1}.</span>
+                    <input value={q.label} onChange={e => updateSurveyQuestion(i, { label: e.target.value })} maxLength={200}
+                      placeholder="Enunciado da pergunta" className="flex-1 p-2 border border-slate-200 rounded-lg text-sm outline-none focus:border-amber-400" />
+                    <button onClick={() => removeSurveyQuestion(i)} className="text-slate-300 hover:text-red-500 mt-2"><Trash2 size={16} /></button>
+                  </div>
+                  <div className="flex items-center gap-2 pl-5">
+                    <select value={q.type} onChange={e => updateSurveyQuestion(i, { type: e.target.value, options: e.target.value === 'choice' ? (q.options || ['', '']) : undefined })}
+                      className="text-xs border border-slate-200 rounded-lg p-1.5 outline-none bg-white">
+                      <option value="text">Resposta aberta</option>
+                      <option value="choice">Múltipla escolha</option>
+                    </select>
+                    {q.type === 'choice' && (
+                      <label className="text-[11px] text-slate-500 flex items-center gap-1.5 cursor-pointer">
+                        <input type="checkbox" checked={!!q.multi} onChange={e => updateSurveyQuestion(i, { multi: e.target.checked })} /> permitir várias respostas
+                      </label>
+                    )}
+                  </div>
+                  {q.type === 'choice' && (
+                    <div className="pl-5 space-y-1.5">
+                      {(q.options || []).map((opt: string, oi: number) => (
+                        <div key={oi} className="flex items-center gap-2">
+                          <span className={`w-3.5 h-3.5 border border-slate-300 ${q.multi ? 'rounded' : 'rounded-full'}`} />
+                          <input value={opt} onChange={e => updateOption(i, oi, e.target.value)} maxLength={120}
+                            placeholder={`Opção ${oi + 1}`} className="flex-1 p-1.5 border border-slate-200 rounded text-sm outline-none focus:border-amber-400" />
+                          <button onClick={() => removeOption(i, oi)} className="text-slate-300 hover:text-red-500"><X size={14} /></button>
+                        </div>
+                      ))}
+                      <button onClick={() => addOption(i)} className="text-[11px] font-bold text-amber-600 hover:text-amber-700 flex items-center gap-1 pl-5"><Plus size={12} /> opção</button>
+                    </div>
                   )}
-                  {q.status === 'archived'
-                    ? <button onClick={() => setStatus(q, 'new')} title="Restaurar" className="p-1.5 rounded-md bg-slate-100 text-slate-500 hover:text-amber-600"><RotateCcw size={15} /></button>
-                    : <button onClick={() => setStatus(q, 'archived')} title="Arquivar" className="p-1.5 rounded-md bg-slate-100 text-slate-500 hover:text-slate-800"><Archive size={15} /></button>}
-                  <button onClick={() => deleteQuestion(q)} title="Excluir" className="p-1.5 rounded-md bg-slate-100 text-slate-400 hover:text-red-600"><Trash2 size={15} /></button>
+                </div>
+              ))}
+              <div className="flex gap-2">
+                <button onClick={() => addSurveyQuestion('text')} className="flex-1 py-2 rounded-lg text-xs font-bold uppercase tracking-wider bg-slate-100 text-slate-700 hover:bg-slate-200 flex items-center justify-center gap-1.5"><Plus size={14} /> Pergunta aberta</button>
+                <button onClick={() => addSurveyQuestion('choice')} className="flex-1 py-2 rounded-lg text-xs font-bold uppercase tracking-wider bg-slate-100 text-slate-700 hover:bg-slate-200 flex items-center justify-center gap-1.5"><Plus size={14} /> Múltipla escolha</button>
+              </div>
+              <div className="flex gap-2 pt-2 border-t border-slate-100">
+                <button onClick={() => setEditingSurvey(false)} className="flex-1 py-2.5 rounded-lg text-xs font-bold uppercase tracking-wider bg-white border border-slate-200 text-slate-600">Cancelar</button>
+                <button onClick={saveSurvey} disabled={savingSurvey} className="flex-1 py-2.5 rounded-lg text-xs font-bold uppercase tracking-wider bg-amber-600 text-white hover:bg-amber-700 disabled:opacity-50">{savingSurvey ? 'Salvando…' : 'Salvar questionário'}</button>
+              </div>
+            </div>
+          ) : mode === 'survey' ? (
+            /* ===== RESULTADOS DA PESQUISA ===== */
+            <>
+              <div className="flex items-center justify-between">
+                <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Resultados · {responses.length} {responses.length === 1 ? 'resposta' : 'respostas'}</p>
+                <button onClick={loadResponses} className="text-slate-400 hover:text-amber-600" title="Atualizar"><RefreshCw size={14} /></button>
+              </div>
+              {survey.length === 0 ? (
+                <div className="text-center py-16 bg-white rounded-xl border border-dashed border-slate-200">
+                  <BarChart3 className="mx-auto text-slate-300 mb-3" size={36} />
+                  <p className="text-slate-500 font-bold">Sem questionário</p>
+                  <p className="text-sm text-slate-400 mt-1">Clique em "Montar questionário" no painel ao lado.</p>
+                </div>
+              ) : survey.map((q, qi) => {
+                const answersForQ = responses.map(r => r.answers?.[q.id]).filter(a => a != null && (Array.isArray(a) ? a.length : String(a).trim() !== ''));
+                return (
+                  <div key={q.id} className="bg-white rounded-xl border border-slate-200 shadow-sm p-4">
+                    <p className="text-sm font-bold text-slate-800 mb-3">{qi + 1}. {q.label} <span className="text-[10px] font-normal text-slate-400">({answersForQ.length})</span></p>
+                    {q.type === 'choice' ? (
+                      <div className="space-y-2">
+                        {(q.options || []).map((opt: string, oi: number) => {
+                          const count = responses.filter(r => { const a = r.answers?.[q.id]; return Array.isArray(a) ? a.includes(opt) : a === opt; }).length;
+                          const pct = answersForQ.length ? Math.round((count / answersForQ.length) * 100) : 0;
+                          return (
+                            <div key={oi}>
+                              <div className="flex items-center justify-between text-xs mb-0.5">
+                                <span className="text-slate-700">{opt}</span>
+                                <span className="font-bold text-slate-500">{count} · {pct}%</span>
+                              </div>
+                              <div className="h-2.5 bg-slate-100 rounded-full overflow-hidden"><div className="h-full bg-sky-500 rounded-full transition-all" style={{ width: `${pct}%` }} /></div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    ) : (
+                      answersForQ.length === 0
+                        ? <p className="text-xs text-slate-400">Sem respostas ainda.</p>
+                        : <div className="space-y-1.5 max-h-64 overflow-y-auto">{answersForQ.map((a, ai) => <p key={ai} className="text-sm text-slate-700 bg-slate-50 rounded-lg p-2.5 border border-slate-100">"{String(a)}"</p>)}</div>
+                    )}
+                  </div>
+                );
+              })}
+            </>
+          ) : (
+            /* ===== MODERAÇÃO DE PERGUNTAS ===== */
+            <>
+              <div className="flex items-center justify-between">
+                <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400">
+                  {showArchived ? `Arquivadas` : `Perguntas (${questions.filter(q => q.status !== 'archived').length})`}{answeredCount > 0 && !showArchived ? ` · ${answeredCount} respondidas` : ''}
+                </p>
+                <div className="flex items-center gap-3">
+                  <button onClick={loadQuestions} className="text-slate-400 hover:text-amber-600" title="Atualizar"><RefreshCw size={14} /></button>
+                  <button onClick={() => setShowArchived(v => !v)} className="text-[10px] font-bold uppercase tracking-widest text-slate-500 hover:text-amber-600">{showArchived ? 'Ver ativas' : 'Ver arquivadas'}</button>
                 </div>
               </div>
-            );
-          })}
+
+              {visible.length === 0 ? (
+                <div className="text-center py-16 bg-white rounded-xl border border-dashed border-slate-200">
+                  <MessageSquare className="mx-auto text-slate-300 mb-3" size={36} />
+                  <p className="text-slate-500 font-bold">{showArchived ? 'Nada arquivado' : 'Aguardando perguntas…'}</p>
+                  {!showArchived && <p className="text-sm text-slate-400 mt-1">Projete o QR code. As perguntas aparecem aqui automaticamente.</p>}
+                </div>
+              ) : visible.map(q => {
+                const answered = q.status === 'answered';
+                return (
+                  <div key={q.id} className={`bg-white rounded-xl border shadow-sm p-4 flex items-start gap-3 ${answered ? 'border-emerald-200 bg-emerald-50/40' : 'border-slate-200'}`}>
+                    <div className="flex flex-col items-center justify-center rounded-lg px-2.5 py-1.5 bg-slate-50 border border-slate-200 shrink-0">
+                      <span className="text-xs text-amber-600 leading-none">▲</span>
+                      <span className="text-sm font-bold text-slate-700 mt-0.5">{q.votes || 0}</span>
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className={`text-sm ${answered ? 'text-slate-500' : 'text-slate-800'}`}>{q.body}</p>
+                      <p className="text-[10px] text-slate-400 mt-1">{q.author_name || 'Anônimo'} · {new Date(q.created_at).toLocaleString('pt-BR')}</p>
+                    </div>
+                    <div className="flex flex-col gap-1.5 shrink-0">
+                      {q.status !== 'archived' && (
+                        <button onClick={() => setStatus(q, answered ? 'new' : 'answered')} title={answered ? 'Marcar como não respondida' : 'Marcar como respondida'}
+                          className={`p-1.5 rounded-md ${answered ? 'bg-emerald-600 text-white' : 'bg-slate-100 text-slate-500 hover:text-emerald-600'}`}><CheckCircle2 size={15} /></button>
+                      )}
+                      {q.status === 'archived'
+                        ? <button onClick={() => setStatus(q, 'new')} title="Restaurar" className="p-1.5 rounded-md bg-slate-100 text-slate-500 hover:text-amber-600"><RotateCcw size={15} /></button>
+                        : <button onClick={() => setStatus(q, 'archived')} title="Arquivar" className="p-1.5 rounded-md bg-slate-100 text-slate-500 hover:text-slate-800"><Archive size={15} /></button>}
+                      <button onClick={() => deleteQuestion(q)} title="Excluir" className="p-1.5 rounded-md bg-slate-100 text-slate-400 hover:text-red-600"><Trash2 size={15} /></button>
+                    </div>
+                  </div>
+                );
+              })}
+            </>
+          )}
         </div>
       </div>
     </div>

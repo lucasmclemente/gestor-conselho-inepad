@@ -53,13 +53,46 @@ export const PublicQA: React.FC<{ code: string }> = ({ code }) => {
   };
 
   const questions: any[] = info?.questions || [];
+  const isSurvey = info?.mode === 'survey';
+  const survey: any[] = info?.survey || [];
+
+  // ── Estado das respostas da pesquisa ──
+  const [answers, setAnswers] = useState<Record<string, any>>({});
+  const [surveySent, setSurveySent] = useState<boolean>(() => {
+    try { return localStorage.getItem('qa_survey_done_' + code) === '1'; } catch { return false; }
+  });
+  const setAns = (qid: string, val: any) => setAnswers(prev => ({ ...prev, [qid]: val }));
+  const toggleChoice = (qid: string, opt: string) => {
+    setAnswers(prev => {
+      const cur: string[] = Array.isArray(prev[qid]) ? prev[qid] : [];
+      return { ...prev, [qid]: cur.includes(opt) ? cur.filter(o => o !== opt) : [...cur, opt] };
+    });
+  };
+
+  const submitSurvey = async () => {
+    if (sending) return;
+    // exige ao menos uma resposta preenchida
+    const anyFilled = survey.some(q => {
+      const a = answers[q.id];
+      return Array.isArray(a) ? a.length > 0 : (a != null && String(a).trim() !== '');
+    });
+    if (!anyFilled) { alert('Responda ao menos uma pergunta.'); return; }
+    setSending(true);
+    try {
+      const { data, error } = await supabase.functions.invoke('qa-public', { body: { action: 'surveySubmit', code, deviceId, answers } });
+      if (error || data?.error) throw new Error(error?.message || data?.error);
+      try { localStorage.setItem('qa_survey_done_' + code, '1'); } catch { /* */ }
+      setSurveySent(true);
+    } catch (e: any) { alert(e?.message || 'Erro ao enviar a pesquisa.'); }
+    finally { setSending(false); }
+  };
 
   return (
     <div className="min-h-screen bg-slate-900 font-sans">
       <div className="max-w-lg mx-auto px-4 py-6">
         <div className="text-center mb-5">
-          <p className="text-amber-500 text-[10px] font-bold uppercase tracking-[2px]">Perguntas ao vivo</p>
-          <h1 className="text-white text-xl font-bold italic mt-1">{info?.title || 'Envie sua pergunta'}</h1>
+          <p className="text-amber-500 text-[10px] font-bold uppercase tracking-[2px]">{isSurvey ? 'Pesquisa de satisfação' : 'Perguntas ao vivo'}</p>
+          <h1 className="text-white text-xl font-bold italic mt-1">{info?.title || (isSurvey ? 'Sua opinião' : 'Envie sua pergunta')}</h1>
         </div>
 
         {status === 'loading' && <p className="text-center text-amber-500 font-bold uppercase animate-pulse py-10">Carregando…</p>}
@@ -90,6 +123,56 @@ export const PublicQA: React.FC<{ code: string }> = ({ code }) => {
               </div>
             )}
 
+            {/* ===== MODO PESQUISA ===== */}
+            {isSurvey ? (
+              surveySent ? (
+                <div className="bg-white rounded-2xl shadow-xl p-8 mb-5 text-center">
+                  <div className="text-5xl mb-3">✅</div>
+                  <p className="font-bold text-slate-800">Obrigado pela sua resposta!</p>
+                  <p className="text-sm text-slate-500 mt-1">Sua avaliação foi registrada.</p>
+                </div>
+              ) : !info?.open ? (
+                <div className="bg-white rounded-2xl shadow-xl p-5 mb-5 text-center">
+                  <p className="font-bold text-slate-700">🔒 A pesquisa foi encerrada.</p>
+                </div>
+              ) : survey.length === 0 ? (
+                <div className="bg-white rounded-2xl shadow-xl p-5 mb-5 text-center">
+                  <p className="font-bold text-slate-700">A pesquisa ainda não tem perguntas.</p>
+                </div>
+              ) : (
+                <div className="bg-white rounded-2xl shadow-xl p-5 mb-5 space-y-5">
+                  {survey.map((q: any, idx: number) => (
+                    <div key={q.id}>
+                      <p className="text-sm font-bold text-slate-800 mb-2">{idx + 1}. {q.label}</p>
+                      {q.type === 'choice' ? (
+                        <div className="space-y-2">
+                          {(q.options || []).map((opt: string, oi: number) => {
+                            const selected = q.multi ? (Array.isArray(answers[q.id]) && answers[q.id].includes(opt)) : answers[q.id] === opt;
+                            return (
+                              <button key={oi} type="button" onClick={() => q.multi ? toggleChoice(q.id, opt) : setAns(q.id, opt)}
+                                className={`w-full text-left p-3 rounded-lg border text-sm flex items-center gap-2.5 transition-all ${selected ? 'border-amber-500 bg-amber-50 text-slate-800' : 'border-slate-200 text-slate-600 hover:border-amber-300'}`}>
+                                <span className={`w-4 h-4 shrink-0 flex items-center justify-center ${q.multi ? 'rounded' : 'rounded-full'} border ${selected ? 'bg-amber-600 border-amber-600 text-white' : 'border-slate-300'}`}>{selected ? '✓' : ''}</span>
+                                {opt}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      ) : (
+                        <textarea value={answers[q.id] || ''} onChange={e => setAns(q.id, e.target.value)} rows={3} maxLength={2000}
+                          placeholder="Sua resposta…"
+                          className="w-full p-3 border border-slate-200 rounded-lg text-sm outline-none focus:border-amber-400 resize-none" />
+                      )}
+                    </div>
+                  ))}
+                  <button disabled={sending} onClick={submitSurvey}
+                    className="w-full py-3.5 rounded-lg font-bold uppercase tracking-wider text-white bg-amber-600 hover:bg-amber-700 transition-all disabled:opacity-50">
+                    {sending ? 'Enviando…' : 'Enviar respostas'}
+                  </button>
+                  <p className="text-[10px] text-slate-400 text-center">Anônima. Sem login.</p>
+                </div>
+              )
+            ) : (
+            <>
             {/* Formulário de envio */}
             {info?.open ? (
               <div className="bg-white rounded-2xl shadow-xl p-5 mb-5">
@@ -133,6 +216,8 @@ export const PublicQA: React.FC<{ code: string }> = ({ code }) => {
                   );
                 })}
               </div>
+            )}
+            </>
             )}
           </>
         )}

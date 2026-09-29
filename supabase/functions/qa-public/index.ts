@@ -31,14 +31,11 @@ serve(async (req) => {
     const code = String(body.code || '').trim()
     if (!code) return json({ error: 'Sessão inválida.' }, 400)
 
-    const { data: session } = await admin.from('qa_sessions').select('id, title, open, client_id, materials').eq('code', code).maybeSingle()
+    const { data: session } = await admin.from('qa_sessions').select('id, title, open, client_id, materials, mode, survey').eq('code', code).maybeSingle()
     if (!session) return json({ error: 'Sessão não encontrada.' }, 404)
 
     if (action === 'info') {
-      const { data: qs } = await admin.from('qa_questions')
-        .select('id, body, author_name, votes, status')
-        .eq('session_id', session.id).neq('status', 'archived')
-        .order('votes', { ascending: false }).order('created_at', { ascending: true }).limit(200)
+      const mode = session.mode || 'questions'
       // Assina os materiais na hora (o caminho é guardado no banco; o link nunca "expira" para o público)
       const mats = Array.isArray(session.materials) ? session.materials : []
       const materials: any[] = []
@@ -48,7 +45,29 @@ serve(async (req) => {
           if (signed?.signedUrl) materials.push({ name: m.name, url: signed.signedUrl })
         }
       }
-      return json({ ok: true, title: session.title, open: session.open, questions: qs || [], materials })
+      if (mode === 'survey') {
+        return json({ ok: true, mode, title: session.title, open: session.open, materials, survey: Array.isArray(session.survey) ? session.survey : [] })
+      }
+      const { data: qs } = await admin.from('qa_questions')
+        .select('id, body, author_name, votes, status')
+        .eq('session_id', session.id).neq('status', 'archived')
+        .order('votes', { ascending: false }).order('created_at', { ascending: true }).limit(200)
+      return json({ ok: true, mode, title: session.title, open: session.open, questions: qs || [], materials })
+    }
+
+    if (action === 'surveySubmit') {
+      if ((session.mode || 'questions') !== 'survey') return json({ error: 'Esta sessão não está em modo pesquisa.' }, 403)
+      if (!session.open) return json({ error: 'A pesquisa foi encerrada.' }, 403)
+      const device = String(body.deviceId || '').slice(0, 100)
+      const answers = body.answers
+      if (!device) return json({ error: 'Dispositivo inválido.' }, 400)
+      if (!answers || typeof answers !== 'object' || Array.isArray(answers)) return json({ error: 'Respostas inválidas.' }, 400)
+      // limita tamanho para não abusar do storage
+      if (JSON.stringify(answers).length > 20000) return json({ error: 'Respostas muito longas.' }, 400)
+      const { error } = await admin.from('qa_survey_responses')
+        .upsert({ session_id: session.id, client_id: session.client_id, device_id: device, answers }, { onConflict: 'session_id,device_id' })
+      if (error) return json({ error: 'Erro ao enviar a pesquisa.' }, 400)
+      return json({ ok: true })
     }
 
     if (action === 'submit') {
