@@ -144,7 +144,22 @@ export const PublicQA: React.FC<{ code: string }> = ({ code }) => {
                   {survey.map((q: any, idx: number) => (
                     <div key={q.id}>
                       <p className="text-sm font-bold text-slate-800 mb-2">{idx + 1}. {q.label}</p>
-                      {q.type === 'choice' ? (
+                      {q.type === 'scale' ? (
+                        <div>
+                          <div className="flex gap-1.5">
+                            {Array.from({ length: q.max || 5 }, (_, k) => k + 1).map(n => {
+                              const sel = answers[q.id] === n;
+                              return (
+                                <button key={n} type="button" onClick={() => setAns(q.id, n)}
+                                  className={`flex-1 py-3 rounded-lg border font-bold text-sm transition-all ${sel ? 'border-amber-500 bg-amber-600 text-white' : 'border-slate-200 text-slate-600 hover:border-amber-300'}`}>{n}</button>
+                              );
+                            })}
+                          </div>
+                          {(q.minLabel || q.maxLabel) && (
+                            <div className="flex justify-between text-[10px] text-slate-400 mt-1.5 px-0.5"><span>{q.minLabel}</span><span>{q.maxLabel}</span></div>
+                          )}
+                        </div>
+                      ) : q.type === 'choice' ? (
                         <div className="space-y-2">
                           {(q.options || []).map((opt: string, oi: number) => {
                             const selected = q.multi ? (Array.isArray(answers[q.id]) && answers[q.id].includes(opt)) : answers[q.id] === opt;

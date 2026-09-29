@@ -169,7 +169,7 @@ export const LiveQA: React.FC<{ currentUser: any; activeClientId: string | null;
   };
 
   const openSurveyEditor = () => { setSurveyDraft(JSON.parse(JSON.stringify(survey))); setEditingSurvey(true); };
-  const addSurveyQuestion = (type: string) => setSurveyDraft(prev => [...prev, { id: (crypto?.randomUUID?.() || Math.random().toString(36).slice(2)), type, label: '', options: type === 'choice' ? ['', ''] : undefined, multi: false }]);
+  const addSurveyQuestion = (type: string) => setSurveyDraft(prev => [...prev, { id: (crypto?.randomUUID?.() || Math.random().toString(36).slice(2)), type, label: '', options: type === 'choice' ? ['', ''] : undefined, multi: false, max: type === 'scale' ? 5 : undefined, minLabel: '', maxLabel: '' }]);
   const updateSurveyQuestion = (i: number, patch: any) => setSurveyDraft(prev => prev.map((q, idx) => idx === i ? { ...q, ...patch } : q));
   const removeSurveyQuestion = (i: number) => setSurveyDraft(prev => prev.filter((_, idx) => idx !== i));
   const addOption = (i: number) => setSurveyDraft(prev => prev.map((q, idx) => idx === i ? { ...q, options: [...(q.options || []), ''] } : q));
@@ -185,8 +185,12 @@ export const LiveQA: React.FC<{ currentUser: any; activeClientId: string | null;
         if (opts.length < 2) { alert(`A pergunta "${q.label}" precisa de ao menos 2 opções.`); return; }
       }
     }
-    // limpa opções vazias
-    const clean = surveyDraft.map(q => q.type === 'choice' ? { ...q, options: (q.options || []).map((o: string) => o.trim()).filter(Boolean) } : { id: q.id, type: q.type, label: q.label.trim() });
+    // limpa opções vazias / normaliza cada tipo
+    const clean = surveyDraft.map(q => {
+      if (q.type === 'choice') return { id: q.id, type: 'choice', label: q.label.trim(), multi: !!q.multi, options: (q.options || []).map((o: string) => o.trim()).filter(Boolean) };
+      if (q.type === 'scale') return { id: q.id, type: 'scale', label: q.label.trim(), max: q.max || 5, minLabel: (q.minLabel || '').trim(), maxLabel: (q.maxLabel || '').trim() };
+      return { id: q.id, type: 'text', label: q.label.trim() };
+    });
     setSavingSurvey(true);
     const { data, error } = await supabase.from('qa_sessions').update({ survey: clean }).eq('id', selected.id).select().single();
     setSavingSurvey(false);
@@ -339,17 +343,34 @@ export const LiveQA: React.FC<{ currentUser: any; activeClientId: string | null;
                     <button onClick={() => removeSurveyQuestion(i)} className="text-slate-300 hover:text-red-500 mt-2"><Trash2 size={16} /></button>
                   </div>
                   <div className="flex items-center gap-2 pl-5">
-                    <select value={q.type} onChange={e => updateSurveyQuestion(i, { type: e.target.value, options: e.target.value === 'choice' ? (q.options || ['', '']) : undefined })}
+                    <select value={q.type} onChange={e => { const t = e.target.value; updateSurveyQuestion(i, { type: t, options: t === 'choice' ? (q.options || ['', '']) : undefined, max: t === 'scale' ? (q.max || 5) : undefined }); }}
                       className="text-xs border border-slate-200 rounded-lg p-1.5 outline-none bg-white">
                       <option value="text">Resposta aberta</option>
                       <option value="choice">Múltipla escolha</option>
+                      <option value="scale">Escala (nota)</option>
                     </select>
                     {q.type === 'choice' && (
                       <label className="text-[11px] text-slate-500 flex items-center gap-1.5 cursor-pointer">
                         <input type="checkbox" checked={!!q.multi} onChange={e => updateSurveyQuestion(i, { multi: e.target.checked })} /> permitir várias respostas
                       </label>
                     )}
+                    {q.type === 'scale' && (
+                      <label className="text-[11px] text-slate-500 flex items-center gap-1.5">
+                        de 1 a
+                        <select value={q.max || 5} onChange={e => updateSurveyQuestion(i, { max: Number(e.target.value) })} className="border border-slate-200 rounded p-1 bg-white">
+                          {[3, 4, 5, 7, 10].map(n => <option key={n} value={n}>{n}</option>)}
+                        </select>
+                      </label>
+                    )}
                   </div>
+                  {q.type === 'scale' && (
+                    <div className="pl-5 grid grid-cols-2 gap-2">
+                      <input value={q.minLabel || ''} onChange={e => updateSurveyQuestion(i, { minLabel: e.target.value })} maxLength={40}
+                        placeholder="Rótulo do 1 (opcional)" className="p-1.5 border border-slate-200 rounded text-xs outline-none focus:border-amber-400" />
+                      <input value={q.maxLabel || ''} onChange={e => updateSurveyQuestion(i, { maxLabel: e.target.value })} maxLength={40}
+                        placeholder={`Rótulo do ${q.max || 5} (opcional)`} className="p-1.5 border border-slate-200 rounded text-xs outline-none focus:border-amber-400" />
+                    </div>
+                  )}
                   {q.type === 'choice' && (
                     <div className="pl-5 space-y-1.5">
                       {(q.options || []).map((opt: string, oi: number) => (
@@ -365,9 +386,10 @@ export const LiveQA: React.FC<{ currentUser: any; activeClientId: string | null;
                   )}
                 </div>
               ))}
-              <div className="flex gap-2">
-                <button onClick={() => addSurveyQuestion('text')} className="flex-1 py-2 rounded-lg text-xs font-bold uppercase tracking-wider bg-slate-100 text-slate-700 hover:bg-slate-200 flex items-center justify-center gap-1.5"><Plus size={14} /> Pergunta aberta</button>
-                <button onClick={() => addSurveyQuestion('choice')} className="flex-1 py-2 rounded-lg text-xs font-bold uppercase tracking-wider bg-slate-100 text-slate-700 hover:bg-slate-200 flex items-center justify-center gap-1.5"><Plus size={14} /> Múltipla escolha</button>
+              <div className="grid grid-cols-3 gap-2">
+                <button onClick={() => addSurveyQuestion('text')} className="py-2 rounded-lg text-[11px] font-bold uppercase tracking-wider bg-slate-100 text-slate-700 hover:bg-slate-200 flex items-center justify-center gap-1"><Plus size={13} /> Aberta</button>
+                <button onClick={() => addSurveyQuestion('choice')} className="py-2 rounded-lg text-[11px] font-bold uppercase tracking-wider bg-slate-100 text-slate-700 hover:bg-slate-200 flex items-center justify-center gap-1"><Plus size={13} /> Escolha</button>
+                <button onClick={() => addSurveyQuestion('scale')} className="py-2 rounded-lg text-[11px] font-bold uppercase tracking-wider bg-slate-100 text-slate-700 hover:bg-slate-200 flex items-center justify-center gap-1"><Plus size={13} /> Escala</button>
               </div>
               <div className="flex gap-2 pt-2 border-t border-slate-100">
                 <button onClick={() => setEditingSurvey(false)} className="flex-1 py-2.5 rounded-lg text-xs font-bold uppercase tracking-wider bg-white border border-slate-200 text-slate-600">Cancelar</button>
@@ -392,7 +414,34 @@ export const LiveQA: React.FC<{ currentUser: any; activeClientId: string | null;
                 return (
                   <div key={q.id} className="bg-white rounded-xl border border-slate-200 shadow-sm p-4">
                     <p className="text-sm font-bold text-slate-800 mb-3">{qi + 1}. {q.label} <span className="text-[10px] font-normal text-slate-400">({answersForQ.length})</span></p>
-                    {q.type === 'choice' ? (
+                    {q.type === 'scale' ? (
+                      (() => {
+                        const nums = answersForQ.map(a => Number(a)).filter(n => !isNaN(n));
+                        const avg = nums.length ? (nums.reduce((s, n) => s + n, 0) / nums.length) : 0;
+                        return (
+                          <>
+                            <div className="flex items-baseline gap-2 mb-3">
+                              <span className="text-2xl font-bold text-sky-600">{avg ? avg.toFixed(1) : '—'}</span>
+                              <span className="text-[10px] uppercase tracking-widest text-slate-400 font-bold">média de 1 a {q.max || 5}</span>
+                            </div>
+                            <div className="space-y-1.5">
+                              {Array.from({ length: q.max || 5 }, (_, k) => k + 1).map(n => {
+                                const count = nums.filter(v => v === n).length;
+                                const pct = nums.length ? Math.round((count / nums.length) * 100) : 0;
+                                return (
+                                  <div key={n} className="flex items-center gap-2">
+                                    <span className="text-xs font-bold text-slate-500 w-4 text-right">{n}</span>
+                                    <div className="flex-1 h-2.5 bg-slate-100 rounded-full overflow-hidden"><div className="h-full bg-sky-500 rounded-full transition-all" style={{ width: `${pct}%` }} /></div>
+                                    <span className="text-[10px] font-bold text-slate-400 w-14">{count} · {pct}%</span>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                            {(q.minLabel || q.maxLabel) && <div className="flex justify-between text-[10px] text-slate-400 mt-1.5"><span>1 = {q.minLabel}</span><span>{q.max || 5} = {q.maxLabel}</span></div>}
+                          </>
+                        );
+                      })()
+                    ) : q.type === 'choice' ? (
                       <div className="space-y-2">
                         {(q.options || []).map((opt: string, oi: number) => {
                           const count = responses.filter(r => { const a = r.answers?.[q.id]; return Array.isArray(a) ? a.includes(opt) : a === opt; }).length;
