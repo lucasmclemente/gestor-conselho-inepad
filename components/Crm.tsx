@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { supabase } from '../services/supabaseClient';
-import { Filter, Plus, X, Save, Trash2, Trophy, Ban, Settings, Upload, Users, TrendingUp, Phone, RefreshCw, Mail, CheckSquare, Search, User, Building2, ChevronLeft, ChevronRight, Bell, Clock, Check, PhoneIncoming, CalendarDays } from 'lucide-react';
+import { Filter, Plus, X, Save, Trash2, Trophy, Ban, Settings, Upload, Users, TrendingUp, Phone, RefreshCw, Mail, CheckSquare, Search, User, Building2, ChevronLeft, ChevronRight, Bell, Clock, Check, PhoneIncoming, CalendarDays, ArrowRightLeft } from 'lucide-react';
 import { CrmDeal } from './CrmDeal';
 import { CrmSettings } from './CrmSettings';
 import { CrmImport } from './CrmImport';
@@ -10,6 +10,7 @@ import { CrmCalls } from './CrmCalls';
 import { CrmReceivedCalls } from './CrmReceivedCalls';
 import { CrmTasks } from './CrmTasks';
 import { CrmCalendar } from './CrmCalendar';
+import { CrmBulkMove } from './CrmBulkMove';
 import { CrmBriefing } from './CrmBriefing';
 import { CrmLostModal } from './CrmLostModal';
 import { CrmInboundPhone } from './CrmInboundPhone';
@@ -50,6 +51,7 @@ export const Crm: React.FC<Props> = ({ currentUser, activeClientId, isAdmin, mem
   const [receivedCount, setReceivedCount] = useState(0);     // recebidas aguardando retorno (badge)
   const [tasksOpen, setTasksOpen] = useState(false);
   const [calendarOpen, setCalendarOpen] = useState(false);
+  const [bulkMoveOpen, setBulkMoveOpen] = useState(false); // mover negócios em massa
   const [dialerOpen, setDialerOpen] = useState(false);   // discador avulso (teclado)
   const [outCall, setOutCall] = useState<any>(null);     // ligação avulsa em andamento
 
@@ -517,6 +519,13 @@ export const Crm: React.FC<Props> = ({ currentUser, activeClientId, isAdmin, mem
       onOpenDeal={(id) => { setCalendarOpen(false); setDetailId(id); }} /></>
   );
 
+  if (bulkMoveOpen) return (
+    <>{inboundPhone}
+    <CrmBulkMove cid={cid} currentUser={currentUser} members={members}
+      onBack={() => { setBulkMoveOpen(false); loadBoard(); }}
+      onDone={loadBoard} /></>
+  );
+
   if (tasksOpen) return (
     <>{inboundPhone}
     <CrmTasks cid={cid} currentUser={currentUser} members={members}
@@ -692,6 +701,12 @@ export const Crm: React.FC<Props> = ({ currentUser, activeClientId, isAdmin, mem
             <button onClick={() => setLeadsOpen(true)} title="Carteira de leads"
               className="p-2.5 rounded-lg bg-slate-100 text-slate-700 hover:bg-slate-200 transition-all flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest">
               <Users size={16} /><span className="hidden sm:inline">Carteira</span>
+            </button>
+          )}
+          {isAdmin && (
+            <button onClick={() => setBulkMoveOpen(true)} title="Mover negócios em massa entre funis/etapas"
+              className="p-2.5 rounded-lg bg-slate-100 text-slate-700 hover:bg-slate-200 transition-all flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest">
+              <ArrowRightLeft size={16} /><span className="hidden sm:inline">Mover em massa</span>
             </button>
           )}
           {isAdmin && (
