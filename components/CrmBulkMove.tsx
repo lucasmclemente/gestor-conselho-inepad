@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { supabase } from '../services/supabaseClient';
 import { ChevronLeft, ArrowRightLeft, Check, Filter, AlertTriangle, X } from 'lucide-react';
 
@@ -40,18 +40,22 @@ export const CrmBulkMove: React.FC<Props> = ({ cid, currentUser, members, onBack
   useEffect(() => { setTargetStage(targetStages[0]?.id || ''); }, [target, targetStages.length]); // eslint-disable-line react-hooks/exhaustive-deps
   const stageName = (id: string) => stages.find(s => s.id === id)?.name || '—';
 
+  const loadTokenRef = useRef(0);
   const load = useCallback(async () => {
     if (!origin) return;
+    const token = ++loadTokenRef.current; // guarda anti-corrida: só o carregamento mais recente vale
     setLoading(true); setSel(new Set());
-    let q = supabase.from('crm_deals').select('id, title, value, stage_id, owner_member_id').eq('client_id', cid).eq('pipeline_id', origin).eq('status', 'open');
-    if (owner === 'none') q = q.is('owner_member_id', null); else if (owner !== 'all') q = q.eq('owner_member_id', owner);
-    if (originStage !== 'all') q = q.eq('stage_id', originStage);
     const out: any[] = [];
     for (let from = 0; from < 50000; from += 1000) {
-      const { data, error } = await q.range(from, from + 999).order('id');
+      // reconstrói a query a cada página (não reusa o builder) e SEMPRE aplica os filtros atuais
+      let q = supabase.from('crm_deals').select('id, title, value, stage_id, owner_member_id').eq('client_id', cid).eq('pipeline_id', origin).eq('status', 'open');
+      if (owner === 'none') q = q.is('owner_member_id', null); else if (owner !== 'all') q = q.eq('owner_member_id', owner);
+      if (originStage !== 'all') q = q.eq('stage_id', originStage);
+      const { data, error } = await q.order('id').range(from, from + 999);
       if (error || !data || !data.length) break;
       out.push(...data); if (data.length < 1000) break;
     }
+    if (token !== loadTokenRef.current) return; // filtro mudou no meio → descarta resultado obsoleto
     setDeals(out); setLoading(false);
   }, [cid, origin, owner, originStage]);
   useEffect(() => { load(); }, [load]);
@@ -142,6 +146,11 @@ export const CrmBulkMove: React.FC<Props> = ({ cid, currentUser, members, onBack
         const tName = pipelines.find(p => p.id === target)?.name || '—';
         const ownerLabel = owner === 'all' ? 'Todos' : owner === 'none' ? 'Sem responsável' : (crmUsers.find((m: any) => m.id === owner)?.name || '—');
         const oStage = originStage === 'all' ? 'Todas as etapas' : stageName(originStage);
+        // etapas atuais dos selecionados (mostra se a seleção mistura etapas — sinal de engano)
+        const byStage: Record<string, number> = {};
+        deals.filter(d => sel.has(d.id)).forEach(d => { const nm = stageName(d.stage_id); byStage[nm] = (byStage[nm] || 0) + 1; });
+        const stageLines = Object.entries(byStage).sort((a, b) => b[1] - a[1]);
+        const mixed = stageLines.length > 1;
         return (
           <div className="fixed inset-0 z-[95] flex items-center justify-center bg-slate-900/70 backdrop-blur-sm p-4" onMouseDown={e => { if (e.target === e.currentTarget && !moving) setConfirmOpen(false); }}>
             <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden animate-in zoom-in-95" onMouseDown={e => e.stopPropagation()}>
@@ -159,6 +168,13 @@ export const CrmBulkMove: React.FC<Props> = ({ cid, currentUser, members, onBack
                   <div className="flex gap-2"><span className="text-[10px] font-bold uppercase tracking-widest text-slate-400 w-14 shrink-0 pt-0.5">De</span><span className="font-bold text-slate-700">Funil {oName}<span className="font-normal text-slate-500"> · resp.: {ownerLabel} · etapa: {oStage}</span></span></div>
                   <div className="flex items-center gap-2 text-amber-600"><ArrowRightLeft size={14} /></div>
                   <div className="flex gap-2"><span className="text-[10px] font-bold uppercase tracking-widest text-slate-400 w-14 shrink-0 pt-0.5">Para</span><span className="font-bold text-slate-800">Funil {tName} → etapa {stageName(targetStage)}</span></div>
+                </div>
+                <div className={`rounded-xl p-3 text-[12px] border ${mixed ? 'bg-red-50 border-red-200' : 'bg-slate-50 border-slate-200'}`}>
+                  <span className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Etapas atuais dos selecionados</span>
+                  <div className="mt-1 flex flex-wrap gap-1.5">
+                    {stageLines.map(([nm, q]) => <span key={nm} className="inline-flex items-center gap-1 bg-white border border-slate-200 rounded px-2 py-0.5 font-bold text-slate-600">{nm}: {q}</span>)}
+                  </div>
+                  {mixed && <p className="text-red-600 font-bold mt-2 flex items-center gap-1"><AlertTriangle size={12} /> Atenção: a seleção mistura {stageLines.length} etapas. Confira se é isso mesmo.</p>}
                 </div>
                 <p className="text-[12px] text-slate-500">O responsável e o histórico de cada negócio são preservados — muda só o funil e a etapa. <b>Se errar o destino, é trabalhoso desfazer.</b></p>
                 {needType && (
