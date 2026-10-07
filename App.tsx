@@ -265,9 +265,12 @@ const App = () => {
   const isAssistant = currentUser?.role === 'Assistente';
   const isComercial = currentUser?.role === 'Comercial';
   const isController = currentUser?.role === 'Controller';
+  const isDiretor = currentUser?.role === 'Diretor';
+  // Diretor tem as MESMAS permissões do Controller — tudo que vale p/ Controller vale p/ Diretor
+  const isControllerLike = isController || isDiretor;
   const isCertifier = currentUser?.role === 'Certificador';
-  // Controller: só lança o realizado dos indicadores (não altera metas nem cadastra indicadores)
-  const canLancar = canEdit || isController;
+  // Controller/Diretor: só lança o realizado dos indicadores (não altera metas nem cadastra indicadores)
+  const canLancar = canEdit || isControllerLike;
   // Valor sentinela do seletor para o SuperAdmin ver tudo consolidado
   const SUPER_ALL = '__ALL__';
   // Verdadeiro quando o SuperAdmin está na visão consolidada (agrega todos os clientes)
@@ -390,7 +393,7 @@ const App = () => {
   }, [activeMenu, loading, activeClientId, matCriteria.length, matAnswers.length, seals.length, matHistory.length]);
   // Add-on desligado: não permite ficar em Estratégia/Indicadores (ex.: ao trocar de cliente)
   useEffect(() => {
-    if (!strategyEnabled && !isController && (activeMenu === 'estrategia' || activeMenu === 'indicadores')) setActiveMenu('dashboard');
+    if (!strategyEnabled && !isControllerLike && (activeMenu === 'estrategia' || activeMenu === 'indicadores')) setActiveMenu('dashboard');
     if (!strategyEnabled && filterObjective !== 'all') setFilterObjective('all');
     /* eslint-disable-next-line */
   }, [strategyEnabled, activeMenu]);
@@ -588,7 +591,7 @@ const App = () => {
         setLoading(false);
         return;
       }
-      if (isController) setActiveMenu('minhas-pautas');
+      if (isControllerLike) setActiveMenu('minhas-pautas');
       if (isCertifier) setActiveMenu('certificacao');
       const memberCols = 'id, name, email, role, client_id, created_at, secretary_clients';
       let mQuery = supabase.from('meetings').select('*');
@@ -3023,11 +3026,11 @@ const App = () => {
         const { data: mn, error } = await supabase.functions.invoke('send-minute-notification', { body: { meetingTitle: currentMeeting.title, minuteName: ataName, minuteUrl, actions: currentMeeting.acoes || [], recipients: emails, pendingSummary: usersToNotify, meetingId: currentMeeting.id, ataId, appOrigin: window.location.origin } });
         if (error || mn?.error) throw new Error(error?.message || mn?.error);
         approvers = mn?.approvers || selected; sent = approvers.length;
-        // Controllers da reunião recebem um e-mail próprio com o plano de ação deles (sem a ata)
+        // Controller/Diretor da reunião recebem um e-mail próprio com o plano de ação deles (sem a ata)
         try {
           const roleByEmail = new Map((users || []).map((u: any) => [(u.email || '').toLowerCase(), u.role]));
           const ctrlNotify = (currentMeeting.participants || [])
-            .filter((p: any) => p.email && !p.isExternal && roleByEmail.get(String(p.email).toLowerCase()) === 'Controller')
+            .filter((p: any) => p.email && !p.isExternal && ['Controller', 'Diretor'].includes(roleByEmail.get(String(p.email).toLowerCase())))
             .map((p: any) => ({ email: p.email, name: p.name, pendingActions: allPending.filter((a: any) => { const rs = a.resps?.length > 0 ? a.resps : (a.resp ? [a.resp] : []); return rs.includes(p.name); }) }))
             .filter((u: any) => u.pendingActions.length > 0);
           if (ctrlNotify.length > 0) await supabase.functions.invoke('send-controller-actions', { body: { meetingTitle: currentMeeting.title, meetingId: currentMeeting.id, recipients: ctrlNotify, appOrigin: window.location.origin } });
@@ -3291,9 +3294,10 @@ const App = () => {
             if (!currentMeeting?.id || !currentMeeting?.client_id) return alert('Salve a reunião antes de disparar a convocação.');
             setIsSendingEmail(true);
             try {
-              // Controllers recebem convocação reduzida (só a pauta deles, sem a ordem do dia completa)
+              // Controller/Diretor recebem convocação reduzida (só a pauta deles, sem a ordem do dia completa)
               const roleByEmail = new Map((users || []).map((u: any) => [(u.email || '').toLowerCase(), u.role]));
-              const reducedEmails = (currentMeeting.participants || []).filter((p: any) => p.email && !p.isExternal && roleByEmail.get(String(p.email).toLowerCase()) === 'Controller').map((p: any) => p.email);
+              const isReducedRole = (r: any) => r === 'Controller' || r === 'Diretor';
+              const reducedEmails = (currentMeeting.participants || []).filter((p: any) => p.email && !p.isExternal && isReducedRole(roleByEmail.get(String(p.email).toLowerCase()))).map((p: any) => p.email);
               await supabase.functions.invoke('send-invitation', { body: { meetingData: currentMeeting, recipients: emails, organizer: { name: currentUser.name, email: currentUser.email }, reducedEmails } });
               addLog('Convocação', `E-mails enviados.`);
               alert("Convocações enviadas!");
@@ -3380,7 +3384,7 @@ const App = () => {
             { id: 'materiais-assistente', icon: <Upload size={18} />, label: 'Materiais' },
           ] : isComercial ? [
             { id: 'crm', icon: <Filter size={18} />, label: 'CRM' },
-          ] : isController ? [
+          ] : isControllerLike ? [
             { id: 'minhas-pautas', icon: <Calendar size={18} />, label: 'Minhas Pautas' },
             { id: 'minhas-acoes', icon: <ListChecks size={18} />, label: 'Plano de Ação' },
             ...(strategyEnabled ? [{ id: 'indicadores', icon: <Gauge size={18} />, label: 'Indicadores' }] : []),
@@ -3588,10 +3592,10 @@ const App = () => {
               {activeMenu === 'perguntas-vivo' && clientProfile?.qa_enabled && canEdit && (
                 <LiveQA currentUser={currentUser} activeClientId={activeClientId} addLog={addLog} />
               )}
-              {activeMenu === 'minhas-pautas' && isController && (
+              {activeMenu === 'minhas-pautas' && isControllerLike && (
                 <ControllerArea currentUser={currentUser} meetings={meetings} onMeetingUpdated={(m: any) => setMeetings(prev => prev.map(x => x.id === m.id ? m : x))} view="pautas" />
               )}
-              {activeMenu === 'minhas-acoes' && isController && (
+              {activeMenu === 'minhas-acoes' && isControllerLike && (
                 <ControllerArea currentUser={currentUser} meetings={meetings} onMeetingUpdated={(m: any) => setMeetings(prev => prev.map(x => x.id === m.id ? m : x))} view="acoes" />
               )}
               {activeMenu === 'dashboard' && (
@@ -5232,7 +5236,7 @@ const App = () => {
               )}
 
               {/* Controller em cliente sem o add-on de Planejamento Estratégico */}
-              {activeMenu === 'indicadores' && isController && !strategyEnabled && (
+              {activeMenu === 'indicadores' && isControllerLike && !strategyEnabled && (
                 <div className="max-w-lg mx-auto mt-16 text-center bg-white p-10 rounded-2xl border border-slate-200 shadow-sm animate-in fade-in">
                   <Gauge size={32} className="text-slate-200 mx-auto mb-3" />
                   <h2 className="text-lg font-bold text-slate-800 italic">Módulo de Indicadores indisponível</h2>
@@ -6469,6 +6473,7 @@ const App = () => {
                             <option value="Conselheiro">Conselheiro</option>
                             <option value="Assistente">Assistente (só materiais)</option>
                             <option value="Controller">Controller (indicadores + minhas pautas/ações)</option>
+                            <option value="Diretor">Diretor (indicadores + minhas pautas/ações)</option>
                             <option value="Comercial">Comercial (só CRM)</option>
                             <option value="Secretário">Secretário</option>
                             <option value="Administrador">Administrador</option>
@@ -6515,6 +6520,7 @@ const App = () => {
                                   <option value="Conselheiro">Conselheiro</option>
                                   <option value="Assistente">Assistente</option>
                                   <option value="Controller">Controller</option>
+                                  <option value="Diretor">Diretor</option>
                                   <option value="Comercial">Comercial</option>
                                   <option value="Secretário">Secretário</option>
                                   <option value="Administrador">Administrador</option>

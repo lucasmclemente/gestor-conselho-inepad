@@ -33,7 +33,7 @@ serve(async (req) => {
   const role = (user.app_metadata as any)?.role ?? ''
   const clientId = (user.app_metadata as any)?.client_id ?? null
   const secClients: string[] = Array.isArray((user.app_metadata as any)?.secretary_clients) ? (user.app_metadata as any).secretary_clients : []
-  if (!['Administrador', 'Secretário', 'SuperAdmin', 'Controller'].includes(role)) return json({ error: 'forbidden' }, 403)
+  if (!['Administrador', 'Secretário', 'SuperAdmin', 'Controller', 'Diretor'].includes(role)) return json({ error: 'forbidden' }, 403)
 
   try {
     const { indicator_reading_id } = await req.json()

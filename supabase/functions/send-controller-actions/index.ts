@@ -67,9 +67,9 @@ serve(async (req) => {
       return json({ error: 'Sem permissão para esta empresa.' }, 403)
     }
 
-    // Só membros Controller internos deste cliente podem receber (defesa em profundidade)
+    // Só membros Controller/Diretor internos deste cliente podem receber (defesa em profundidade)
     const { data: members } = await admin.from('members').select('email, role').eq('client_id', meeting.client_id)
-    const controllerEmails = new Set<string>((members || []).filter((m: any) => m.role === 'Controller').map((m: any) => String(m.email || '').trim().toLowerCase()))
+    const controllerEmails = new Set<string>((members || []).filter((m: any) => m.role === 'Controller' || m.role === 'Diretor').map((m: any) => String(m.email || '').trim().toLowerCase()))
     const externalEmails = new Set<string>((meeting.participants || []).filter((p: any) => p?.isExternal && p?.email).map((p: any) => String(p.email).trim().toLowerCase()))
 
     const safe = (recipients || []).filter((u: any) => {
