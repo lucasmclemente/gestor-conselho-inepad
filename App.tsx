@@ -23,6 +23,7 @@ import { PublicCollect } from './components/PublicCollect';
 import { PublicPautaMaterials } from './components/PublicPautaMaterials';
 import { PublicQA } from './components/PublicQA';
 import { LiveQA } from './components/LiveQA';
+import { ControllerArea } from './components/ControllerArea';
 import { SealVerify } from './components/SealVerify';
 import { Diretorio } from './components/Diretorio';
 import { generateSealCertificate } from './services/generateSealCertificate';
@@ -587,7 +588,7 @@ const App = () => {
         setLoading(false);
         return;
       }
-      if (isController) setActiveMenu('indicadores');
+      if (isController) setActiveMenu('minhas-pautas');
       if (isCertifier) setActiveMenu('certificacao');
       const memberCols = 'id, name, email, role, client_id, created_at, secretary_clients';
       let mQuery = supabase.from('meetings').select('*');
@@ -3367,9 +3368,11 @@ const App = () => {
             { id: 'materiais-assistente', icon: <Upload size={18} />, label: 'Materiais' },
           ] : isComercial ? [
             { id: 'crm', icon: <Filter size={18} />, label: 'CRM' },
-          ] : isController ? (strategyEnabled ? [
-            { id: 'indicadores', icon: <Gauge size={18} />, label: 'Indicadores' },
-          ] : []) : isCertifier ? [
+          ] : isController ? [
+            { id: 'minhas-pautas', icon: <Calendar size={18} />, label: 'Minhas Pautas' },
+            { id: 'minhas-acoes', icon: <ListChecks size={18} />, label: 'Plano de Ação' },
+            ...(strategyEnabled ? [{ id: 'indicadores', icon: <Gauge size={18} />, label: 'Indicadores' }] : []),
+          ] : isCertifier ? [
             { id: 'certificacao', icon: <ShieldCheck size={18} />, label: 'Certificação' },
           ] : [
             { id: 'dashboard', icon: <LayoutDashboard size={18} />, label: 'Dashboard' },
@@ -3572,6 +3575,12 @@ const App = () => {
               )}
               {activeMenu === 'perguntas-vivo' && clientProfile?.qa_enabled && canEdit && (
                 <LiveQA currentUser={currentUser} activeClientId={activeClientId} addLog={addLog} />
+              )}
+              {activeMenu === 'minhas-pautas' && isController && (
+                <ControllerArea currentUser={currentUser} meetings={meetings} onMeetingUpdated={(m: any) => setMeetings(prev => prev.map(x => x.id === m.id ? m : x))} view="pautas" />
+              )}
+              {activeMenu === 'minhas-acoes' && isController && (
+                <ControllerArea currentUser={currentUser} meetings={meetings} onMeetingUpdated={(m: any) => setMeetings(prev => prev.map(x => x.id === m.id ? m : x))} view="acoes" />
               )}
               {activeMenu === 'dashboard' && (
                 <div className="space-y-6 animate-in fade-in">
