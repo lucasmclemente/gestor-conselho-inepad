@@ -6468,7 +6468,7 @@ const App = () => {
                           <select className="w-full p-3 border border-slate-200 rounded-lg text-sm font-bold outline-none focus:border-amber-500 transition-colors bg-white" value={newUserForm.role} onChange={e => setnewUserForm({ ...newUserForm, role: e.target.value })}>
                             <option value="Conselheiro">Conselheiro</option>
                             <option value="Assistente">Assistente (só materiais)</option>
-                            <option value="Controller">Controller (só lançar indicadores)</option>
+                            <option value="Controller">Controller (indicadores + minhas pautas/ações)</option>
                             <option value="Comercial">Comercial (só CRM)</option>
                             <option value="Secretário">Secretário</option>
                             <option value="Administrador">Administrador</option>
