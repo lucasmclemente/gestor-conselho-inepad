@@ -83,7 +83,7 @@ serve(async (req) => {
   }
 
   try {
-    const { meetingData, recipients, organizer: organizerInput } = await req.json()
+    const { meetingData, recipients, organizer: organizerInput, reducedEmails } = await req.json()
     const cid = meetingData?.client_id
     if (role !== 'SuperAdmin' && (!cid || (cid !== homeClient && !secClients.includes(cid)))) {
       return new Response(JSON.stringify({ error: 'Sem permissão para esta empresa.' }), { status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
@@ -206,12 +206,16 @@ serve(async (req) => {
     participants.forEach((p: any) => { if (p?.email) byEmail.set(String(p.email).toLowerCase(), p) })
     const norm = (s: any) => String(s || '').trim().toLowerCase()
     const isExt = (e: string) => byEmail.get(String(e).toLowerCase())?.isExternal === true
-    const external = (recipients || []).filter((e: string) => isExt(e))
-    const internal = (recipients || []).filter((e: string) => !isExt(e))
+    // Convocação reduzida: além dos externos, estes e-mails (ex.: perfil Controller) recebem
+    // só as pautas em que são responsáveis — nunca a ordem do dia completa.
+    const reducedSet = new Set<string>((Array.isArray(reducedEmails) ? reducedEmails : []).map((e: string) => String(e).trim().toLowerCase()))
+    const isReduced = (e: string) => isExt(e) || reducedSet.has(String(e).trim().toLowerCase())
+    const reduced = (recipients || []).filter((e: string) => isReduced(e))
+    const internal = (recipients || []).filter((e: string) => !isReduced(e))
 
     const sends: Promise<any>[] = []
     if (internal.length > 0) sends.push(sendEmail(internal, pautasHtml, internal))
-    for (const email of external) {
+    for (const email of reduced) {
       const p = byEmail.get(String(email).toLowerCase())
       const mine = scheduledPautas.filter((pt: any) => norm(pt.resp) === norm(p?.name))
       sends.push(sendEmail([email], renderPautas(mine, 'Você não tem pautas específicas atribuídas nesta reunião.'), [email]))
@@ -219,7 +223,7 @@ serve(async (req) => {
 
     const results = await Promise.allSettled(sends)
     const sent = results.filter((r) => r.status === 'fulfilled').length
-    return new Response(JSON.stringify({ success: true, sent, internal: internal.length, external: external.length }), {
+    return new Response(JSON.stringify({ success: true, sent, internal: internal.length, reduced: reduced.length }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       status: 200,
     })

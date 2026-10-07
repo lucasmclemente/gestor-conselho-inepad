@@ -3023,6 +3023,15 @@ const App = () => {
         const { data: mn, error } = await supabase.functions.invoke('send-minute-notification', { body: { meetingTitle: currentMeeting.title, minuteName: ataName, minuteUrl, actions: currentMeeting.acoes || [], recipients: emails, pendingSummary: usersToNotify, meetingId: currentMeeting.id, ataId, appOrigin: window.location.origin } });
         if (error || mn?.error) throw new Error(error?.message || mn?.error);
         approvers = mn?.approvers || selected; sent = approvers.length;
+        // Controllers da reunião recebem um e-mail próprio com o plano de ação deles (sem a ata)
+        try {
+          const roleByEmail = new Map((users || []).map((u: any) => [(u.email || '').toLowerCase(), u.role]));
+          const ctrlNotify = (currentMeeting.participants || [])
+            .filter((p: any) => p.email && !p.isExternal && roleByEmail.get(String(p.email).toLowerCase()) === 'Controller')
+            .map((p: any) => ({ email: p.email, name: p.name, pendingActions: allPending.filter((a: any) => { const rs = a.resps?.length > 0 ? a.resps : (a.resp ? [a.resp] : []); return rs.includes(p.name); }) }))
+            .filter((u: any) => u.pendingActions.length > 0);
+          if (ctrlNotify.length > 0) await supabase.functions.invoke('send-controller-actions', { body: { meetingTitle: currentMeeting.title, meetingId: currentMeeting.id, recipients: ctrlNotify, appOrigin: window.location.origin } });
+        } catch (_) { /* não bloqueia a publicação */ }
       } else {
         const { data, error } = await supabase.functions.invoke('send-ata-approval', { body: { meetingId: currentMeeting.id, ataId, approverNames: selected, appOrigin: window.location.origin } });
         if (error || data?.error) throw new Error(error?.message || data?.error);
@@ -3282,7 +3291,10 @@ const App = () => {
             if (!currentMeeting?.id || !currentMeeting?.client_id) return alert('Salve a reunião antes de disparar a convocação.');
             setIsSendingEmail(true);
             try {
-              await supabase.functions.invoke('send-invitation', { body: { meetingData: currentMeeting, recipients: emails, organizer: { name: currentUser.name, email: currentUser.email } } });
+              // Controllers recebem convocação reduzida (só a pauta deles, sem a ordem do dia completa)
+              const roleByEmail = new Map((users || []).map((u: any) => [(u.email || '').toLowerCase(), u.role]));
+              const reducedEmails = (currentMeeting.participants || []).filter((p: any) => p.email && !p.isExternal && roleByEmail.get(String(p.email).toLowerCase()) === 'Controller').map((p: any) => p.email);
+              await supabase.functions.invoke('send-invitation', { body: { meetingData: currentMeeting, recipients: emails, organizer: { name: currentUser.name, email: currentUser.email }, reducedEmails } });
               addLog('Convocação', `E-mails enviados.`);
               alert("Convocações enviadas!");
               setIsConvocationOpen(false);
