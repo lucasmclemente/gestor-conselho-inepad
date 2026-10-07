@@ -84,8 +84,9 @@ export const CrmDeal: React.FC<Props> = ({ dealId, cid, currentUser, isAdmin, me
   const [savingCustom, setSavingCustom] = useState(false);
   const [recUrls, setRecUrls] = useState<Record<string, string>>({});
   const [recLoading, setRecLoading] = useState<string>('');
-  const [compose, setCompose] = useState<any>(null); // {to, subject, body} | null
+  const [compose, setCompose] = useState<any>(null); // {to, cc, bcc, subject, body} | null
   const [sendingEmail, setSendingEmail] = useState(false);
+  const [showCc, setShowCc] = useState(false);        // revela os campos Cc / Cco no compositor
   const [composeFiles, setComposeFiles] = useState<File[]>([]); // anexos do e-mail em composição
   const [sig, setSig] = useState<any>(null);          // assinatura salva {sig_text, image_url}
   const [sigOpen, setSigOpen] = useState(false);      // editor de assinatura
@@ -324,21 +325,28 @@ export const CrmDeal: React.FC<Props> = ({ dealId, cid, currentUser, isAdmin, me
   // Abre o compositor de e-mail (Outlook) ou cai no mailto se não conectado
   const openEmail = (c: any) => {
     if (!c?.email) return;
-    if (emailConnected) setCompose({ to: c.email, subject: `Contato — ${deal?.title || ''}`, body: '', contactId: c.id, contactName: c.name });
+    if (emailConnected) { setShowCc(false); setCompose({ to: c.email, cc: '', bcc: '', subject: `Contato — ${deal?.title || ''}`, body: '', contactId: c.id, contactName: c.name }); }
     else window.location.href = mailtoLink(c.email);
   };
+  const closeCompose = () => { setCompose(null); setComposeFiles([]); setShowCc(false); };
   const fileToB64 = (f: File): Promise<string> => new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(String(r.result).split(',')[1] || ''); r.onerror = rej; r.readAsDataURL(f); });
+  // separa vários e-mails (vírgula, ponto-e-vírgula ou espaço) e remove vazios
+  const parseEmails = (v: string) => String(v || '').split(/[,;\s]+/).map(s => s.trim()).filter(Boolean);
+  const emailRe = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
 
   const sendEmail = async () => {
     if (!compose?.to) return;
     if (!compose.subject?.trim() && !compose.body?.trim() && composeFiles.length === 0) return alert('Escreva o assunto, a mensagem ou anexe um arquivo.');
+    const cc = parseEmails(compose.cc), bcc = parseEmails(compose.bcc);
+    const bad = [...cc, ...bcc].find(e => !emailRe.test(e));
+    if (bad) return alert('E-mail em cópia inválido: ' + bad);
     const totalBytes = composeFiles.reduce((s, f) => s + f.size, 0);
     if (totalBytes > 3 * 1024 * 1024) return alert('Os anexos somam mais de 3 MB. Envie arquivos menores (limite atual do e-mail).');
     setSendingEmail(true);
     const attachments = [];
     for (const f of composeFiles) attachments.push({ name: f.name, contentType: f.type || 'application/octet-stream', contentB64: await fileToB64(f) });
     const { data, error } = await supabase.functions.invoke('outlook-send', {
-      body: { to: compose.to, subject: compose.subject, body: compose.body, dealId, contactId: compose.contactId || null, attachments },
+      body: { to: compose.to, cc, bcc, subject: compose.subject, body: compose.body, dealId, contactId: compose.contactId || null, attachments },
     });
     setSendingEmail(false);
     if (error) {
@@ -349,7 +357,7 @@ export const CrmDeal: React.FC<Props> = ({ dealId, cid, currentUser, isAdmin, me
     }
     const act = (data as any)?.activity;
     if (act) setActs(prev => [act, ...prev]);
-    setCompose(null); setComposeFiles([]);
+    closeCompose();
     log('CRM', `E-mail enviado para ${compose.to}`);
   };
 
@@ -779,7 +787,7 @@ export const CrmDeal: React.FC<Props> = ({ dealId, cid, currentUser, isAdmin, me
                   // "E-mail" com Outlook conectado abre o compositor (pré-preenche com o contato principal)
                   if (t.v === 'email' && emailConnected) {
                     const pc = contacts.find((c: any) => c.id === deal?.contact_id && c.email) || contacts.find((c: any) => c.email);
-                    setCompose({ to: pc?.email || '', subject: `Contato — ${deal?.title || ''}`, body: '', contactId: pc?.id || null, contactName: pc?.name });
+                    setShowCc(false); setCompose({ to: pc?.email || '', cc: '', bcc: '', subject: `Contato — ${deal?.title || ''}`, body: '', contactId: pc?.id || null, contactName: pc?.name });
                     return;
                   }
                   setActForm({ ...actForm, type: t.v });
@@ -932,16 +940,31 @@ export const CrmDeal: React.FC<Props> = ({ dealId, cid, currentUser, isAdmin, me
       {webphoneEl}
 
       {compose && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4" onMouseDown={e => { if (e.target === e.currentTarget && !sendingEmail) { setCompose(null); setComposeFiles([]); } }}>
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4" onMouseDown={e => { if (e.target === e.currentTarget && !sendingEmail) { closeCompose(); } }}>
           <div className="bg-white rounded-xl shadow-xl w-full max-w-lg p-5 space-y-3" onMouseDown={e => e.stopPropagation()}>
             <div className="flex items-center justify-between">
               <h3 className="text-[11px] font-bold uppercase text-slate-600 tracking-widest flex items-center gap-1.5"><Mail size={14} className="text-amber-600" /> Enviar e-mail</h3>
-              <button onClick={() => { setCompose(null); setComposeFiles([]); }} className="text-slate-300 hover:text-slate-600"><X size={16} /></button>
+              <button onClick={closeCompose} className="text-slate-300 hover:text-slate-600"><X size={16} /></button>
             </div>
             <div className="space-y-1">
-              <label className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">Para</label>
+              <div className="flex items-center justify-between">
+                <label className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">Para</label>
+                {!showCc && <button type="button" onClick={() => setShowCc(true)} className="text-[9px] font-bold uppercase tracking-widest text-amber-600 hover:text-amber-700">+ Cc / Cco</button>}
+              </div>
               <input type="email" className="w-full p-2.5 border border-slate-200 rounded-lg text-sm outline-none focus:border-amber-500" value={compose.to} onChange={e => setCompose({ ...compose, to: e.target.value })} />
             </div>
+            {showCc && (
+              <>
+                <div className="space-y-1">
+                  <label className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">Cc (cópia)</label>
+                  <input type="text" placeholder="vários e-mails separados por vírgula" className="w-full p-2.5 border border-slate-200 rounded-lg text-sm outline-none focus:border-amber-500" value={compose.cc || ''} onChange={e => setCompose({ ...compose, cc: e.target.value })} />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">Cco (cópia oculta)</label>
+                  <input type="text" placeholder="vários e-mails separados por vírgula" className="w-full p-2.5 border border-slate-200 rounded-lg text-sm outline-none focus:border-amber-500" value={compose.bcc || ''} onChange={e => setCompose({ ...compose, bcc: e.target.value })} />
+                </div>
+              </>
+            )}
             <div className="space-y-1">
               <label className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">Assunto</label>
               <input type="text" className="w-full p-2.5 border border-slate-200 rounded-lg text-sm outline-none focus:border-amber-500" value={compose.subject} onChange={e => setCompose({ ...compose, subject: e.target.value })} />
@@ -975,7 +998,7 @@ export const CrmDeal: React.FC<Props> = ({ dealId, cid, currentUser, isAdmin, me
             <div className="flex items-center justify-between gap-2 pt-1">
               <span className="text-[10px] text-slate-400 italic">Sai do seu Outlook e fica no histórico.</span>
               <div className="flex gap-2">
-                <button onClick={() => { setCompose(null); setComposeFiles([]); }} className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-500 rounded-lg font-bold text-[10px] uppercase tracking-widest">Cancelar</button>
+                <button onClick={closeCompose} className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-500 rounded-lg font-bold text-[10px] uppercase tracking-widest">Cancelar</button>
                 <button disabled={sendingEmail} onClick={sendEmail} className="px-5 py-2 bg-amber-600 hover:bg-amber-700 text-white rounded-lg font-bold text-[10px] uppercase tracking-widest flex items-center gap-1.5 disabled:opacity-50"><Mail size={13} /> {sendingEmail ? 'Enviando...' : 'Enviar'}</button>
               </div>
             </div>

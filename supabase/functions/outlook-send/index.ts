@@ -37,7 +37,16 @@ serve(async (req) => {
   const subject = String(body.subject || '').trim();
   const text = String(body.body || '');
   const rawAtts = Array.isArray(body.attachments) ? body.attachments : [];
-  if (!to || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(to)) return json({ error: 'Destinatário (e-mail) inválido.' }, 400);
+  const EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
+  // aceita array (front) ou string ("a@x.com, b@y.com") → lista de e-mails únicos
+  const parseList = (v: unknown): string[] => {
+    const arr = Array.isArray(v) ? v.map(String) : String(v || '').split(/[,;\s]+/);
+    return [...new Set(arr.map(s => s.trim().toLowerCase()).filter(Boolean))];
+  };
+  const cc = parseList(body.cc), bcc = parseList(body.bcc);
+  if (!to || !EMAIL_RE.test(to)) return json({ error: 'Destinatário (e-mail) inválido.' }, 400);
+  const badCopy = [...cc, ...bcc].find(e => !EMAIL_RE.test(e));
+  if (badCopy) return json({ error: `E-mail em cópia inválido: ${badCopy}` }, 400);
   if (!subject && !text && !rawAtts.length) return json({ error: 'Escreva o assunto, a mensagem ou anexe um arquivo.' }, 400);
 
   // anexos (base64) → formato do Graph; limite ~3MB no total (envio simples)
@@ -83,6 +92,8 @@ serve(async (req) => {
       subject,
       body: { contentType: 'HTML', content: htmlBody },
       toRecipients: [{ emailAddress: { address: to } }],
+      ...(cc.length ? { ccRecipients: cc.map(a => ({ emailAddress: { address: a } })) } : {}),
+      ...(bcc.length ? { bccRecipients: bcc.map(a => ({ emailAddress: { address: a } })) } : {}),
       ...(graphAtts.length ? { attachments: graphAtts } : {}),
     }),
   });
@@ -100,6 +111,7 @@ serve(async (req) => {
 
   // 3) registra no histórico do negócio
   let snippet = text.length > 4000 ? text.slice(0, 4000) + '…' : text;
+  if (cc.length) snippet += `${snippet ? '\n' : ''}Cc: ${cc.join(', ')}`;
   if (graphAtts.length) snippet += `${snippet ? '\n\n' : ''}Anexos: ${graphAtts.map(a => a.name).join(', ')}`;
   const { data: act } = await admin.from('crm_activities').insert({
     client_id: cid, deal_id: body.dealId || null, contact_id: body.contactId || null, type: 'email',
