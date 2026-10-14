@@ -3006,6 +3006,40 @@ const App = () => {
   // Reenvia o pedido de aprovação da ata aos conselheiros internos
   const [ataApprovalLoading, setAtaApprovalLoading] = useState(false);
   const [signerModal, setSignerModal] = useState<any>(null); // seleção de quem assina a ata
+  const [ataApproveModal, setAtaApproveModal] = useState<any>(null); // conselheiro aprova a ata na plataforma
+
+  // Resolve o nome com que o usuário logado aprova esta ata (pelo nome OU por e-mail), se estiver pendente
+  const myApproverForAta = (ata: any, meeting: any): string | null => {
+    if (!ata || ata.approvalClosed) return null;
+    const approvers: string[] = ata.approvers || [];
+    const approvals: any = ata.approvals || {};
+    const cands: string[] = [currentUser?.name];
+    (meeting?.participants || []).forEach((p: any) => { if (p?.email && currentUser?.email && String(p.email).toLowerCase() === String(currentUser.email).toLowerCase() && p?.name) cands.push(p.name); });
+    const mine = cands.find((n: string) => n && approvers.includes(n) && !approvals[n]);
+    return mine || null;
+  };
+
+  // Registra a aprovação do conselheiro logado (via Edge Function, service role)
+  const submitAtaApproval = async () => {
+    if (!ataApproveModal) return;
+    const { meetingId, ataId, ataUrl, ataName, approverName, choice, note } = ataApproveModal;
+    if ((choice === 'ressalva' || choice === 'reprovada') && !String(note || '').trim()) { alert('Descreva o motivo para ressalva ou reprovação.'); return; }
+    setAtaApprovalLoading(true);
+    try {
+      const { data, error } = await supabase.functions.invoke('approve-ata-inapp', { body: { meetingId, ataId, ataUrl, choice, note } });
+      if (error || data?.error) throw new Error(error?.message || data?.error);
+      const who = data.approver || approverName;
+      const apply = (a: any) => ((ataId != null && a.id === ataId) || (ataUrl && a.url === ataUrl))
+        ? { ...a, approvals: { ...(a.approvals || {}), [who]: choice }, approvalNotes: { ...(a.approvalNotes || {}), [who]: String(note || '').trim() }, approvalAt: { ...(a.approvalAt || {}), [who]: new Date().toISOString() } }
+        : a;
+      setMeetings(prev => prev.map(m => m.id === meetingId ? { ...m, atas: (m.atas || []).map(apply) } : m));
+      setCurrentMeeting((prev: any) => (prev && prev.id === meetingId) ? { ...prev, atas: (prev.atas || []).map(apply) } : prev);
+      addLog('Aprovação de ata', `${choice} (plataforma) — ${ataName}`);
+      setAtaApproveModal(null);
+      alert('✅ Sua manifestação foi registrada.');
+    } catch (e: any) { alert('Erro ao registrar a aprovação: ' + (e?.message || e)); }
+    finally { setAtaApprovalLoading(false); }
+  };
 
   // Abre a seleção de assinantes (só conselheiros por padrão) de uma ata já publicada
   const openSignerSelection = (ata: any, mode: 'publish' | 'request') => {
@@ -3483,6 +3517,42 @@ const App = () => {
                 <button disabled={ataApprovalLoading} onClick={() => setSignerModal(null)} className="text-[11px] font-bold uppercase tracking-widest text-slate-400 hover:text-slate-600 disabled:opacity-50">Pular por enquanto</button>
                 <button disabled={ataApprovalLoading || (signerModal.selected || []).length === 0} onClick={confirmSigners} className="bg-amber-600 hover:bg-amber-700 text-white px-5 py-2.5 rounded-lg text-[11px] font-bold uppercase tracking-widest disabled:opacity-50 flex items-center gap-2">
                   {ataApprovalLoading ? 'Enviando…' : <><Send size={14} /> Enviar para assinatura ({(signerModal.selected || []).length})</>}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+        {ataApproveModal && (
+          <div className="fixed inset-0 z-[70] bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4" onClick={() => !ataApprovalLoading && setAtaApproveModal(null)}>
+            <div className="bg-white w-full max-w-md rounded-2xl shadow-2xl overflow-hidden not-italic" onClick={e => e.stopPropagation()}>
+              <div className="bg-slate-900 px-6 py-5 border-b-4 border-amber-600">
+                <p className="text-amber-500 text-[10px] font-bold uppercase tracking-[2px]">Aprovação da ata</p>
+                <h3 className="text-white text-lg font-bold italic mt-0.5 break-words">{ataApproveModal.ataName}</h3>
+                <p className="text-slate-300 text-[11px] mt-1 font-normal">Você está se manifestando como <b>{ataApproveModal.approverName}</b>.</p>
+              </div>
+              <div className="p-5 space-y-3">
+                {[
+                  { val: 'aprovada', label: '👍 Aprovar', on: 'border-emerald-500 bg-emerald-50 text-emerald-700', dot: 'bg-emerald-600 border-emerald-600 text-white' },
+                  { val: 'ressalva', label: '✎ Aprovar com ressalvas', on: 'border-amber-500 bg-amber-50 text-amber-700', dot: 'bg-amber-600 border-amber-600 text-white' },
+                  { val: 'reprovada', label: '👎 Reprovar', on: 'border-red-500 bg-red-50 text-red-700', dot: 'bg-red-600 border-red-600 text-white' },
+                ].map(opt => {
+                  const on = ataApproveModal.choice === opt.val;
+                  return (
+                    <button key={opt.val} onClick={() => setAtaApproveModal((p: any) => ({ ...p, choice: opt.val }))}
+                      className={`w-full text-left px-4 py-3 rounded-lg border text-sm font-bold flex items-center gap-2.5 transition-all ${on ? opt.on : 'border-slate-200 text-slate-600 hover:border-slate-300'}`}>
+                      <span className={`w-4 h-4 rounded-full border flex items-center justify-center shrink-0 ${on ? opt.dot : 'border-slate-300'}`}>{on && <Check size={11} />}</span>
+                      {opt.label}
+                    </button>
+                  );
+                })}
+                <textarea value={ataApproveModal.note} onChange={e => setAtaApproveModal((p: any) => ({ ...p, note: e.target.value }))} rows={3}
+                  placeholder={ataApproveModal.choice === 'aprovada' ? 'Comentário (opcional)' : 'Descreva o motivo (obrigatório para ressalva/reprovação)'}
+                  className="w-full p-3 border border-slate-200 rounded-lg text-sm outline-none focus:border-amber-400 resize-none" />
+              </div>
+              <div className="p-5 border-t border-slate-100 flex items-center justify-between gap-3">
+                <button disabled={ataApprovalLoading} onClick={() => setAtaApproveModal(null)} className="text-[11px] font-bold uppercase tracking-widest text-slate-400 hover:text-slate-600 disabled:opacity-50">Cancelar</button>
+                <button disabled={ataApprovalLoading} onClick={submitAtaApproval} className="bg-amber-600 hover:bg-amber-700 text-white px-5 py-2.5 rounded-lg text-[11px] font-bold uppercase tracking-widest disabled:opacity-50 flex items-center gap-2">
+                  {ataApprovalLoading ? 'Registrando…' : <><PenLine size={14} /> Registrar</>}
                 </button>
               </div>
             </div>
@@ -4701,6 +4771,17 @@ const App = () => {
         </div>
       );
     })()}
+    {(() => {
+      const mine = myApproverForAta(ata, currentMeeting);
+      if (!mine || ata.id == null) return null;
+      return (
+        <div className="px-4 pb-4 border-t border-slate-50 pt-3 not-italic">
+          <button onClick={() => setAtaApproveModal({ meetingId: currentMeeting.id, ataId: ata.id, ataName: ata.name, approverName: mine, choice: 'aprovada', note: '' })} className="w-full flex items-center justify-center gap-2 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-[10px] font-bold uppercase tracking-widest transition-all shadow-sm">
+            <PenLine size={13} /> Aprovar esta ata
+          </button>
+        </div>
+      );
+    })()}
     {(ata.previousVersions || []).length > 0 && (
       <div className="px-4 pb-4 border-t border-slate-50 pt-3">
         <p className="text-[9px] font-bold uppercase tracking-widest text-slate-400 not-italic mb-2">Versões anteriores ({(ata.previousVersions || []).length})</p>
@@ -4861,6 +4942,19 @@ const App = () => {
                               </div>
                             </div>
                           )}
+
+                          {/* Aprovação pelo conselheiro logado (se pendente para ele) */}
+                          {(() => {
+                            const m = meetings.find((mm: any) => mm.id === ata.meetingId);
+                            const mine = myApproverForAta(ata, m);
+                            if (!mine) return null;
+                            return (
+                              <button onClick={() => setAtaApproveModal({ meetingId: ata.meetingId, ataId: ata.id, ataUrl: ata.url, ataName: ata.name, approverName: mine, choice: 'aprovada', note: '' })}
+                                className="w-full flex items-center justify-center gap-2 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-[10px] font-bold uppercase tracking-widest transition-all shadow-sm not-italic">
+                                <PenLine size={13} /> Aprovar esta ata
+                              </button>
+                            );
+                          })()}
 
                           {/* Ações */}
                           <div className="flex items-center gap-2 mt-auto">
