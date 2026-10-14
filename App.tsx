@@ -11,7 +11,7 @@ import {
   Clock, CheckCircle2, AlertCircle, FileText, Send, X, Trash2, Coffee, Paperclip, Tag,
   Upload, Save, Lock, Target, FileCheck, BarChart3,
   PieChart as PieIcon, LogIn, User, Key, LogOut, UserCheck,
-  Mail, UserCog, Settings, Camera, UserCircle, History, Filter, MessageSquare, Download, ExternalLink, ListChecks, Plus, Edit2, Check, Menu, ChevronUp, ChevronDown, Play, Square, Timer, SkipForward, Building2, ChevronLeft, UserMinus, ThumbsUp, ThumbsDown, CircleSlash, MinusCircle, Archive, Search, PenLine, ShieldCheck, Scale, Monitor, MapPin, Gauge, TrendingUp, TrendingDown, Bell, Compass, Sparkles, Users
+  Mail, UserCog, Settings, Camera, UserCircle, History, Filter, MessageSquare, Download, ExternalLink, ListChecks, Plus, Edit2, Check, Menu, ChevronUp, ChevronDown, Play, Square, Timer, SkipForward, Building2, ChevronLeft, UserMinus, ThumbsUp, ThumbsDown, CircleSlash, MinusCircle, Archive, Search, PenLine, ShieldCheck, Scale, Monitor, MapPin, Gauge, TrendingUp, TrendingDown, Bell, Compass, Sparkles, Users, Activity
 } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend, LineChart, Line, ReferenceLine } from 'recharts';
 import { PRIORITIES, PRIORITY_STYLES, PRIORITY_WEIGHT } from './constants';
@@ -24,6 +24,7 @@ import { PublicPautaMaterials } from './components/PublicPautaMaterials';
 import { PublicQA } from './components/PublicQA';
 import { LiveQA } from './components/LiveQA';
 import { ControllerArea } from './components/ControllerArea';
+import { Engajamento } from './components/Engajamento';
 import { SealVerify } from './components/SealVerify';
 import { Diretorio } from './components/Diretorio';
 import { generateSealCertificate } from './services/generateSealCertificate';
@@ -3416,6 +3417,7 @@ const App = () => {
             { id: 'reunioes', icon: <Calendar size={18} />, label: 'Conselho', action: () => setView('list') },
             { id: 'plano-acao', icon: <ListChecks size={18} />, label: 'Plano de Ação' },
             { id: 'deliberacoes', icon: <Scale size={18} />, label: 'Deliberações' },
+            { id: 'engajamento', icon: <Activity size={18} />, label: 'Engajamento', staff: true },
             { id: 'maturidade', icon: <TrendingUp size={18} />, label: 'Maturidade' },
             { id: 'certificacao', icon: <ShieldCheck size={18} />, label: 'Certificação', super: true },
             { id: 'relatorio', icon: <BarChart3 size={18} />, label: 'Relatório', super: true },
@@ -3618,6 +3620,9 @@ const App = () => {
               )}
               {activeMenu === 'minhas-acoes' && isControllerLike && (
                 <ControllerArea currentUser={currentUser} meetings={meetings} onMeetingUpdated={(m: any) => setMeetings(prev => prev.map(x => x.id === m.id ? m : x))} view="acoes" />
+              )}
+              {activeMenu === 'engajamento' && canEdit && (
+                <Engajamento meetings={meetings} members={clientMembers} clientName={superAll ? 'Consolidado Geral' : (clientProfile?.name || activeClientId || currentUser?.client_id)} />
               )}
               {activeMenu === 'dashboard' && (
                 <div className="space-y-6 animate-in fade-in">
