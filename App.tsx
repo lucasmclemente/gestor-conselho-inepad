@@ -3223,11 +3223,17 @@ const App = () => {
     }
   };
 
+  // Registra (não bloqueante) o acesso a um material para o painel de Engajamento
+  const logMaterialAccess = (name: string) => {
+    try { if (currentMeeting?.id) supabase.functions.invoke('track-material', { body: { meetingId: currentMeeting.id, materialName: name } }); } catch { /* */ }
+  };
+
   // Abre um material re-assinando o link na hora (a URL salva expira em 7 dias → dava InvalidJWT)
-  const openMaterial = (m: any) => openAtaUrl(m?.url);
+  const openMaterial = (m: any) => { logMaterialAccess(m?.name); openAtaUrl(m?.url); };
 
   // Baixa um material — PDF com marca d'água (nome/e-mail/data de quem baixou); outros formatos abrem re-assinados
   const downloadMaterial = async (m: any) => {
+    logMaterialAccess(m?.name);
     const isPdf = /\.pdf(\?|$)/i.test(m?.name || '') || /\/[^?]*\.pdf(\?|$)/i.test(m?.url || '');
     if (!isPdf) { openAtaUrl(m?.url); return; }
     if (!m?.url) { alert('Arquivo indisponível.'); return; }
@@ -3622,7 +3628,7 @@ const App = () => {
                 <ControllerArea currentUser={currentUser} meetings={meetings} onMeetingUpdated={(m: any) => setMeetings(prev => prev.map(x => x.id === m.id ? m : x))} view="acoes" />
               )}
               {activeMenu === 'engajamento' && canEdit && (
-                <Engajamento meetings={meetings} members={clientMembers} clientName={superAll ? 'Consolidado Geral' : (clientProfile?.name || activeClientId || currentUser?.client_id)} />
+                <Engajamento meetings={meetings} members={clientMembers} clientId={superAll ? null : (activeClientId || currentUser?.client_id)} clientName={superAll ? 'Consolidado Geral' : (clientProfile?.name || activeClientId || currentUser?.client_id)} />
               )}
               {activeMenu === 'dashboard' && (
                 <div className="space-y-6 animate-in fade-in">

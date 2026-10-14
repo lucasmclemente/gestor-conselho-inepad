@@ -1,6 +1,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2"
 import { PDFDocument, StandardFonts, rgb } from "https://esm.sh/pdf-lib@1.17.1"
+import { signToken } from "../_shared/votetoken.ts"
 
 // Caderno de Materiais: une num ÚNICO PDF todos os materiais da reunião
 // (aba Materiais + materiais de cada pauta). Une PDFs e imagens (jpg/png);
@@ -194,7 +195,8 @@ serve(async (req) => {
       const RESEND_API_KEY = Deno.env.get('RESEND_API_KEY')
       const origin = (typeof appOrigin === 'string' && /^https?:\/\//.test(appOrigin)) ? appOrigin.replace(/\/$/, '') : 'https://conselho.inepadconsulting.com'
       const recipients = (meeting.participants || []).filter((p: any) => p?.email && !p.isExternal).map((p: any) => ({ email: p.email, name: p.name }))
-      const html = (name: string) => `
+      const trackExp = Date.now() + 30 * 24 * 60 * 60 * 1000
+      const html = (name: string, link: string) => `
         <div style="font-family:sans-serif;max-width:600px;margin:auto;border:1px solid #e2e8f0;border-radius:12px;overflow:hidden;">
           <div style="background:#0f172a;padding:28px;text-align:center;border-bottom:4px solid #b45309;">
             <img src="https://conselho.inepadconsulting.com/boardplan-logo-email.png" alt="Boardplan" style="height:34px;" />
@@ -205,16 +207,20 @@ serve(async (req) => {
             <p style="font-size:13px;color:#64748b;">${esc(fmtDate(meeting.date) || 'S/D')}${meeting.time ? ' às ' + esc(meeting.time) : ''}</p>
             <p style="font-size:14px;">Olá, <b>${esc(name)}</b>. Reunimos num único PDF todos os materiais desta reunião (${included.length} documento(s)) para você analisar com antecedência.</p>
             <div style="text-align:center;margin:30px 0 8px;">
-              <a href="${esc(url)}" style="background:#b45309;color:#fff;padding:14px 28px;text-decoration:none;border-radius:8px;font-weight:bold;font-size:14px;display:inline-block;">⬇ Baixar o Caderno de Materiais (PDF)</a>
+              <a href="${esc(link)}" style="background:#b45309;color:#fff;padding:14px 28px;text-decoration:none;border-radius:8px;font-weight:bold;font-size:14px;display:inline-block;">⬇ Baixar o Caderno de Materiais (PDF)</a>
             </div>
             ${skipped.length ? `<p style="text-align:center;font-size:11px;color:#94a3b8;">Obs.: ${skipped.length} material(is) em outros formatos devem ser baixados à parte na plataforma.</p>` : ''}
           </div>
         </div>`
       if (RESEND_API_KEY) {
-        const sends = recipients.map((r: any) => fetch('https://api.resend.com/emails', {
-          method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${RESEND_API_KEY}` },
-          body: JSON.stringify({ from: 'Governança INEPAD <conselho@inepadconsulting.com>', to: r.email, subject: `Caderno de Materiais: ${String(meeting.title || 'Reunião').replace(/[\r\n\t]+/g, ' ').trim()}`, html: html(r.name || '') }),
-        }))
+        const sends = recipients.map(async (r: any) => {
+          const token = await signToken({ k: 'matopen', c: meeting.client_id, m: meeting.id, n: fileName, p: path, u: r.name || '', e: r.email, exp: trackExp })
+          const link = `${URLV}/functions/v1/track-material?t=${encodeURIComponent(token)}`
+          return fetch('https://api.resend.com/emails', {
+            method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${RESEND_API_KEY}` },
+            body: JSON.stringify({ from: 'Governança INEPAD <conselho@inepadconsulting.com>', to: r.email, subject: `Caderno de Materiais: ${String(meeting.title || 'Reunião').replace(/[\r\n\t]+/g, ' ').trim()}`, html: html(r.name || '', link) }),
+          })
+        })
         const res = await Promise.allSettled(sends)
         emailed = res.filter((x) => x.status === 'fulfilled').length
       }

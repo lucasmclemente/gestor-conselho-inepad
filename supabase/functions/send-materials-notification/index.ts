@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2"
+import { signToken } from "../_shared/votetoken.ts"
 
 const ALLOWED_ORIGINS = [
   'https://conselho.inepadconsulting.com',
@@ -51,26 +52,36 @@ serve(async (req) => {
       : { name: 'Governança INEPAD', email: 'conselho@inepadconsulting.com' }
 
     const materiais = Array.isArray(meetingData?.materiais) ? meetingData.materiais : []
-    // Re-assina os links dos materiais (7 dias) para valerem quando o e-mail for aberto
-    const admin = createClient(Deno.env.get('SUPABASE_URL') ?? '', Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '', { auth: { persistSession: false } })
-    const scheduled: any[] = []
-    for (const m of materiais) {
-      let url = String(m?.url || '')
-      try {
-        const mt = /\/(?:sign|public)\/meeting-files\/(.+?)(?:\?|$)/.exec(url)
-        if (mt && mt[1]) { const { data } = await admin.storage.from('meeting-files').createSignedUrl(decodeURIComponent(mt[1]), 60 * 60 * 24 * 7); if (data?.signedUrl) url = data.signedUrl }
-      } catch (_) { /* mantém a url salva */ }
-      scheduled.push({ ...m, url })
-    }
-    const materiaisHtml = scheduled.length > 0
-      ? scheduled.map((m: any, i: number) => `
+    const URLV = Deno.env.get('SUPABASE_URL') ?? ''
+    const cid2 = meetingData?.client_id
+    const meetingId = meetingData?.id
+    const trackExp = Date.now() + 30 * 24 * 60 * 60 * 1000
+    // nome por e-mail (para identificar quem abre, nos links rastreados)
+    const nameByEmail = new Map<string, string>()
+    for (const p of (meetingData?.participants || [])) { if (p?.email) nameByEmail.set(String(p.email).toLowerCase(), p.name || '') }
+
+    // Monta a lista de materiais com LINKS RASTREADOS por destinatário (track-material)
+    const materiaisHtmlFor = async (toEmail: string): Promise<string> => {
+      if (materiais.length === 0) return '<p style="color: #94a3b8; font-style: italic;">Nenhum material anexado.</p>'
+      const name = nameByEmail.get(String(toEmail).toLowerCase()) || ''
+      const rows: string[] = []
+      for (let i = 0; i < materiais.length; i++) {
+        const m = materiais[i]
+        let href = safeUrl(String(m?.url || ''))
+        if (meetingId && cid2) {
+          const token = await signToken({ k: 'matopen', c: cid2, m: meetingId, n: m?.name, u: name, e: toEmail, exp: trackExp })
+          href = `${URLV}/functions/v1/track-material?t=${encodeURIComponent(token)}`
+        }
+        rows.push(`
           <div style="padding: 10px 0; border-bottom: 1px solid #f1f5f9; font-size: 14px;">
             <span style="color: #64748b; font-weight: bold;">${i + 1}.</span>
-            <a href="${safeUrl(m.url)}" style="color: #b45309; text-decoration: underline; font-weight: bold;">${escapeHtml(m.name)}</a>
-          </div>`).join('')
-      : '<p style="color: #94a3b8; font-style: italic;">Nenhum material anexado.</p>'
+            <a href="${href}" style="color: #b45309; text-decoration: underline; font-weight: bold;">${escapeHtml(m.name)}</a>
+          </div>`)
+      }
+      return rows.join('')
+    }
 
-    const html = `
+    const htmlFor = (matsHtml: string) => `
       <div style="font-family: sans-serif; max-width: 600px; margin: auto; border: 1px solid #e2e8f0; border-radius: 12px; overflow: hidden;">
         <div style="background: #0f172a; padding: 30px; text-align: center;">
           <img src="https://conselho.inepadconsulting.com/boardplan-logo-email.png" style="height: 40px;" />
@@ -86,7 +97,7 @@ serve(async (req) => {
           </div>
 
           <h4 style="text-transform: uppercase; font-size: 12px; color: #64748b; border-bottom: 1px solid #f1f5f9; padding-bottom: 5px;">Documentos de Apoio</h4>
-          ${materiaisHtml}
+          ${matsHtml}
 
           <div style="text-align: center; margin-top: 35px;">
             <a href="https://conselho.inepadconsulting.com" style="background: #b45309; color: white; padding: 12px 24px; text-decoration: none; border-radius: 8px; font-weight: bold; font-size: 14px; display: inline-block;">Acessar Portal de Governança</a>
@@ -95,19 +106,19 @@ serve(async (req) => {
         </div>
       </div>`
 
-    const res = await fetch('https://api.resend.com/emails', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${RESEND_API_KEY}` },
-      body: JSON.stringify({
-        from: 'Governança INEPAD <conselho@inepadconsulting.com>',
-        to: recipients,
-        reply_to: organizer.email,
-        subject: `MATERIAIS DISPONÍVEIS: ${String(meetingData?.title || 'Reunião do Conselho').replace(/[\r\n\t]+/g, ' ').trim()}`,
-        html,
-      }),
+    // Envio INDIVIDUAL (links rastreados identificam quem abre)
+    const subject = `MATERIAIS DISPONÍVEIS: ${String(meetingData?.title || 'Reunião do Conselho').replace(/[\r\n\t]+/g, ' ').trim()}`
+    const sends = (recipients as string[]).map(async (to: string) => {
+      const matsHtml = await materiaisHtmlFor(to)
+      return fetch('https://api.resend.com/emails', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${RESEND_API_KEY}` },
+        body: JSON.stringify({ from: 'Governança INEPAD <conselho@inepadconsulting.com>', to, reply_to: organizer.email, subject, html: htmlFor(matsHtml) }),
+      })
     })
-    const data = await res.json()
-    return json({ success: true, sent: recipients.length, resend: data })
+    const results = await Promise.allSettled(sends)
+    const sent = results.filter((r) => r.status === 'fulfilled').length
+    return json({ success: true, sent })
   } catch (error: any) {
     return json({ error: error.message }, 400)
   }
