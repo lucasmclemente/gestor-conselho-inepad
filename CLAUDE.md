@@ -1,6 +1,6 @@
 # CLAUDE.md — Boardplan | INEPAD Governança e Sucessão
 > Arquivo de contexto do projeto. Cole nas Project Instructions do Claude.
-> Última atualização: 08/07/2026 (v4)
+> Última atualização: 14/10/2026 (v5)
 
 ---
 
@@ -29,6 +29,10 @@ Plataforma corporativa que gerencia o ciclo completo de reuniões de Conselhos D
 - **Cadastro de Membros** — via Edge Function segura com criação no Auth + tabela members
 - **Indicadores (Semáforos)** — Conselho define indicadores estratégicos e registra leituras no tempo com **meta por competência**. Se a leitura não atinge a meta, o indicador muda de semáforo (🟢/🟡/🔴), dispara alerta por e-mail e gera ação no Plano de Ação. Avaliação no banco; efeitos colaterais nas Edge Functions `evaluate-triggers`/`reevaluate-triggers`
 - **Planejamento Estratégico (BSC + OKR)** — Missão/visão/valores, perspectivas, objetivos e **mapa estratégico** (farol vem dos indicadores); **OKRs** (ciclos, resultados-chave, check-ins com confiança); **SWOT**; **RAE** (reunião de análise com pauta automática); Plano de Ação **5W2H** + Kanban; exportação do plano em PDF. Paridade com o núcleo do ScorePlan
+- **Aprovação de atas** — por e-mail (token, sem login) **e dentro da plataforma** (conselheiro logado): Aprovar / Aprovar com ressalvas / Reprovar, com versionamento e histórico de ressalvas
+- **Caderno de Materiais** — gera um **PDF único** consolidando todos os materiais da reunião (aba Materiais + pautas); une PDF/imagem e lista os demais formatos; salva como material e envia por e-mail (`compile-materials`)
+- **Engajamento do colegiado** — painel (Adm/Sec/Super) que mede participação dos conselheiros em **votações**, **aprovação de atas** e **acesso a materiais** (rastreio app + e-mail); score 0-100, ranking e aba de pendências para cobrança
+- **Perguntas ao Vivo (add-on)** — Q&A de eventos estilo Slido: QR code, página pública sem login (envia pergunta + curte), moderação em tempo real, materiais p/ download e **modo Pesquisa de Satisfação** (perguntas abertas, múltipla escolha e escala) com resultados agregados. Ligado por cliente (`clients.qa_enabled`)
 
 ### Papéis de usuário
 
@@ -37,8 +41,12 @@ Plataforma corporativa que gerencia o ciclo completo de reuniões de Conselhos D
 | SuperAdmin | Acesso total a todos os clientes |
 | Administrador | Gestão completa do próprio `client_id` |
 | Secretário | Pode criar e editar reuniões |
-| Conselheiro | Somente visualização e votação |
+| Conselheiro | Visualização, votação em deliberações e **aprovação de atas** (por e-mail e na plataforma) |
 | Assistente | Apenas upload de materiais (sem acesso a reuniões, plano de ação, deliberações ou indicadores) |
+| Controller | Restrito: lança o realizado dos indicadores (não altera metas/indicadores) + **"Minhas Pautas"** (só as pautas em que é responsável, com upload de material) + **"Plano de Ação"** só dele. Recebe convocação reduzida (só a pauta dele) e e-mail próprio com o plano de ação (sem a ata). Vínculo por **nome** |
+| Diretor | **Alias idêntico ao Controller** (mesmas permissões) |
+| Comercial (SDR) | Vê apenas o CRM (add-on por cliente) |
+| Certificador | Papel INEPAD: emite selos de maturidade (só o SuperAdmin designa) |
 
 > **Multi-empresa:** Administrador, Secretário e Conselheiro podem atuar em **vários clientes**. O SuperAdmin atribui as empresas pelo botão "Clientes" (Edge Function `set-secretary-clients` → grava `secretary_clients` no `user_metadata` e na tabela `members`). O usuário alterna pelo seletor de cliente no topo (precisa re-login após atribuição). RLS de leitura/escrita reconhece `secretary_clients`. SuperAdmin é o único papel cross-client nativo.
 
@@ -125,6 +133,12 @@ GESTOR-CONSELHO-INEPAD/
 | name | text | Nome comercial da empresa |
 | logo_url | text | URL pública do logo (Storage bucket `client-logos`) |
 | clicksign_enabled | boolean | Se o add-on de assinatura digital está ativo para este cliente |
+| crm_enabled | boolean | Add-on CRM por cliente |
+| strategy_enabled | boolean | Add-on Planejamento Estratégico/Indicadores por cliente |
+| qa_enabled | boolean | Add-on "Perguntas ao Vivo" por cliente |
+| active | boolean | Conta ativa/inativa (bloqueia login dos membros, dados preservados) |
+
+> **Campos jsonb relevantes de `meetings` (acréscimos recentes):** `pautas[]` ganhou `uid`, `tema`, `notes`, `materiais[]` ({name,url,uploadedAt}); `acoes[]` usa `resps[]` (vários responsáveis) + `resp` legado, e `why/where/how/how_much/objective_id` (5W2H); `atas[]` tem `approvers[]`/`approvals{}`/`approvalNotes{}`/`approvalAt{}`/`approvalSentAt`/`approvalClosed`/`version`/`previousVersions[]`; `materiais[]` da reunião podem ter `consolidated:true` (Caderno de Materiais); `end_time` (fim da reunião p/ o `.ics`).
 
 ### Tabela: `audit_logs`
 | Coluna | Tipo | Observação |
@@ -174,6 +188,36 @@ GESTOR-CONSELHO-INEPAD/
 - **suggest-action** (Edge Function, Gemini): sugere ação corretiva — **desativada no front por ora** (função existe; botão removido; requer `GEMINI_API_KEY`). Pode ser migrada para Claude e reativada (já há `ANTHROPIC_API_KEY` configurada).
 - **Ata por IA** (Edge Function `draft-minutes`, **Claude `claude-opus-4-8`**): a secretária sobe a transcrição do Teams/Meet (`.vtt`/`.txt`) na aba Ordem do Dia → a IA rascunha a discussão de cada pauta (campo `pautas[].notes`, que já ia para a ata em PDF) → secretária revisa e salva. Prompt reconhece a pauta **por assunto** (reunião de conselho é orgânica, ninguém anuncia "item 3"); resumo impessoal (atribuição vem dos dados estruturados); barra arquivo binário (`.docx`/`.pdf`). Validado: com transcrição de reunião online a ata sai ótima; o gargalo é a captação **presencial** (orientar a conectar a sala ao Teams/Meet ou usar microfone de mesa). Em produção desde 17/07/2026. Removidos os antigos `analyze-minutes` + `services/geminiService.ts` (código morto Gemini).
 - **Exportar PDF:** `generateStrategyPDF` (jsPDF) gera o plano (identidade + objetivos por perspectiva + indicadores realizado×meta + OKRs).
+
+### Add-on "Perguntas ao Vivo" (Q&A de eventos) — em prod 29/09/2026
+
+> Migração `20260757_qa_addon.sql` (+ `20260758` materiais, `20260759` pesquisa). Ligado por `clients.qa_enabled`. Componentizado: `components/PublicQA.tsx` (página pública sem login) e `components/LiveQA.tsx` (moderação staff). Edge Function pública `qa-public`.
+
+| Tabela | Para quê |
+|---|---|
+| `qa_sessions` | id, client_id, title, **code** (string curta do link/QR, unique), open, **materials** jsonb, **mode** (questions\|survey), **survey** jsonb, created_by |
+| `qa_questions` | session_id, client_id, body, author_name, status (new\|answered\|archived), votes |
+| `qa_votes` | question_id+device_id (pk) — dedup de curtidas (sem RLS; só service role) |
+| `qa_survey_responses` | session_id, client_id, device_id (1 resposta/device, upsert), answers jsonb — modo Pesquisa |
+
+- **Fluxo:** staff cria sessão → QR/link (`?perguntas=CODE`) → público envia perguntas sem login e curte (mais votadas sobem). Ao fim do evento, botão alterna para **modo Pesquisa** (mesmo QR): questionário com perguntas **abertas**, **múltipla escolha** e **escala (nota 1..N)**; resultados agregados (barras/média) no painel staff. Materiais da sessão ficam disponíveis para download na página pública.
+- RLS `*_staff` (SuperAdmin ou Adm/Sec do tenant, reconhece `secretary_clients`). Respostas/perguntas inseridas pela Edge Function (service role).
+
+### Rastreio de acesso a materiais (Engajamento) — em prod 14/10/2026
+
+> Migração `20260761_material_access_logs.sql`. Alimenta a 3ª dimensão do painel de Engajamento (`components/Engajamento.tsx`).
+
+| Tabela | Para quê |
+|---|---|
+| `material_access_logs` | client_id, meeting_id, material_name, user_name, user_email, **source** (app\|email), created_at — quem abriu/baixou cada material |
+
+- RLS: staff do tenant lê; INSERT só via Edge Function `track-material` (service role).
+- **track-material**: GET `?t=<token>` (link rastreado do e-mail) registra quem abriu e redireciona (302) p/ signed URL fresca; POST (logado) registra clique no app. Links rastreados por destinatário no **Caderno** (`compile-materials`) e no **aviso de materiais** (`send-materials-notification` passou a enviar individual).
+
+### Papel Controller/Diretor — migrações `20260709` (Controller) e `20260760` (Diretor)
+
+- `can_read_governance()` e a policy `readings_write` de `indicator_readings` incluem `Controller` e `Diretor` (lançam leituras; **não** alteram metas — `targets_write` segue exigindo `can_write_governance()`).
+- Frontend: flag `isControllerLike = isController || isDiretor` governa todos os gates (menu "Minhas Pautas"/"Plano de Ação"/"Indicadores", convocação reduzida, e-mail próprio). Componente `components/ControllerArea.tsx`.
 
 ---
 
@@ -249,7 +293,7 @@ GESTOR-CONSELHO-INEPAD/
 | Função | Descrição | JWT Verify |
 |---|---|---|
 | `create-user` | Cria usuário no Auth + upsert em members + log | OFF (verifica Bearer token manualmente) |
-| `send-invitation` | Convocação oficial por e-mail + anexa convite de calendário (`.ics` RSVP) | ON (verificação em código + config.toml) |
+| `send-invitation` | Convocação oficial por e-mail + anexa convite de calendário (`.ics` RSVP). Externos e **Controller/Diretor** (via `reducedEmails`) recebem **convocação reduzida** (só as pautas deles) | ON (verificação em código + config.toml) |
 | `send-calendar-invites` | Envia 1 e-mail com `.ics` multi-evento (todas as reuniões do ano) para reservar a agenda dos participantes (RSVP) | ON (verificação em código + config.toml) |
 | `send-minute-notification` | Ata + relatório de pendências por responsável | ON (verificação em código + config.toml) |
 | `clicksign-flow` | Envia ata para assinatura digital no ClickSign + adiciona signatários | OFF |
@@ -259,11 +303,18 @@ GESTOR-CONSELHO-INEPAD/
 | `evaluate-triggers` | Avalia a leitura vs **meta** (`fireForReadingMeta` em `_shared/triggers.ts`); cria evento (`source='meta'`), ação no Plano de Ação, alerta Resend e log | OFF (valida JWT + papel write em código) |
 | `reevaluate-triggers` | Cron (pg_cron diário): reavalia a última leitura vs meta + lembrete-resumo dos alertas abertos; respeita `reeval_frequency` por cliente | OFF (valida header `x-cron-secret` == `CRON_SECRET`) |
 | `collect-readings` | Link de coleta: SuperAdmin/Adm/Sec gera token HMAC (cliente+competência, 45d); controller preenche leituras sem login → upsert + avaliação | OFF (mint valida JWT; info/submit validam token) |
-| `send-materials-notification` | Avisa participantes internos que os materiais (subsídios) da reunião estão disponíveis | ON |
+| `send-materials-notification` | Avisa participantes internos que os materiais estão disponíveis — agora envia **individual** com **links rastreados** por destinatário (via `track-material`) | ON |
 | `suggest-action` | (Gemini) sugere ação corretiva p/ indicador fora da meta — **desativada no front por ora** | ON |
 | `draft-minutes` | **Ata por IA (Claude).** Recebe a transcrição do Teams/Meet + pautas/participantes/deliberações e devolve o resumo da discussão de cada item da ordem do dia (preenche `pautas[].notes`). Saída estruturada (`json_schema`); resumo impessoal; não inventa; nada é gravado sem a secretária salvar. Requer secret `ANTHROPIC_API_KEY` (por ambiente) | OFF (valida JWT + papel Adm/Sec/Super + tenant em código) |
+| `send-controller-actions` | E-mail específico do **Controller/Diretor** na publicação da ata: só o plano de ação dele, **sem a ata** (valida que é Controller/Diretor interno do tenant) | ON (código: Adm/Sec/Super) |
+| `qa-public` | **Perguntas ao Vivo** — página pública (sem login): `info`/`submit`/`vote` (Q&A) e `surveySubmit` (pesquisa); materiais da sessão assinados na hora | OFF (público; identifica a sessão pelo `code`) |
+| `compile-materials` | **Caderno de Materiais** — une num PDF único (pdf-lib) os materiais da reunião (aba + pautas): copia páginas de PDFs e embute imagens; lista o resto. Salva como material (`consolidated:true`) e, opcional, envia por e-mail com link rastreado | OFF (código: Adm/Sec/Super + tenant) |
+| `track-material` | Rastreio de acesso a materiais: GET `?t=token` (link do e-mail) registra e redireciona 302 p/ signed URL; POST (logado) registra clique no app → `material_access_logs` | **OFF (`--no-verify-jwt`)**; GET valida token, POST valida JWT em código |
+| `approve-ata-inapp` | **Aprovação de ata na plataforma** (conselheiro logado): grava a manifestação (aprovada/ressalva/reprovada + nota), resolve o aprovador por nome ou e-mail; mesma validação do fluxo por token | ON (JWT; valida que o usuário é aprovador da ata) |
 
 > **Código compartilhado:** `supabase/functions/_shared/ics.ts` — gerador de `.ics` (iCalendar/RFC 5545) com RSVP, usado por `send-invitation` e `send-calendar-invites`. Converte horário de Brasília (UTC−3) para UTC. Empacotado automaticamente no deploy de cada função que o importa.
+> **Tokens HMAC:** `supabase/functions/_shared/votetoken.ts` — `signToken`/`verifyToken` (HMAC-SHA256, `TOKEN_SIGNING_SECRET` com fallback p/ service key), usados nos links sem login: voto (`k:'vote'`), ata (`k:'ata'`), coleta (`collect`), materiais de pauta (`pautamat`) e rastreio de materiais (`matopen`).
+> **Deploy OFF/`--no-verify-jwt`:** funções que abrem por GET sem apikey (webhooks e `track-material`) devem ser deployadas com `--no-verify-jwt`; elas validam token/HMAC no código.
 
 ### Programação anual de reuniões — fluxo
 ```
@@ -482,5 +533,7 @@ git checkout main && git merge develop && git push origin main && git checkout d
 - Ao propor alterações no App.tsx, sempre entregar o arquivo completo
 
 ---
+
+*Atualizado em 14/10/2026 (v5) — Sessão com 6 entregas, todas **em produção**: (1) **Add-on "Perguntas ao Vivo"** (Q&A de eventos com QR + página pública sem login + moderação + materiais + **modo Pesquisa de Satisfação** com perguntas abertas/múltipla escolha/escala; `qa-public`, `clients.qa_enabled`, tabelas `qa_*`/`qa_survey_responses`). (2) **Perfil Controller ampliado** — além de lançar indicadores, ganhou área própria (`components/ControllerArea.tsx`): "Minhas Pautas" (só as pautas dele + upload) e "Plano de Ação" dele; **convocação reduzida** (`send-invitation` `reducedEmails`) e **e-mail próprio** de plano de ação sem a ata (`send-controller-actions`). (3) **Perfil Diretor** = alias idêntico ao Controller (`isControllerLike`; migração `20260760`). (4) **Caderno de Materiais** — PDF único consolidando os materiais da reunião (`compile-materials`, pdf-lib). (5) **Painel de Engajamento** (`components/Engajamento.tsx`) — mede votação + aprovação de atas + **acesso a materiais** (rastreio app+e-mail via `track-material` + `material_access_logs`); score, ranking e pendências p/ cobrança. (6) **Aprovação de ata na plataforma** (`approve-ata-inapp`) — conselheiro logado aprova sem depender do e-mail. Vínculo responsável/aprovador/votante é sempre por **NOME**. Migrações novas: `20260757`/`20260758`/`20260759` (QA), `20260760` (Diretor), `20260761` (material_access_logs); `20260756` (meetings.end_time).*
 
 *Atualizado em 08/07/2026 (v4) — **Módulo de Planejamento Estratégico (BSC + OKR)**, paridade com o núcleo do ScorePlan, em 5 fases: (1) fundação/mapa/objetivos/causa-efeito; (2) indicadores evoluídos — **meta por período**, farol em grade, nível/responsável, FCA — e a virada em que a **META passa a comandar farol + alertas + ações + e-mail** (gatilhos e cenários aposentados; `fireForReadingMeta`); (3) OKR (ciclos, KRs, check-ins, confiança, KR por indicador); (4) Plano 5W2H + Kanban + RAE (pauta automática); (5) SWOT + IA de sugestão (Gemini, desativada) + exportação PDF. Novas tabelas `strategy_framework`/`perspectives`/`objectives`/`objective_links`/`indicator_targets`/`fca`/`okr_*`/`swot_items`. **Primeiro módulo componentizado** (`components/Estrategia.tsx`, `Okr.tsx`, `services/supabaseClient.ts`, `generateStrategyPDF.ts`). Também: link de coleta de indicadores (`collect-readings`), notificação de materiais, correções de multi-empresa (perfil/cadastro usam cliente ativo). Versão anterior (v3): módulo Indicadores & Gatilhos + multi-empresa por papel + Assistente.*
