@@ -96,6 +96,7 @@ const App = () => {
   const [isConvocationOpen, setIsConvocationOpen] = useState(false);
   const [isSendingEmail, setIsSendingEmail] = useState(false);
   const [notifyingMaterials, setNotifyingMaterials] = useState(false);
+  const [bookLoading, setBookLoading] = useState(false);
 
   const fileRef = useRef<HTMLInputElement>(null);
   const ataRef = useRef<HTMLInputElement>(null);
@@ -790,6 +791,26 @@ const App = () => {
       alert(`✅ Notificação de materiais enviada a ${data.sent || emails.length} participante(s).`);
     } catch (e: any) { alert('Erro ao notificar: ' + (e?.message || e)); }
     finally { setNotifyingMaterials(false); }
+  };
+
+  // Gera um PDF único com todos os materiais (aba + pautas): salva como material e, opcionalmente, envia aos conselheiros
+  const genMaterialsBook = async () => {
+    if (!canEdit) return;
+    if (!currentMeeting.id) return alert('Salve a reunião antes de gerar o caderno de materiais.');
+    const hasAny = (currentMeeting.materiais || []).some((m: any) => !m?.consolidated) || (currentMeeting.pautas || []).some((p: any) => (p.materiais || []).length > 0);
+    if (!hasAny) return alert('Não há materiais anexados (na aba Materiais ou nas pautas) para consolidar.');
+    const notify = window.confirm('Gerar o Caderno de Materiais (PDF único com todos os materiais da reunião).\n\nOK = gerar e ENVIAR por e-mail aos conselheiros\nCancelar = só gerar e salvar na aba Materiais');
+    setBookLoading(true);
+    try {
+      const { data, error } = await supabase.functions.invoke('compile-materials', { body: { meetingId: currentMeeting.id, appOrigin: window.location.origin, notify } });
+      if (error || data?.error) throw new Error(error?.message || data?.error);
+      const { data: fresh } = await supabase.from('meetings').select('*').eq('id', currentMeeting.id).single();
+      if (fresh) { setCurrentMeeting(fresh); setMeetings(prev => prev.map(m => m.id === fresh.id ? fresh : m)); }
+      addLog('Caderno de Materiais', `Caderno gerado (${data.included} itens)${notify ? `, enviado a ${data.emailed}` : ''} — ${currentMeeting.title}`);
+      const skippedMsg = (data.skipped && data.skipped.length) ? `\n\n${data.skipped.length} material(is) não entraram no PDF (formato não suportado) e devem ser baixados à parte.` : '';
+      alert(`✅ Caderno de Materiais gerado com ${data.included} documento(s) e salvo na aba Materiais.${notify ? `\n📧 Enviado a ${data.emailed} conselheiro(s).` : ''}${skippedMsg}`);
+    } catch (e: any) { alert('Erro ao gerar o caderno: ' + (e?.message || e)); }
+    finally { setBookLoading(false); }
   };
 
   // Exclui um material — permitido só enquanto a ata não foi publicada
@@ -4273,7 +4294,7 @@ const App = () => {
 
                     {tab === 'materiais' && (
                       <div className="bg-white p-8 rounded-xl border border-slate-200 shadow-sm animate-in fade-in space-y-6">
-                        <div className="flex justify-between items-center mb-4 gap-2 flex-wrap"><h3 className="text-xs font-bold uppercase text-slate-600 tracking-widest flex items-center gap-2">Documentos <span className="bg-red-50 text-red-500 text-[8px] px-2 py-0.5 rounded-full border border-red-100">Somente Internos</span>{(currentMeeting.atas || []).length > 0 && <span className="bg-slate-100 text-slate-500 text-[8px] px-2 py-0.5 rounded-full border border-slate-200 inline-flex items-center gap-1"><Lock size={9} /> Bloqueado após a ata</span>}</h3>{canEdit && (currentMeeting.atas || []).length === 0 && <div className="flex items-center gap-2">{(currentMeeting.materiais || []).length > 0 && <button onClick={notifyMaterials} disabled={notifyingMaterials} className="bg-amber-600 hover:bg-amber-700 text-white px-4 py-2 rounded-lg text-[10px] font-bold uppercase flex items-center gap-2 transition-all shadow-sm disabled:opacity-50"><Bell size={14} /> {notifyingMaterials ? 'Enviando...' : 'Notificar participantes'}</button>}<button onClick={() => fileRef.current?.click()} className="bg-slate-100 hover:bg-slate-200 text-slate-700 px-4 py-2 rounded-lg text-[10px] font-bold uppercase flex items-center gap-2 transition-all"><Upload size={14} /> Upload</button></div>}</div>
+                        <div className="flex justify-between items-center mb-4 gap-2 flex-wrap"><h3 className="text-xs font-bold uppercase text-slate-600 tracking-widest flex items-center gap-2">Documentos <span className="bg-red-50 text-red-500 text-[8px] px-2 py-0.5 rounded-full border border-red-100">Somente Internos</span>{(currentMeeting.atas || []).length > 0 && <span className="bg-slate-100 text-slate-500 text-[8px] px-2 py-0.5 rounded-full border border-slate-200 inline-flex items-center gap-1"><Lock size={9} /> Bloqueado após a ata</span>}</h3>{canEdit && <div className="flex items-center gap-2 flex-wrap"><button onClick={genMaterialsBook} disabled={bookLoading} title="Gera um PDF único com todos os materiais (aba Materiais + pautas)" className="bg-slate-900 hover:bg-slate-800 text-amber-400 px-4 py-2 rounded-lg text-[10px] font-bold uppercase flex items-center gap-2 transition-all shadow-sm disabled:opacity-50"><FileText size={14} /> {bookLoading ? 'Gerando...' : 'Caderno de Materiais (PDF)'}</button>{(currentMeeting.atas || []).length === 0 && <>{(currentMeeting.materiais || []).length > 0 && <button onClick={notifyMaterials} disabled={notifyingMaterials} className="bg-amber-600 hover:bg-amber-700 text-white px-4 py-2 rounded-lg text-[10px] font-bold uppercase flex items-center gap-2 transition-all shadow-sm disabled:opacity-50"><Bell size={14} /> {notifyingMaterials ? 'Enviando...' : 'Notificar participantes'}</button>}<button onClick={() => fileRef.current?.click()} className="bg-slate-100 hover:bg-slate-200 text-slate-700 px-4 py-2 rounded-lg text-[10px] font-bold uppercase flex items-center gap-2 transition-all"><Upload size={14} /> Upload</button></>}</div>}</div>
                         {(currentMeeting.materiais || []).length === 0 ? <p className="text-[11px] text-slate-400 italic">Nenhum material anexado.</p> : <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">{(currentMeeting.materiais || []).map((m: any, i: any) => (<div key={i} className="p-4 bg-white border border-slate-200 rounded-xl flex items-center gap-3 relative group"><FileText size={20} className="text-amber-600" /><div className="flex-1 truncate text-xs font-bold italic">{m.name}</div><button onClick={() => openMaterial(m)} className="text-slate-400 hover:text-amber-600" title="Abrir"><ExternalLink size={14} /></button><button onClick={() => downloadMaterial(m)} disabled={downloadingAta} className="text-slate-400 hover:text-amber-600 disabled:opacity-50" title="Baixar (PDF com marca d'água)"><Download size={14} /></button>{canEdit && (currentMeeting.atas || []).length === 0 && <button onClick={() => deleteMaterial(i)} className="text-slate-300 hover:text-red-600 transition-colors" title="Excluir material"><Trash2 size={14} /></button>}</div>))}</div>}
                       </div>
                     )}
