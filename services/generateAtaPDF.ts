@@ -45,7 +45,8 @@ function getImageFormat(dataUrl: string): string {
 export async function generateAtaPDF(
   meeting: any,
   clientName: string,
-  logoUrl?: string
+  logoUrl?: string,
+  conselheiroEmails?: string[]
 ) {
   const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
   const W  = doc.internal.pageSize.getWidth();
@@ -268,15 +269,20 @@ export async function generateAtaPDF(
     y = (doc as any).lastAutoTable.finalY + 8;
   }
 
-  // ── Seção 6: Assinaturas ──────────────────────────────────────
-  if (presentes.length > 0) {
+  // ── Seção 6: Assinaturas (apenas Conselheiros) ────────────────
+  // Só os Conselheiros assinam a ata (secretário, administradores e externos não assinam).
+  const emailSet = (conselheiroEmails || []).map(e => String(e || '').toLowerCase());
+  const signatarios = emailSet.length
+    ? presentes.filter((p: any) => p.email && emailSet.includes(String(p.email).toLowerCase()))
+    : presentes;
+  if (signatarios.length > 0) {
     y = checkPageBreak(doc, y, 50, H, W, ML, meeting.title);
     y = addSectionHeader(doc, 'ASSINATURAS', y, W, ML);
 
     const SIG_W = (W - ML * 2 - 10) / 2;
     const SIG_H = 28;
 
-    for (let i = 0; i < presentes.length; i++) {
+    for (let i = 0; i < signatarios.length; i++) {
       const col    = i % 2;
       const row    = Math.floor(i / 2);
       // Nova linha: checka page break antes de cada linha par
@@ -295,19 +301,19 @@ export async function generateAtaPDF(
       doc.setFont('helvetica', 'bold');
       doc.setFontSize(7.5);
       doc.setTextColor(...C.primary);
-      const nameLines = doc.splitTextToSize(presentes[i].name, SIG_W - 4);
+      const nameLines = doc.splitTextToSize(signatarios[i].name, SIG_W - 4);
       doc.text(nameLines[0], sx + SIG_W / 2, sy + SIG_H - 4, { align: 'center' });
 
       // E-mail
-      if (presentes[i].email) {
+      if (signatarios[i].email) {
         doc.setFont('helvetica', 'normal');
         doc.setFontSize(6);
         doc.setTextColor(...C.medium);
-        doc.text(presentes[i].email, sx + SIG_W / 2, sy + SIG_H, { align: 'center' });
+        doc.text(signatarios[i].email, sx + SIG_W / 2, sy + SIG_H, { align: 'center' });
       }
     }
 
-    const totalRows = Math.ceil(presentes.length / 2);
+    const totalRows = Math.ceil(signatarios.length / 2);
     y += totalRows * (SIG_H + 6) + 6;
   }
 
