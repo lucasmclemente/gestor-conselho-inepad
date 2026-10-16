@@ -7,10 +7,13 @@ import { BoardplanLogo } from './Brand';
 // Tela de acesso (sem sessão): login + pedido de recuperação.
 // Todo o estado é local — o App só decide QUANDO mostrar a tela.
 // ─────────────────────────────────────────────────────────────
-export const Login: React.FC = () => {
+export const Login: React.FC<{ onEnterRecovery?: () => void }> = ({ onEnterRecovery }) => {
   const [authForm, setAuthForm] = useState({ email: '', password: '' });
   const [forgotMode, setForgotMode] = useState(false);
+  const [forgotStep, setForgotStep] = useState<'email' | 'code'>('email');
   const [forgotEmail, setForgotEmail] = useState('');
+  const [otpCode, setOtpCode] = useState('');
+  const [verifying, setVerifying] = useState(false);
   const [sendingReset, setSendingReset] = useState(false);
   const [loading, setLoading] = useState(false);
 
@@ -40,7 +43,45 @@ export const Login: React.FC = () => {
             <p className="text-sm text-slate-500 mt-1">Use o e-mail cadastrado pela sua empresa.</p>
           </div>
 
-          {!forgotMode ? (
+          {forgotMode && forgotStep === 'code' ? (
+            /* ── Passo 2: validar o código de 6 dígitos recebido por e-mail ── */
+            <form className="space-y-4" onSubmit={async (e) => {
+              e.preventDefault();
+              const code = otpCode.replace(/\D/g, '');
+              if (code.length < 6) return alert('Digite o código de 6 dígitos recebido por e-mail.');
+              setVerifying(true);
+              const { error } = await supabase.auth.verifyOtp({ email: forgotEmail, token: code, type: 'recovery' });
+              setVerifying(false);
+              if (error) { alert('Código inválido ou expirado. Confira o código ou solicite um novo.\n\n(' + error.message + ')'); return; }
+              // Sessão de recuperação criada → o App mostra a tela "Nova senha"
+              setForgotMode(false); setForgotStep('email'); setOtpCode('');
+              onEnterRecovery?.();
+            }}>
+              <div className="p-4 bg-amber-50 border border-amber-200 rounded-lg text-xs text-amber-700 font-bold">
+                Enviamos um <b>código de 6 dígitos</b> para <b>{forgotEmail}</b>. Digite-o abaixo para definir uma nova senha. O código vale por 1 hora.
+              </div>
+              <div>
+                <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Código de verificação</label>
+                <input inputMode="numeric" autoComplete="one-time-code" maxLength={6} placeholder="000000"
+                  className="w-full mt-1.5 p-3.5 bg-white border border-slate-200 rounded-lg outline-none font-bold tracking-[0.5em] text-center text-lg focus:border-amber-400 transition-colors"
+                  value={otpCode} onChange={e => setOtpCode(e.target.value.replace(/\D/g, '').slice(0, 6))} required autoFocus />
+              </div>
+              <button disabled={verifying} className="w-full bg-amber-600 hover:bg-amber-700 text-white py-3.5 rounded-lg font-bold uppercase tracking-widest text-xs shadow-md transition-all disabled:opacity-50">
+                {verifying ? 'Validando...' : 'Validar código'}
+              </button>
+              <button type="button" disabled={sendingReset} onClick={async () => {
+                setSendingReset(true);
+                const { error } = await supabase.auth.resetPasswordForEmail(forgotEmail, { redirectTo: window.location.origin });
+                setSendingReset(false);
+                alert(error ? ('Erro ao reenviar: ' + error.message) : 'Novo código enviado para ' + forgotEmail + '.');
+              }} className="w-full text-center text-xs text-slate-400 hover:text-amber-600 transition-colors font-bold pt-1 disabled:opacity-50">
+                {sendingReset ? 'Reenviando...' : 'Reenviar código'}
+              </button>
+              <button type="button" onClick={() => { setForgotMode(false); setForgotStep('email'); setOtpCode(''); }} className="w-full text-center text-xs text-slate-400 hover:text-slate-600 transition-colors font-bold">
+                ← Voltar para o login
+              </button>
+            </form>
+          ) : !forgotMode ? (
             /* ── Formulário de Login ── */
             <form className="space-y-4" onSubmit={async (e) => {
               e.preventDefault();
@@ -73,12 +114,11 @@ export const Login: React.FC = () => {
               });
               setSendingReset(false);
               if (error) { alert('Erro: ' + error.message); return; }
-              alert(`✅ E-mail de recuperação enviado para ${forgotEmail}.\n\nVerifique sua caixa de entrada e clique no link para definir uma nova senha.`);
-              setForgotMode(false);
-              setForgotEmail('');
+              setOtpCode('');
+              setForgotStep('code');
             }}>
               <div className="p-4 bg-amber-50 border border-amber-200 rounded-lg text-xs text-amber-700 font-bold">
-                Informe o e-mail da sua conta. Enviaremos um link para redefinir sua senha.
+                Informe o e-mail da sua conta. Enviaremos um <b>código de 6 dígitos</b> (e um link) para redefinir sua senha.
               </div>
               <input
                 type="email"

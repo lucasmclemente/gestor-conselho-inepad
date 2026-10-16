@@ -3414,7 +3414,7 @@ const App = () => {
   }
 
   if (!currentUser) {
-    return <Login />;
+    return <Login onEnterRecovery={() => setIsRecovering(true)} />;
   }
 
   return (
