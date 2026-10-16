@@ -760,12 +760,13 @@ const App = () => {
       if (type === 'atas') {
         // Ata publicada e salva. A secretaria escolhe QUEM assina (só conselheiros por padrão) antes de enviar para aprovação.
         const internos = (currentMeeting.participants || []).filter((p: any) => !p.isExternal && p.email && p.name);
-        if (internos.length > 0) {
-          const candidates = internos.map((p: any) => ({ name: p.name, email: p.email, role: (clientMembers.find((u: any) => (u.email || '').toLowerCase() === (p.email || '').toLowerCase())?.role) || '' }));
-          const selected = candidates.filter((c: any) => c.role === 'Conselheiro' || !c.role).map((c: any) => c.name);
+        // Só Conselheiros assinam a ata (secretário, administradores e externos participam mas não assinam)
+        const candidates = internos.map((p: any) => ({ name: p.name, email: p.email, role: (clientMembers.find((u: any) => (u.email || '').toLowerCase() === (p.email || '').toLowerCase())?.role) || '' })).filter((c: any) => c.role === 'Conselheiro');
+        if (candidates.length > 0) {
+          const selected = candidates.map((c: any) => c.name);
           setSignerModal({ ataId: newFile.id, ataName: file.name, minuteUrl: secureUrl, mode: 'publish', candidates, selected });
         } else {
-          alert("✅ Ata publicada e salva automaticamente!");
+          alert("✅ Ata publicada e salva automaticamente!\n\nObs.: nenhum Conselheiro entre os participantes — nenhum pedido de assinatura foi enviado. Você pode solicitar a aprovação depois, pelo botão na aba Atas.");
         }
       }
     } catch (err: any) { alert("Erro: " + err.message); }
@@ -3045,8 +3046,10 @@ const App = () => {
   const openSignerSelection = (ata: any, mode: 'publish' | 'request') => {
     const internos = (currentMeeting.participants || []).filter((p: any) => !p.isExternal && p.email && p.name);
     if (internos.length === 0) { alert('A reunião não tem participantes internos com e-mail.'); return; }
-    const candidates = internos.map((p: any) => ({ name: p.name, email: p.email, role: (clientMembers.find((u: any) => (u.email || '').toLowerCase() === (p.email || '').toLowerCase())?.role) || '' }));
-    const selected = candidates.filter((c: any) => c.role === 'Conselheiro' || !c.role).map((c: any) => c.name);
+    // Só Conselheiros assinam a ata (secretário, administradores e externos participam mas não assinam)
+    const candidates = internos.map((p: any) => ({ name: p.name, email: p.email, role: (clientMembers.find((u: any) => (u.email || '').toLowerCase() === (p.email || '').toLowerCase())?.role) || '' })).filter((c: any) => c.role === 'Conselheiro');
+    if (candidates.length === 0) { alert('Nenhum Conselheiro entre os participantes desta reunião. Verifique se os conselheiros estão cadastrados com o papel "Conselheiro" e incluídos como participantes.'); return; }
+    const selected = candidates.map((c: any) => c.name);
     setSignerModal({ ataId: ata.id, ataName: ata.name, minuteUrl: ata.url, mode, candidates, selected });
   };
 
@@ -3495,7 +3498,7 @@ const App = () => {
               <div className="bg-slate-900 px-6 py-5 border-b-4 border-amber-600">
                 <p className="text-amber-500 text-[10px] font-bold uppercase tracking-[2px]">Aprovação da ata</p>
                 <h3 className="text-white text-lg font-bold italic mt-0.5">Quem deve assinar esta ata?</h3>
-                <p className="text-slate-300 text-[11px] mt-1 font-normal">Marque os conselheiros que devem aprovar/assinar. Só os marcados serão notificados (externos e não-conselheiros ficam de fora).</p>
+                <p className="text-slate-300 text-[11px] mt-1 font-normal">Apenas os <b>Conselheiros</b> da reunião aparecem aqui (secretário, administradores e externos não assinam). Desmarque quem não deve assinar; só os marcados serão notificados.</p>
               </div>
               <div className="p-5 max-h-[50vh] overflow-y-auto space-y-1.5">
                 {(signerModal.candidates || []).map((c: any) => {
