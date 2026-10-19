@@ -73,6 +73,9 @@ const App = () => {
   const [filterResp, setFilterResp] = useState('all');
   const [filterStatus, setFilterStatus] = useState<string[]>([]); // multi-seleção; vazio = todos
   const [statusMenuOpen, setStatusMenuOpen] = useState(false);
+  // Plano de Ação: retrato das ações que casam com o filtro no momento em que ele muda.
+  // Editar uma ação (que a tire do filtro) NÃO a remove da lista até o filtro mudar de novo.
+  const [frozenActionKeys, setFrozenActionKeys] = useState<Set<string>>(new Set());
   const [delibFileUploading, setDelibFileUploading] = useState<number | null>(null); // índice da deliberação em upload
   const [filterOrigin, setFilterOrigin] = useState('all');
   const [filterPriority, setFilterPriority] = useState('all');
@@ -2859,6 +2862,22 @@ const App = () => {
     };
   }, [meetings, dashboardFilter, filterResp, filterStatus, filterOrigin, filterPriority, filterObjective, strategyObjectives]);
 
+  // Ao mudar qualquer filtro, tira um retrato das ações que casam (congela a lista exibida)
+  useEffect(() => {
+    setFrozenActionKeys(new Set(stats.allActions.map((a: any) => `${a.mId}-${a.id}`)));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filterResp, filterStatus, filterOrigin, filterPriority, filterObjective, dashboardFilter]);
+
+  // Lista exibida do Plano de Ação: as que casam agora + as que estavam no retrato mas saíram
+  // do filtro por uma edição (ficam até o filtro mudar). Contadores/gráficos seguem ao vivo (stats).
+  const planoActions = useMemo(() => {
+    const matched = stats.allActions;
+    const matchedKeys = new Set(matched.map((a: any) => `${a.mId}-${a.id}`));
+    const raw = meetings.flatMap((m: any) => (m.acoes || []).map((a: any) => ({ ...a, mTitle: m.title, mId: m.id, mDate: m.date })));
+    const extras = raw.filter((a: any) => { const k = `${a.mId}-${a.id}`; return frozenActionKeys.has(k) && !matchedKeys.has(k); }).map((a: any) => ({ ...a, _stale: true }));
+    return [...matched, ...extras].sort((a: any, b: any) => (PRIORITY_WEIGHT[a.priority || 'Média'] - PRIORITY_WEIGHT[b.priority || 'Média']) || ((a.date || '9999').localeCompare(b.date || '9999')));
+  }, [stats.allActions, meetings, frozenActionKeys]);
+
   // Estatísticas exclusivas do Dashboard — dependem apenas do filtro de reunião
   // (não herdam os filtros de Responsável/Status/Origem do Plano de Ação)
   const dashStats = useMemo(() => {
@@ -5067,17 +5086,18 @@ const App = () => {
                         <tr><th className="px-6 py-4">Iniciativa</th><th className="px-5 py-4">Responsável(is)</th><th className="px-6 py-4">Origem</th><th className="px-6 py-4">Prazo</th><th className="px-6 py-4 text-center">Prioridade</th><th className="px-6 py-4">Status</th>{canEdit && <th className="px-6 py-4 text-center">Ação</th>}</tr>
                       </thead>
                       <tbody className="divide-y divide-slate-100">
-                        {stats.allActions.length === 0 && (
+                        {planoActions.length === 0 && (
                           <tr><td colSpan={canEdit ? 7 : 6} className="px-6 py-10 text-center text-slate-400 text-[10px] uppercase tracking-widest">Nenhuma ação registrada</td></tr>
                         )}
-                        {stats.allActions.map((acao: any) => {
+                        {planoActions.map((acao: any) => {
                           const acaoKey = `${acao.mId}-${acao.id}`;
                           const resps: string[] = acao.resps?.length > 0 ? acao.resps : (acao.resp ? [acao.resp] : []);
                           return (
                             <tr key={acaoKey} className="hover:bg-slate-50 transition-all align-top">
                               {/* INICIATIVA + OBS INLINE */}
-                              <td className="px-6 py-4 text-slate-800 max-w-xs">
+                              <td className={`px-6 py-4 text-slate-800 max-w-xs ${acao._stale ? 'opacity-60' : ''}`}>
                                 <p className="leading-snug">{acao.title}</p>
+                                {acao._stale && <span className="mt-1 inline-flex items-center gap-1 text-[8px] font-bold uppercase tracking-wider text-slate-500 bg-slate-100 border border-slate-200 rounded px-1.5 py-0.5 not-italic" title="Editada agora — some quando você atualizar o filtro">fora do filtro atual</span>}
                                 {acao.objective_id && objectiveName(acao.objective_id) && <span className="mt-1 inline-flex items-center gap-1 text-[8px] font-bold uppercase tracking-wider text-amber-700 bg-amber-50 border border-amber-100 rounded px-1.5 py-0.5 not-italic"><Compass size={9} /> {objectiveName(acao.objective_id)}</span>}
                                 {canEdit && editingObsKey === acaoKey ? (
                                   <textarea
@@ -5188,7 +5208,7 @@ const App = () => {
                   ) : (
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                       {([['Pendente', 'Aguardando'], ['Em andamento', 'Execução'], ['Concluída', 'Finalizado']] as [string, string][]).map(([st, lbl]) => {
-                        const cards = stats.allActions.filter((a: any) => a.status === st);
+                        const cards = planoActions.filter((a: any) => a.status === st);
                         return (
                           <div key={st} className="bg-slate-50 rounded-xl border border-slate-200 p-3">
                             <div className="flex items-center justify-between mb-2 px-1">
