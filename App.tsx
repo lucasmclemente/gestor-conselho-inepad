@@ -3265,8 +3265,24 @@ const App = () => {
     try { if (currentMeeting?.id) supabase.functions.invoke('track-material', { body: { meetingId: currentMeeting.id, materialName: name } }); } catch { /* */ }
   };
 
-  // Abre um material re-assinando o link na hora (a URL salva expira em 7 dias → dava InvalidJWT)
-  const openMaterial = (m: any) => { logMaterialAccess(m?.name); openAtaUrl(m?.url); };
+  // Abre um material — PDF com marca d'água (nome/e-mail/data de quem abriu) para rastreio de vazamento;
+  // outros formatos abrem re-assinados (não dá p/ carimbar sem converter).
+  const openMaterial = async (m: any) => {
+    logMaterialAccess(m?.name);
+    const isPdf = /\.pdf(\?|$)/i.test(m?.name || '') || /\/[^?]*\.pdf(\?|$)/i.test(m?.url || '');
+    if (!isPdf) { openAtaUrl(m?.url); return; }
+    if (!m?.url) { alert('Arquivo indisponível.'); return; }
+    // Abre a aba já no gesto do clique (evita bloqueio de pop-up); navega após carimbar
+    const w = window.open('', '_blank');
+    try {
+      const { data, error } = await supabase.functions.invoke('download-ata', { body: { url: m.url } });
+      if (error || data?.error) throw new Error(error?.message || data?.error);
+      const bytes = Uint8Array.from(atob(data.pdf_base64), (c) => c.charCodeAt(0));
+      const blobUrl = URL.createObjectURL(new Blob([bytes], { type: 'application/pdf' }));
+      if (w) w.location.href = blobUrl; else window.open(blobUrl, '_blank');
+      setTimeout(() => URL.revokeObjectURL(blobUrl), 60000);
+    } catch (e: any) { if (w) w.close(); alert('Erro ao abrir o material: ' + (e?.message || e)); }
+  };
 
   // Baixa um material — PDF com marca d'água (nome/e-mail/data de quem baixou); outros formatos abrem re-assinados
   const downloadMaterial = async (m: any) => {
@@ -4379,7 +4395,7 @@ const App = () => {
                     {tab === 'materiais' && (
                       <div className="bg-white p-8 rounded-xl border border-slate-200 shadow-sm animate-in fade-in space-y-6">
                         <div className="flex justify-between items-center mb-4 gap-2 flex-wrap"><h3 className="text-xs font-bold uppercase text-slate-600 tracking-widest flex items-center gap-2">Documentos <span className="bg-red-50 text-red-500 text-[8px] px-2 py-0.5 rounded-full border border-red-100">Somente Internos</span>{(currentMeeting.atas || []).length > 0 && <span className="bg-slate-100 text-slate-500 text-[8px] px-2 py-0.5 rounded-full border border-slate-200 inline-flex items-center gap-1"><Lock size={9} /> Bloqueado após a ata</span>}</h3>{canEdit && <div className="flex items-center gap-2 flex-wrap"><button onClick={genMaterialsBook} disabled={bookLoading} title="Gera um PDF único com todos os materiais (aba Materiais + pautas)" className="bg-slate-900 hover:bg-slate-800 text-amber-400 px-4 py-2 rounded-lg text-[10px] font-bold uppercase flex items-center gap-2 transition-all shadow-sm disabled:opacity-50"><FileText size={14} /> {bookLoading ? 'Gerando...' : 'Caderno de Materiais (PDF)'}</button>{(currentMeeting.atas || []).length === 0 && <>{(currentMeeting.materiais || []).length > 0 && <button onClick={notifyMaterials} disabled={notifyingMaterials} className="bg-amber-600 hover:bg-amber-700 text-white px-4 py-2 rounded-lg text-[10px] font-bold uppercase flex items-center gap-2 transition-all shadow-sm disabled:opacity-50"><Bell size={14} /> {notifyingMaterials ? 'Enviando...' : 'Notificar participantes'}</button>}<button onClick={() => fileRef.current?.click()} className="bg-slate-100 hover:bg-slate-200 text-slate-700 px-4 py-2 rounded-lg text-[10px] font-bold uppercase flex items-center gap-2 transition-all"><Upload size={14} /> Upload</button></>}</div>}</div>
-                        {(currentMeeting.materiais || []).length === 0 ? <p className="text-[11px] text-slate-400 italic">Nenhum material anexado.</p> : <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">{(currentMeeting.materiais || []).map((m: any, i: any) => (<div key={i} className="p-4 bg-white border border-slate-200 rounded-xl flex items-center gap-3 relative group"><FileText size={20} className="text-amber-600" /><div className="flex-1 truncate text-xs font-bold italic">{m.name}</div><button onClick={() => openMaterial(m)} className="text-slate-400 hover:text-amber-600" title="Abrir"><ExternalLink size={14} /></button><button onClick={() => downloadMaterial(m)} disabled={downloadingAta} className="text-slate-400 hover:text-amber-600 disabled:opacity-50" title="Baixar (PDF com marca d'água)"><Download size={14} /></button>{canEdit && (currentMeeting.atas || []).length === 0 && <button onClick={() => deleteMaterial(i)} className="text-slate-300 hover:text-red-600 transition-colors" title="Excluir material"><Trash2 size={14} /></button>}</div>))}</div>}
+                        {(currentMeeting.materiais || []).length === 0 ? <p className="text-[11px] text-slate-400 italic">Nenhum material anexado.</p> : <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">{(currentMeeting.materiais || []).map((m: any, i: any) => (<div key={i} className="p-4 bg-white border border-slate-200 rounded-xl flex items-center gap-3 relative group"><FileText size={20} className="text-amber-600" /><div className="flex-1 truncate text-xs font-bold italic">{m.name}</div><button onClick={() => openMaterial(m)} className="text-slate-400 hover:text-amber-600" title="Abrir (PDF com marca d'água)"><ExternalLink size={14} /></button><button onClick={() => downloadMaterial(m)} disabled={downloadingAta} className="text-slate-400 hover:text-amber-600 disabled:opacity-50" title="Baixar (PDF com marca d'água)"><Download size={14} /></button>{canEdit && (currentMeeting.atas || []).length === 0 && <button onClick={() => deleteMaterial(i)} className="text-slate-300 hover:text-red-600 transition-colors" title="Excluir material"><Trash2 size={14} /></button>}</div>))}</div>}
                       </div>
                     )}
 
