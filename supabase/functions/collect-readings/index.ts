@@ -4,7 +4,7 @@ import { signToken, verifyToken } from "../_shared/votetoken.ts"
 import { fireForReading } from "../_shared/triggers.ts"
 
 const ALLOWED_ORIGINS = [
-  'https://conselho.inepadconsulting.com',
+  'https://conselho.inepadconsulting.com', 'https://app.boardplan.com.br',
   'http://localhost:3000',
 ]
 function getCorsHeaders(req: Request): Record<string, string> {

@@ -6,7 +6,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2"
 // A RLS de meetings só deixa Adm/Sec/Super gravar, por isso a escrita é via service role
 // (após validar que o usuário logado é mesmo um aprovador da ata).
 
-const ALLOWED_ORIGINS = ['https://conselho.inepadconsulting.com', 'http://localhost:3000']
+const ALLOWED_ORIGINS = ['https://conselho.inepadconsulting.com', 'https://app.boardplan.com.br', 'http://localhost:3000']
 function cors(req: Request): Record<string, string> {
   const origin = req.headers.get('Origin') ?? ''
   const preview = /^https:\/\/gestor-conselho-in[a-z0-9-]*\.vercel\.app$/.test(origin)

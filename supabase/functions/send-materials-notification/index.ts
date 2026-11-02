@@ -3,7 +3,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2"
 import { signToken } from "../_shared/votetoken.ts"
 
 const ALLOWED_ORIGINS = [
-  'https://conselho.inepadconsulting.com',
+  'https://conselho.inepadconsulting.com', 'https://app.boardplan.com.br',
   'http://localhost:3000',
 ]
 function getCorsHeaders(req: Request): Record<string, string> {
@@ -84,7 +84,7 @@ serve(async (req) => {
     const htmlFor = (matsHtml: string) => `
       <div style="font-family: sans-serif; max-width: 600px; margin: auto; border: 1px solid #e2e8f0; border-radius: 12px; overflow: hidden;">
         <div style="background: #0f172a; padding: 30px; text-align: center;">
-          <img src="https://conselho.inepadconsulting.com/boardplan-logo-email.png" style="height: 40px;" />
+          <img src="https://app.boardplan.com.br/boardplan-logo-email.png" style="height: 40px;" />
         </div>
         <div style="padding: 40px; color: #1e293b;">
           <h2 style="color: #b45309; font-style: italic; margin-bottom: 5px;">Materiais da Reunião</h2>
@@ -100,7 +100,7 @@ serve(async (req) => {
           ${matsHtml}
 
           <div style="text-align: center; margin-top: 35px;">
-            <a href="https://conselho.inepadconsulting.com" style="background: #b45309; color: white; padding: 12px 24px; text-decoration: none; border-radius: 8px; font-weight: bold; font-size: 14px; display: inline-block;">Acessar Portal de Governança</a>
+            <a href="https://app.boardplan.com.br" style="background: #b45309; color: white; padding: 12px 24px; text-decoration: none; border-radius: 8px; font-weight: bold; font-size: 14px; display: inline-block;">Acessar Portal de Governança</a>
           </div>
           <p style="text-align: center; font-size: 11px; color: #94a3b8; margin-top: 20px;">Recomendamos a leitura prévia dos materiais para a reunião.</p>
         </div>

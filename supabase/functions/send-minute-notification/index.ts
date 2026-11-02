@@ -3,7 +3,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2"
 import { signToken } from "../_shared/votetoken.ts"
 
 const ALLOWED_ORIGINS = [
-  'https://conselho.inepadconsulting.com',
+  'https://conselho.inepadconsulting.com', 'https://app.boardplan.com.br',
   'http://localhost:3000',
 ]
 
@@ -160,7 +160,7 @@ serve(async (req) => {
           html: `
             <div style="font-family: sans-serif; max-width: 600px; margin: auto; border: 1px solid #e2e8f0; border-radius: 12px; overflow: hidden; background: #ffffff;">
               <div style="background: #0f172a; padding: 20px; text-align: center;">
-                <img src="https://conselho.inepadconsulting.com/boardplan-logo-email.png" style="height: 35px;" />
+                <img src="https://app.boardplan.com.br/boardplan-logo-email.png" style="height: 35px;" />
               </div>
 
               <div style="padding: 30px; color: #1e293b;">
@@ -185,7 +185,7 @@ serve(async (req) => {
                 </div>
 
                 <div style="text-align: center; margin-top: 35px;">
-                  <a href="https://conselho.inepadconsulting.com" style="background: #0f172a; color: white; padding: 12px 24px; text-decoration: none; border-radius: 8px; font-weight: bold; font-size: 13px; display: inline-block;">Ver Painel Completo</a>
+                  <a href="https://app.boardplan.com.br" style="background: #0f172a; color: white; padding: 12px 24px; text-decoration: none; border-radius: 8px; font-weight: bold; font-size: 13px; display: inline-block;">Ver Painel Completo</a>
                 </div>
               </div>
             </div>

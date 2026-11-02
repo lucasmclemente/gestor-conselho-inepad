@@ -4,7 +4,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2"
 // Q&A ao vivo — acesso PÚBLICO (sem login) via service role. Ações: info, submit, vote.
 // A sessão é identificada por um code curto (do link/QR). Nenhum dado sensível é exposto.
 
-const ALLOWED_ORIGINS = ['https://conselho.inepadconsulting.com', 'http://localhost:3000']
+const ALLOWED_ORIGINS = ['https://conselho.inepadconsulting.com', 'https://app.boardplan.com.br', 'http://localhost:3000']
 function cors(req: Request): Record<string, string> {
   const origin = req.headers.get('Origin') ?? ''
   const preview = /^https:\/\/gestor-conselho-in[a-z0-9-]*\.vercel\.app$/.test(origin)

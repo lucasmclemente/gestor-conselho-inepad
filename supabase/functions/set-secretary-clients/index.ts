@@ -2,7 +2,7 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2"
 
 const ALLOWED_ORIGINS = [
-  'https://conselho.inepadconsulting.com',
+  'https://conselho.inepadconsulting.com', 'https://app.boardplan.com.br',
   'http://localhost:3000',
 ]
 function getCorsHeaders(req: Request): Record<string, string> {

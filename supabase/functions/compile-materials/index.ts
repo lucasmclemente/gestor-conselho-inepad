@@ -9,7 +9,7 @@ import { signToken } from "../_shared/votetoken.ts"
 // Salva o caderno como material da reunião e, se notify=true, envia por e-mail aos internos.
 // Chamada pela secretária/Adm (JWT). Processamento via service role.
 
-const ALLOWED_ORIGINS = ['https://conselho.inepadconsulting.com', 'http://localhost:3000']
+const ALLOWED_ORIGINS = ['https://conselho.inepadconsulting.com', 'https://app.boardplan.com.br', 'http://localhost:3000']
 function cors(req: Request): Record<string, string> {
   const origin = req.headers.get('Origin') ?? ''
   const isVercel = /^https:\/\/gestor-conselho-in[a-z0-9-]*\.vercel\.app$/.test(origin)
@@ -199,7 +199,7 @@ serve(async (req) => {
       const html = (name: string, link: string) => `
         <div style="font-family:sans-serif;max-width:600px;margin:auto;border:1px solid #e2e8f0;border-radius:12px;overflow:hidden;">
           <div style="background:#0f172a;padding:28px;text-align:center;border-bottom:4px solid #b45309;">
-            <img src="https://conselho.inepadconsulting.com/boardplan-logo-email.png" alt="Boardplan" style="height:34px;" />
+            <img src="https://app.boardplan.com.br/boardplan-logo-email.png" alt="Boardplan" style="height:34px;" />
           </div>
           <div style="padding:36px;color:#1e293b;">
             <h2 style="color:#b45309;font-style:italic;margin:0 0 4px;">Caderno de Materiais</h2>

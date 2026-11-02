@@ -3,7 +3,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2"
 import { signToken } from "../_shared/votetoken.ts"
 
 const ALLOWED_ORIGINS = [
-  'https://conselho.inepadconsulting.com',
+  'https://conselho.inepadconsulting.com', 'https://app.boardplan.com.br',
   'http://localhost:3000',
 ]
 
@@ -31,7 +31,7 @@ function buildVoteEmail(name: string, title: string, voteUrl: string, attachment
   return `
     <div style="font-family:sans-serif;max-width:600px;margin:auto;border:1px solid #e2e8f0;border-radius:12px;overflow:hidden;">
       <div style="background:#0f172a;padding:24px 30px;text-align:center;">
-        <img src="https://conselho.inepadconsulting.com/boardplan-logo-email.png" alt="Boardplan" style="height:32px;margin-bottom:10px;" />
+        <img src="https://app.boardplan.com.br/boardplan-logo-email.png" alt="Boardplan" style="height:32px;margin-bottom:10px;" />
         <p style="margin:0;color:#f59e0b;font-size:10px;font-weight:bold;text-transform:uppercase;letter-spacing:2px;">Votação de Deliberação • Conselho</p>
       </div>
       <div style="padding:32px;">

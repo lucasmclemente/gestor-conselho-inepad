@@ -98,7 +98,7 @@ function buildEmail(name: string, actions: any[]): string {
 
       <!-- Cabeçalho -->
       <div style="background:#0f172a;padding:24px 30px;text-align:center;">
-        <img src="https://conselho.inepadconsulting.com/boardplan-logo-email.png"
+        <img src="https://app.boardplan.com.br/boardplan-logo-email.png"
              alt="Boardplan" style="height:32px;margin-bottom:10px;" />
         <p style="margin:0;color:#f59e0b;font-size:10px;font-weight:bold;text-transform:uppercase;
                   letter-spacing:2px;">Lembrete Semanal • Plano de Ação</p>
@@ -153,7 +153,7 @@ function buildEmail(name: string, actions: any[]): string {
 
         <!-- CTA -->
         <div style="text-align:center;margin-top:30px;">
-          <a href="https://conselho.inepadconsulting.com"
+          <a href="https://app.boardplan.com.br"
              style="background:#0f172a;color:#fff;padding:13px 28px;text-decoration:none;
                     border-radius:8px;font-weight:bold;font-size:13px;display:inline-block;">
             Acessar o Painel →

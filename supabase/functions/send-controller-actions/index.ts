@@ -6,7 +6,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2"
 // Disparado na publicação da ata, em paralelo ao e-mail dos conselheiros.
 
 const ALLOWED_ORIGINS = [
-  'https://conselho.inepadconsulting.com',
+  'https://conselho.inepadconsulting.com', 'https://app.boardplan.com.br',
   'http://localhost:3000',
 ]
 
@@ -98,7 +98,7 @@ serve(async (req) => {
           html: `
             <div style="font-family: sans-serif; max-width: 600px; margin: auto; border: 1px solid #e2e8f0; border-radius: 12px; overflow: hidden; background: #ffffff;">
               <div style="background: #0f172a; padding: 20px; text-align: center;">
-                <img src="https://conselho.inepadconsulting.com/boardplan-logo-email.png" style="height: 35px;" />
+                <img src="https://app.boardplan.com.br/boardplan-logo-email.png" style="height: 35px;" />
               </div>
               <div style="padding: 30px; color: #1e293b;">
                 <p style="font-size: 16px;">Olá, <strong>${escapeHtml(u.name || '')}</strong>,</p>

@@ -10,7 +10,7 @@ import { verifyToken } from "../_shared/votetoken.ts"
 // p/ mandar o arquivo direto ao Storage — aguenta arquivos grandes) e 'confirm'
 // (registra o material na pauta). Escrita sempre via service role (após autorizar).
 
-const ALLOWED_ORIGINS = ['https://conselho.inepadconsulting.com', 'http://localhost:3000']
+const ALLOWED_ORIGINS = ['https://conselho.inepadconsulting.com', 'https://app.boardplan.com.br', 'http://localhost:3000']
 function cors(req: Request): Record<string, string> {
   const origin = req.headers.get('Origin') ?? ''
   const isVercel = /^https:\/\/gestor-conselho-in[a-z0-9-]*\.vercel\.app$/.test(origin)

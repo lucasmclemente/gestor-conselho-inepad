@@ -33,7 +33,7 @@ async function watermarkPdf(bytes: Uint8Array, name: string, email: string): Pro
 //  • POST { meetingId, materialName } (JWT) → clique dentro do app (logado): registra e retorna ok.
 // Escrita sempre via service role. Token k='matopen'.
 
-const ALLOWED_ORIGINS = ['https://conselho.inepadconsulting.com', 'http://localhost:3000']
+const ALLOWED_ORIGINS = ['https://conselho.inepadconsulting.com', 'https://app.boardplan.com.br', 'http://localhost:3000']
 function cors(req: Request): Record<string, string> {
   const origin = req.headers.get('Origin') ?? ''
   const isVercel = /^https:\/\/gestor-conselho-in[a-z0-9-]*\.vercel\.app$/.test(origin)
@@ -51,7 +51,7 @@ function pathFromUrl(url: string): string | null {
 }
 
 function errorPage(msg: string): Response {
-  return new Response(`<!doctype html><meta charset="utf-8"><div style="font-family:sans-serif;max-width:480px;margin:80px auto;text-align:center;color:#334155"><h2 style="color:#b45309">Link indisponível</h2><p>${msg}</p><p><a href="https://conselho.inepadconsulting.com" style="color:#b45309">Acessar o portal</a></p></div>`, { status: 410, headers: { 'Content-Type': 'text/html; charset=utf-8' } })
+  return new Response(`<!doctype html><meta charset="utf-8"><div style="font-family:sans-serif;max-width:480px;margin:80px auto;text-align:center;color:#334155"><h2 style="color:#b45309">Link indisponível</h2><p>${msg}</p><p><a href="https://app.boardplan.com.br" style="color:#b45309">Acessar o portal</a></p></div>`, { status: 410, headers: { 'Content-Type': 'text/html; charset=utf-8' } })
 }
 
 serve(async (req) => {

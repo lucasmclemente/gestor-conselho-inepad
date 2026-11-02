@@ -2,7 +2,7 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2"
 import { signToken } from "../_shared/votetoken.ts"
 
-const ALLOWED_ORIGINS = ['https://conselho.inepadconsulting.com', 'http://localhost:3000']
+const ALLOWED_ORIGINS = ['https://conselho.inepadconsulting.com', 'https://app.boardplan.com.br', 'http://localhost:3000']
 function cors(req: Request): Record<string, string> {
   const origin = req.headers.get('Origin') ?? ''
   const preview = /^https:\/\/gestor-conselho-in[a-z0-9-]*\.vercel\.app$/.test(origin)
@@ -17,7 +17,7 @@ function buildEmail(name: string, meetingTitle: string, ataName: string, ataUrl:
   return `
     <div style="font-family:sans-serif;max-width:600px;margin:auto;border:1px solid #e2e8f0;border-radius:12px;overflow:hidden;">
       <div style="background:#0f172a;padding:24px 30px;text-align:center;">
-        <img src="https://conselho.inepadconsulting.com/boardplan-logo-email.png" alt="Boardplan" style="height:32px;margin-bottom:10px;" />
+        <img src="https://app.boardplan.com.br/boardplan-logo-email.png" alt="Boardplan" style="height:32px;margin-bottom:10px;" />
         <p style="margin:0;color:#f59e0b;font-size:10px;font-weight:bold;text-transform:uppercase;letter-spacing:2px;">Aprovação de Ata • Conselho</p>
       </div>
       <div style="padding:32px;">
