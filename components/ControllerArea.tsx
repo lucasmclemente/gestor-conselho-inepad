@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { supabase } from '../services/supabaseClient';
-import { Calendar, ChevronLeft, Paperclip, Plus, FileText, ListChecks, Clock, MapPin } from 'lucide-react';
+import { Calendar, ChevronLeft, Paperclip, Plus, FileText, ListChecks, Clock, MapPin, MessageSquare } from 'lucide-react';
 
 // Área restrita do perfil Controller.
 // view='pautas': só as reuniões onde ele é responsável de alguma pauta → vê APENAS as pautas dele,
@@ -11,6 +11,25 @@ export const ControllerArea: React.FC<{ currentUser: any; meetings: any[]; onMee
   const myName = currentUser?.name || '';
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [busyIdx, setBusyIdx] = useState<number | null>(null);
+  const [commentKey, setCommentKey] = useState<string | null>(null);
+  const [commentValue, setCommentValue] = useState('');
+  const [commentSaving, setCommentSaving] = useState(false);
+
+  // Registra uma observação (append-only) numa ação do plano — via add-action-comment (service role)
+  const addComment = async (meetingId: string, actionId: any) => {
+    const text = commentValue.trim();
+    if (!text) return;
+    setCommentSaving(true);
+    try {
+      const { data, error } = await supabase.functions.invoke('add-action-comment', { body: { meetingId, actionId, text } });
+      if (error || data?.error) throw new Error(error?.message || data?.error);
+      const c = (data as any).comment;
+      const m = meetings.find((mm: any) => mm.id === meetingId);
+      if (m) onMeetingUpdated({ ...m, acoes: (m.acoes || []).map((a: any) => String(a.id) === String(actionId) ? { ...a, comments: [...(a.comments || []), c] } : a) });
+      setCommentKey(null); setCommentValue('');
+    } catch (e: any) { alert('Não foi possível enviar a observação: ' + (e?.message || e)); }
+    finally { setCommentSaving(false); }
+  };
 
   const isMine = (p: any) => p && p.type !== 'intervalo' && p.resp === myName;
   const myMeetings = meetings.filter(m => (m.pautas || []).some(isMine));
@@ -52,7 +71,7 @@ export const ControllerArea: React.FC<{ currentUser: any; meetings: any[]; onMee
   if (view === 'acoes') {
     const myActions = meetings.flatMap((m: any) => (m.acoes || [])
       .filter((a: any) => { const resps = a.resps?.length > 0 ? a.resps : (a.resp ? [a.resp] : []); return resps.includes(myName); })
-      .map((a: any) => ({ ...a, meetingTitle: m.title })));
+      .map((a: any) => ({ ...a, meetingTitle: m.title, meetingId: m.id })));
     const order = (s: string) => s === 'Atrasada' ? 0 : s === 'Pendente' ? 1 : s === 'Em Andamento' ? 2 : 3;
     myActions.sort((a: any, b: any) => order(a.status) - order(b.status));
     const actStatus = (s: string) => s === 'Concluída' ? 'bg-emerald-100 text-emerald-700' : s === 'Atrasada' ? 'bg-red-100 text-red-700' : s === 'Em Andamento' ? 'bg-amber-100 text-amber-700' : 'bg-slate-100 text-slate-600';
@@ -80,6 +99,27 @@ export const ControllerArea: React.FC<{ currentUser: any; meetings: any[]; onMee
                   {a.date && <span className="flex items-center gap-1"><Clock size={11} /> prazo {fmtDate(a.date)}</span>}
                 </div>
                 {a.obs && <p className="text-xs text-slate-500 mt-2 bg-slate-50 rounded-lg p-2 border border-slate-100">{a.obs}</p>}
+
+                {/* Observações (append-only) */}
+                <div className="mt-2 pt-2 border-t border-slate-100">
+                  {(a.comments || []).map((c: any) => (
+                    <div key={c.id} className="mb-1.5">
+                      <p className="text-[9px] text-slate-400"><span className="font-bold text-slate-500">{c.author}</span> · {new Date(c.at).toLocaleDateString('pt-BR')}</p>
+                      <p className="text-[11px] text-slate-600 whitespace-pre-wrap leading-relaxed">{c.text}</p>
+                    </div>
+                  ))}
+                  {commentKey === String(a.id) ? (
+                    <div className="mt-1">
+                      <textarea autoFocus rows={2} value={commentValue} onChange={e => setCommentValue(e.target.value)} placeholder="Sua observação..." className="w-full text-[11px] text-slate-700 bg-slate-50 border border-slate-300 rounded p-2 outline-none resize-none" />
+                      <div className="flex items-center gap-2 mt-1">
+                        <button disabled={commentSaving || !commentValue.trim()} onClick={() => addComment(a.meetingId, a.id)} className="text-[9px] font-bold uppercase tracking-wider bg-amber-600 hover:bg-amber-700 text-white px-2.5 py-1 rounded disabled:opacity-40">{commentSaving ? 'Enviando...' : 'Enviar'}</button>
+                        <button onClick={() => { setCommentKey(null); setCommentValue(''); }} className="text-[9px] font-bold uppercase tracking-wider text-slate-400 hover:text-slate-600">Cancelar</button>
+                      </div>
+                    </div>
+                  ) : (
+                    <button onClick={() => { setCommentKey(String(a.id)); setCommentValue(''); }} className="text-[10px] text-slate-400 hover:text-amber-600 flex items-center gap-1"><MessageSquare size={11} /> adicionar observação</button>
+                  )}
+                </div>
               </div>
             ))}
           </div>

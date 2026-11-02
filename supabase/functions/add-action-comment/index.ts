@@ -28,7 +28,8 @@ serve(async (req) => {
   const role = (user.app_metadata as any)?.role;
   const homeClient = (user.app_metadata as any)?.client_id;
   const secClients = Array.isArray((user.app_metadata as any)?.secretary_clients) ? (user.app_metadata as any).secretary_clients : [];
-  if (!['Administrador', 'Secretário', 'Conselheiro', 'SuperAdmin'].includes(role)) return json({ error: 'Sem permissão.' }, 403);
+  // Qualquer membro interno de governança pode registrar observação (append-only, não altera status/nota/prazo).
+  if (!['Administrador', 'Secretário', 'Conselheiro', 'SuperAdmin', 'Controller', 'Diretor', 'Assistente'].includes(role)) return json({ error: 'Sem permissão.' }, 403);
 
   try {
     const { meetingId, actionId, text } = await req.json();
