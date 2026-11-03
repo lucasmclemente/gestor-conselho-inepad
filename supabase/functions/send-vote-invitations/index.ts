@@ -102,7 +102,7 @@ serve(async (req) => {
 
     // Voto direto por e-mail: link com token assinado para a página de votação DENTRO do app
     const SECRET = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
-    const origin = (typeof appOrigin === 'string' && /^https?:\/\//.test(appOrigin)) ? appOrigin.replace(/\/$/, '') : 'https://conselho.inepadconsulting.com'
+    const origin = (typeof appOrigin === 'string' && /^https?:\/\//.test(appOrigin)) ? appOrigin.replace(/\/$/, '') : 'https://app.boardplan.com.br'
     const exp = Date.now() + 7 * 24 * 60 * 60 * 1000 // token válido por 7 dias
 
     // O assunto do e-mail NÃO pode conter quebra de linha/tab (Resend rejeita com HTTP 422).

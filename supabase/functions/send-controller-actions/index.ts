@@ -53,7 +53,7 @@ serve(async (req) => {
   try {
     const { meetingTitle, meetingId, recipients, appOrigin } = await req.json()
     const RESEND_API_KEY = Deno.env.get('RESEND_API_KEY')
-    const origin = (typeof appOrigin === 'string' && /^https?:\/\//.test(appOrigin)) ? appOrigin.replace(/\/$/, '') : 'https://conselho.inepadconsulting.com'
+    const origin = (typeof appOrigin === 'string' && /^https?:\/\//.test(appOrigin)) ? appOrigin.replace(/\/$/, '') : 'https://app.boardplan.com.br'
     if (!meetingId) return json({ error: 'Parâmetro ausente (meetingId).' }, 400)
 
     const admin = createClient(

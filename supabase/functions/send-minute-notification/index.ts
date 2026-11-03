@@ -69,7 +69,7 @@ serve(async (req) => {
     const { meetingTitle, minuteName, minuteUrl, actions, pendingSummary, meetingId, ataId, appOrigin } = await req.json()
     const RESEND_API_KEY = Deno.env.get('RESEND_API_KEY')
     const SECRET = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
-    const origin = (typeof appOrigin === 'string' && /^https?:\/\//.test(appOrigin)) ? appOrigin.replace(/\/$/, '') : 'https://conselho.inepadconsulting.com'
+    const origin = (typeof appOrigin === 'string' && /^https?:\/\//.test(appOrigin)) ? appOrigin.replace(/\/$/, '') : 'https://app.boardplan.com.br'
     const exp = Date.now() + 7 * 24 * 60 * 60 * 1000
 
     // Blindagem: a ATA NUNCA vai para convidados externos (filtro no servidor). Também

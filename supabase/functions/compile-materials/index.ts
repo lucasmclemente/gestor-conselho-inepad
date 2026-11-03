@@ -193,7 +193,7 @@ serve(async (req) => {
     let emailed = 0
     if (notify) {
       const RESEND_API_KEY = Deno.env.get('RESEND_API_KEY')
-      const origin = (typeof appOrigin === 'string' && /^https?:\/\//.test(appOrigin)) ? appOrigin.replace(/\/$/, '') : 'https://conselho.inepadconsulting.com'
+      const origin = (typeof appOrigin === 'string' && /^https?:\/\//.test(appOrigin)) ? appOrigin.replace(/\/$/, '') : 'https://app.boardplan.com.br'
       const recipients = (meeting.participants || []).filter((p: any) => p?.email && !p.isExternal).map((p: any) => ({ email: p.email, name: p.name }))
       const trackExp = Date.now() + 30 * 24 * 60 * 60 * 1000
       const html = (name: string, link: string) => `

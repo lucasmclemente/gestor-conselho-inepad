@@ -102,7 +102,7 @@ serve(async (req) => {
 
     if (recipients.length === 0) return json({ success: true, sent: 0, skipped: [], ataId: ata.id, approvers: ata.approvers, note: 'Nenhum conselheiro pendente.' })
 
-    const origin = (typeof appOrigin === 'string' && /^https?:\/\//.test(appOrigin)) ? appOrigin.replace(/\/$/, '') : 'https://conselho.inepadconsulting.com'
+    const origin = (typeof appOrigin === 'string' && /^https?:\/\//.test(appOrigin)) ? appOrigin.replace(/\/$/, '') : 'https://app.boardplan.com.br'
     const exp = Date.now() + 7 * 24 * 60 * 60 * 1000
 
     let sent = 0

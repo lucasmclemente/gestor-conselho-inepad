@@ -56,7 +56,7 @@ serve(async (req) => {
     if (byResp.size === 0) return json({ error: 'Nenhuma pauta com responsável definido.' }, 400)
 
     const RESEND_API_KEY = Deno.env.get('RESEND_API_KEY')
-    const origin = (typeof appOrigin === 'string' && /^https?:\/\//.test(appOrigin)) ? appOrigin.replace(/\/$/, '') : 'https://conselho.inepadconsulting.com'
+    const origin = (typeof appOrigin === 'string' && /^https?:\/\//.test(appOrigin)) ? appOrigin.replace(/\/$/, '') : 'https://app.boardplan.com.br'
     const exp = Date.now() + 21 * 24 * 60 * 60 * 1000
     const cleanTitle = String(meeting.title || 'Reunião do Conselho').replace(/[\r\n\t]+/g, ' ').trim()
 
