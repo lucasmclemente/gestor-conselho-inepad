@@ -109,7 +109,7 @@ serve(async (req) => {
     // as respostas RSVP). Fallback para a conta de envio caso não seja informado.
     const organizer = organizerInput?.email
       ? { name: organizerInput.name || organizerInput.email, email: organizerInput.email }
-      : { name: 'Governança INEPAD', email: 'conselho@inepadconsulting.com' }
+      : { name: 'Governança Boardplan', email: 'lucas_clemente@inepadconsulting.com.br' }
 
     // Destinatários como participantes (RSVP) do calendário
     const attendees: ICSAttendee[] = recipients.map((email: string) => ({ email }))
