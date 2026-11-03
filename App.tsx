@@ -155,7 +155,6 @@ const App = () => {
   const [clientProfileForm, setClientProfileForm] = useState({ name: '', logo_url: '' });
   const [savingClientProfile, setSavingClientProfile] = useState(false);
   const [atasSearch, setAtasSearch] = useState('');
-  const [clicksignLoading, setClicksignLoading] = useState(false);
   const [downloadingAta, setDownloadingAta] = useState(false);
   const logoRef = useRef<HTMLInputElement>(null);
 
@@ -2243,23 +2242,6 @@ const App = () => {
     setSavingManagedClient(false);
   };
 
-  const toggleManagedClickSign = async () => {
-    if (!managedClientId) return;
-    const newVal = !managedClientProfile?.clicksign_enabled;
-    const payload = {
-      client_id: managedClientId,
-      name: managedClientForm.name || managedClientId,
-      logo_url: managedClientForm.logo_url || '',
-      clicksign_enabled: newVal
-    };
-    const { data, error } = await supabase.from('clients').upsert(payload, { onConflict: 'client_id' }).select().single();
-    if (!error && data) {
-      setManagedClientProfile(data);
-      setAllClientsList(prev => prev.map((c: any) => c.client_id === managedClientId ? data : c));
-      addLog('Configuração', `ClickSign ${newVal ? 'ativado' : 'desativado'} para ${managedClientId}`);
-    }
-  };
-
   const toggleManagedStrategy = async () => {
     if (!managedClientId) return;
     const newVal = !managedClientProfile?.strategy_enabled;
@@ -2327,7 +2309,7 @@ const App = () => {
     addLog('Cadastro', `Cliente criado: ${cid}`);
     setNewClientForm({ client_id: '', name: '' });
     setCreatingClient(false);
-    alert(`✅ Cliente "${data.name}" criado!\n\nAgora clique no cliente acima para adicionar a logo e o ClickSign, e cadastre o Administrador dele em "Cadastrar Novo Membro".`);
+    alert(`✅ Cliente "${data.name}" criado!\n\nAgora clique no cliente acima para adicionar a logo, e cadastre o Administrador dele em "Cadastrar Novo Membro".`);
     selectClientForManagement(cid);
   };
 
@@ -2984,45 +2966,6 @@ const App = () => {
     return { ...counts, list: filtered };
   }, [meetings, delibFilterResult, delibFilterOrigin]);
 
-  // Verifica status da assinatura no ClickSign e atualiza a ata manualmente
-  const handleCheckSignature = async (ataIndex: number) => {
-    if (!currentMeeting.id) return;
-    const ata = (currentMeeting.atas || [])[ataIndex];
-    if (!ata?.clicksign_key) return;
-    setClicksignLoading(true);
-    try {
-      const CLICKSIGN_BASE = 'https://sandbox.clicksign.com/api/v1'; // usa env na edge fn
-      const { data, error } = await supabase.functions.invoke('clicksign-check', {
-        body: { meetingId: currentMeeting.id, ataIndex, clicksign_key: ata.clicksign_key }
-      });
-      if (error) throw new Error(error.message);
-      if (data?.error) throw new Error(data.error);
-      if (data?.signed) {
-        // Atualiza o estado local imediatamente com os dados retornados pela edge function
-        if (data?.updatedAtas) {
-          const localUpdated = { ...currentMeeting, atas: data.updatedAtas };
-          setCurrentMeeting(localUpdated);
-          setMeetings(prev => prev.map(m => m.id === currentMeeting.id ? localUpdated : m));
-        }
-        // Re-fetch do banco para garantir consistência
-        const { data: saved } = await supabase.from('meetings').select('*').eq('id', currentMeeting.id).single();
-        if (saved) { setCurrentMeeting(saved); setMeetings(prev => prev.map(m => m.id === currentMeeting.id ? saved : m)); }
-        if (data?.pdfUpdated) {
-          alert('✅ Ata assinada! O documento foi atualizado com a versão assinada pelo ClickSign.');
-        } else {
-          alert('✅ Ata marcada como assinada. O PDF assinado não estava disponível ainda — tente novamente em alguns minutos.');
-        }
-      } else {
-        const pending = data?.pending != null ? `\n${data.pending} de ${data.total} assinatura(s) pendente(s).` : '';
-        alert(`Status atual: ${data?.status ?? 'aguardando assinaturas'}${pending}`);
-      }
-    } catch (err: any) {
-      alert('Erro ao verificar: ' + err.message);
-    } finally {
-      setClicksignLoading(false);
-    }
-  };
-
   // Reenvia o pedido de aprovação da ata aos conselheiros internos
   const [ataApprovalLoading, setAtaApprovalLoading] = useState(false);
   const [signerModal, setSignerModal] = useState<any>(null); // seleção de quem assina a ata
@@ -3162,49 +3105,6 @@ const App = () => {
       addLog('Aprovação de ata', `${close ? 'Aprovações encerradas' : 'Aprovações reabertas'} — ${ata.name}`);
     } catch (e: any) { alert('Erro ao atualizar as aprovações: ' + e.message); }
     finally { setAtaApprovalLoading(false); }
-  };
-
-  // Envia ata para assinatura digital via ClickSign
-  const handleSendToClickSign = async (ataIndex: number) => {
-    if (!currentMeeting.id) return;
-    const ata = (currentMeeting.atas || [])[ataIndex];
-    if (!ata) return;
-    const internalParticipants = (currentMeeting.participants || []).filter((p: any) => !p.isExternal && p.email);
-    if (internalParticipants.length === 0) { alert('Nenhum participante interno com e-mail cadastrado para assinar.'); return; }
-    if (!window.confirm(`Enviar "${ata.name}" para assinatura digital de ${internalParticipants.length} participante(s) via ClickSign?`)) return;
-    setClicksignLoading(true);
-    try {
-      // Gera URL fresca do arquivo
-      const match = ata.url.match(/\/(?:sign|public)\/meeting-files\/(.+?)(?:\?|$)/);
-      if (!match) throw new Error('Não foi possível localizar o arquivo da ata no servidor.');
-      const { data: freshUrl, error: urlErr } = await supabase.storage.from('meeting-files').createSignedUrl(match[1], 300);
-      if (urlErr || !freshUrl?.signedUrl) throw new Error('Erro ao gerar link do arquivo.');
-      const { data, error } = await supabase.functions.invoke('clicksign-flow', {
-        body: {
-          meetingId: currentMeeting.id,
-          ataUrl: freshUrl.signedUrl,
-          ataName: ata.name,
-          meetingTitle: currentMeeting.title,
-          meetingDate: currentMeeting.date,
-          participants: internalParticipants.map((p: any) => ({ name: p.name, email: p.email })),
-        }
-      });
-      if (error) throw new Error(error.message);
-      if (data?.error) throw new Error(data.error);
-      const updatedAtas = (currentMeeting.atas || []).map((a: any, i: number) =>
-        i === ataIndex ? { ...a, clicksign_key: data.clicksign_key, clicksign_status: 'pending', clicksign_sent_at: new Date().toISOString() } : a
-      );
-      const { data: saved, error: saveErr } = await supabase.from('meetings').update({ atas: updatedAtas }).eq('id', currentMeeting.id).select().single();
-      if (saveErr) throw saveErr;
-      setCurrentMeeting(saved);
-      setMeetings(prev => prev.map(m => m.id === currentMeeting.id ? saved : m));
-      addLog('Assinatura Digital', `Ata enviada ao ClickSign: ${ata.name}`);
-      alert('✅ Ata enviada para assinatura! Os participantes receberão um e-mail do ClickSign para assinar.');
-    } catch (err: any) {
-      alert('Erro ao enviar para assinatura: ' + err.message);
-    } finally {
-      setClicksignLoading(false);
-    }
   };
 
   // Remove uma ata da reunião e salva no banco
@@ -4750,20 +4650,6 @@ const App = () => {
         {isAdm && <button onClick={() => handleDeleteAta(currentMeeting.id, i, ata.name)} className="text-slate-200 hover:text-red-500 transition-colors" title="Excluir ata"><Trash2 size={16} /></button>}
       </div>
     </div>
-    {clientProfile?.clicksign_enabled && canEdit && !ata.clicksign_key && (
-      <div className="px-4 pb-4 border-t border-slate-50 pt-3">
-        <button disabled={clicksignLoading} onClick={() => handleSendToClickSign(i)} className="w-full flex items-center justify-center gap-2 py-2.5 bg-slate-900 hover:bg-amber-600 text-white rounded-lg text-[10px] font-bold uppercase tracking-widest transition-all shadow-sm disabled:opacity-50">
-          <PenLine size={13} /> {clicksignLoading ? 'Enviando...' : 'Enviar para Assinatura Digital'}
-        </button>
-      </div>
-    )}
-    {ata.clicksign_status === 'pending' && canEdit && (
-      <div className="px-4 pb-4 border-t border-slate-50 pt-3">
-        <button disabled={clicksignLoading} onClick={() => handleCheckSignature(i)} className="w-full flex items-center justify-center gap-2 py-2 border border-amber-200 text-amber-600 hover:bg-amber-50 rounded-lg text-[10px] font-bold uppercase tracking-widest transition-all disabled:opacity-50">
-          <ShieldCheck size={13} /> {clicksignLoading ? 'Verificando...' : 'Verificar Status da Assinatura'}
-        </button>
-      </div>
-    )}
     {canEdit && (() => {
       const approvers: string[] = ata.approvers || [];
       const approvals: any = ata.approvals || {};
@@ -6466,7 +6352,7 @@ const App = () => {
                         <button onClick={createClient} disabled={creatingClient} className="w-full sm:w-auto px-8 py-3 bg-slate-900 hover:bg-slate-800 text-amber-500 rounded-lg font-bold text-[10px] uppercase tracking-widest flex items-center justify-center gap-2 transition-all shadow-md disabled:opacity-50">
                           <Building2 size={16} /> {creatingClient ? 'Criando...' : 'Criar Cliente'}
                         </button>
-                        <p className="text-[10px] text-slate-400 font-normal">Após criar, clique no cliente acima para adicionar a logo e o ClickSign, e cadastre o Administrador dele em "Cadastrar Novo Membro".</p>
+                        <p className="text-[10px] text-slate-400 font-normal">Após criar, clique no cliente acima para adicionar a logo, e cadastre o Administrador dele em "Cadastrar Novo Membro".</p>
                       </div>
 
                       {/* Painel de edição do cliente selecionado */}
@@ -6518,25 +6404,6 @@ const App = () => {
                             {managedClientProfile?.strategy_enabled
                               ? <p className="text-[10px] text-emerald-600 font-bold not-italic flex items-center gap-1.5"><CheckCircle2 size={12} /> Add-on ativo — menus Estratégia e Indicadores visíveis para o cliente</p>
                               : <p className="text-[10px] text-slate-400 font-normal not-italic">Add-on inativo — o cliente não verá Estratégia nem Indicadores</p>}
-                          </div>
-
-                          {/* Add-on ClickSign */}
-                          <div className="border-t border-slate-100 pt-5 space-y-3">
-                            <h4 className="text-[10px] font-bold uppercase text-slate-400 tracking-widest flex items-center gap-2">
-                              <PenLine size={13} className="text-amber-600" /> Add-on: Assinatura Digital (ClickSign)
-                            </h4>
-                            <div className="flex items-center justify-between p-4 bg-slate-50 rounded-xl border border-slate-200">
-                              <div>
-                                <p className="text-sm font-bold text-slate-800 italic">ClickSign — {managedClientForm.name || managedClientId}</p>
-                                <p className="text-[10px] text-slate-400 font-normal not-italic mt-0.5">Habilita envio de atas para assinatura digital (cobrança adicional)</p>
-                              </div>
-                              <button onClick={toggleManagedClickSign} className={`relative inline-flex h-7 w-12 shrink-0 items-center rounded-full transition-colors duration-200 focus:outline-none ${managedClientProfile?.clicksign_enabled ? 'bg-amber-600' : 'bg-slate-200'}`}>
-                                <span className={`inline-block h-5 w-5 transform rounded-full bg-white shadow-md transition-transform duration-200 ${managedClientProfile?.clicksign_enabled ? 'translate-x-6' : 'translate-x-1'}`} />
-                              </button>
-                            </div>
-                            {managedClientProfile?.clicksign_enabled
-                              ? <p className="text-[10px] text-emerald-600 font-bold not-italic flex items-center gap-1.5"><CheckCircle2 size={12} /> Add-on ativo — botão de assinatura digital visível nas atas</p>
-                              : <p className="text-[10px] text-slate-400 font-normal not-italic">Add-on inativo — o cliente não verá a opção de assinatura digital</p>}
                           </div>
 
                           {/* Add-on CRM */}

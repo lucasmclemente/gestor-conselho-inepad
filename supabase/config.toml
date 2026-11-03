@@ -525,21 +525,6 @@ enabled = true
 verify_jwt = false
 entrypoint = "./functions/collect-readings/index.ts"
 
-[functions.clicksign-flow]
-enabled = true
-verify_jwt = true
-entrypoint = "./functions/clicksign-flow/index.ts"
-
-[functions.clicksign-webhook]
-enabled = true
-verify_jwt = false
-entrypoint = "./functions/clicksign-webhook/index.ts"
-
-[functions.clicksign-check]
-enabled = true
-verify_jwt = true
-entrypoint = "./functions/clicksign-check/index.ts"
-
 [functions.request-pauta-materials]
 enabled = true
 verify_jwt = true
