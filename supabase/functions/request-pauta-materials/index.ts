@@ -87,7 +87,7 @@ serve(async (req) => {
       if (RESEND_API_KEY) {
         const res = await fetch('https://api.resend.com/emails', {
           method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${RESEND_API_KEY}` },
-          body: JSON.stringify({ from: 'Governança INEPAD <conselho@inepadconsulting.com>', to: email, subject: `Materiais das suas pautas: ${cleanTitle.substring(0, 60)}`, html }),
+          body: JSON.stringify({ from: 'Governança Boardplan <governanca@boardplan.com.br>', to: email, subject: `Materiais das suas pautas: ${cleanTitle.substring(0, 60)}`, html }),
         })
         if (res.ok) sent++; else { failed.push(resp) }
       } else failed.push(resp)

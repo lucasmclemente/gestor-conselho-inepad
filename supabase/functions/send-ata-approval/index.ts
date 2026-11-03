@@ -115,7 +115,7 @@ serve(async (req) => {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${RESEND_API_KEY}` },
           body: JSON.stringify({
-            from: 'Governança INEPAD <conselho@inepadconsulting.com>',
+            from: 'Governança Boardplan <governanca@boardplan.com.br>',
             to: p.email,
             subject: `✍️ Aprovação da ata: ${String(meeting.title || 'Reunião do Conselho').replace(/[\r\n\t]+/g, ' ').trim().substring(0, 60)}`,
             html: buildEmail(p.name, meeting.title || 'Reunião do Conselho', ata.name || 'Ata da reunião', ata.url || '#', approveUrl),

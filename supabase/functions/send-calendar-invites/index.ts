@@ -151,7 +151,7 @@ serve(async (req) => {
         'Authorization': `Bearer ${RESEND_API_KEY}`,
       },
       body: JSON.stringify({
-        from: 'Governança INEPAD <conselho@inepadconsulting.com>',
+        from: 'Governança Boardplan <governanca@boardplan.com.br>',
         to: recipients,
         reply_to: organizer.email,
         subject: `Agenda de Reuniões do Conselho${year ? ` — ${year}` : ''}`,

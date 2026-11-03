@@ -182,7 +182,7 @@ serve(async (req) => {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${RESEND_API_KEY}` },
           body: JSON.stringify({
-            from: 'Governança INEPAD <conselho@inepadconsulting.com>',
+            from: 'Governança Boardplan <governanca@boardplan.com.br>',
             to: email,
             subject: `✍️ Assine a ata: ${meetingTitle}`,
             html: buildSignEmail(name, meetingTitle, meetingDate || '', url, deadlineStr),

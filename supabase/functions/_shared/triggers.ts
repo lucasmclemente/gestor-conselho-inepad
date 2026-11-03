@@ -9,7 +9,7 @@ export const escapeHtml = (s: any) =>
 const PRIORITY_BY_SEVERITY: Record<string, string> = { attention: 'Importante', critical: 'Urgente' }
 const OP_LABEL: Record<string, string> = { gt: '>', gte: '≥', lt: '<', lte: '≤', outside: 'fora de', inside: 'dentro de' }
 
-const RESEND_FROM = 'Governança INEPAD <conselho@inepadconsulting.com>'
+const RESEND_FROM = 'Governança Boardplan <governanca@boardplan.com.br>'
 
 export interface ReadingCtx {
   id: string

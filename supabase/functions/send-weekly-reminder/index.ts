@@ -202,7 +202,7 @@ serve(async (req) => {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${Deno.env.get('RESEND_API_KEY')}` },
       body: JSON.stringify({
-        from: 'Governança INEPAD <conselho@inepadconsulting.com>',
+        from: 'Governança Boardplan <governanca@boardplan.com.br>',
         to: reqBody.test_to,
         subject: '⚠️ Você tem 1 atividade atrasada — Plano de Ação Boardplan (TESTE)',
         html: buildEmail(reqBody.test_name || 'Teste', sample),
@@ -325,7 +325,7 @@ serve(async (req) => {
           'Authorization': `Bearer ${RESEND_API_KEY}`,
         },
         body: JSON.stringify({
-          from: 'Governança INEPAD <conselho@inepadconsulting.com>',
+          from: 'Governança Boardplan <governanca@boardplan.com.br>',
           to:   email,
           subject,
           html: buildEmail(name, actions),

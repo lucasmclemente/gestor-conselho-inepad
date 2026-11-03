@@ -218,7 +218,7 @@ serve(async (req) => {
           const link = `${URLV}/functions/v1/track-material?t=${encodeURIComponent(token)}`
           return fetch('https://api.resend.com/emails', {
             method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${RESEND_API_KEY}` },
-            body: JSON.stringify({ from: 'Governança INEPAD <conselho@inepadconsulting.com>', to: r.email, subject: `Caderno de Materiais: ${String(meeting.title || 'Reunião').replace(/[\r\n\t]+/g, ' ').trim()}`, html: html(r.name || '', link) }),
+            body: JSON.stringify({ from: 'Governança Boardplan <governanca@boardplan.com.br>', to: r.email, subject: `Caderno de Materiais: ${String(meeting.title || 'Reunião').replace(/[\r\n\t]+/g, ' ').trim()}`, html: html(r.name || '', link) }),
           })
         })
         const res = await Promise.allSettled(sends)

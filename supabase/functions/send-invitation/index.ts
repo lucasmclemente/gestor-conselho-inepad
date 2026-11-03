@@ -189,7 +189,7 @@ serve(async (req) => {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${RESEND_API_KEY}` },
         body: JSON.stringify({
-          from: 'Governança INEPAD <conselho@inepadconsulting.com>',
+          from: 'Governança Boardplan <governanca@boardplan.com.br>',
           to,
           reply_to: organizer.email,
           subject: `CONVOCAÇÃO OFICIAL: ${String(meetingData.title || 'Reunião do Conselho').replace(/[\r\n\t]+/g, ' ').trim()}`,

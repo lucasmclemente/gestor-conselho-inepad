@@ -113,7 +113,7 @@ serve(async (req) => {
       return fetch('https://api.resend.com/emails', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${RESEND_API_KEY}` },
-        body: JSON.stringify({ from: 'Governança INEPAD <conselho@inepadconsulting.com>', to, reply_to: organizer.email, subject, html: htmlFor(matsHtml) }),
+        body: JSON.stringify({ from: 'Governança Boardplan <governanca@boardplan.com.br>', to, reply_to: organizer.email, subject, html: htmlFor(matsHtml) }),
       })
     })
     const results = await Promise.allSettled(sends)

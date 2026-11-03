@@ -139,7 +139,7 @@ serve(async (req) => {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${RESEND_API_KEY}` },
           body: JSON.stringify({
-            from: 'Governança INEPAD <conselho@inepadconsulting.com>',
+            from: 'Governança Boardplan <governanca@boardplan.com.br>',
             to: email,
             subject: `🗳️ Sua votação: ${cleanTitle.substring(0, 60)}`,
             html: buildVoteEmail(name, cleanTitle, voteUrl, freshAtts),

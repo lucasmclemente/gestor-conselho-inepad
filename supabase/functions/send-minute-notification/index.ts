@@ -154,7 +154,7 @@ serve(async (req) => {
           'Authorization': `Bearer ${RESEND_API_KEY}`,
         },
         body: JSON.stringify({
-          from: 'Governança INEPAD <conselho@inepadconsulting.com>',
+          from: 'Governança Boardplan <governanca@boardplan.com.br>',
           to: user.email,
           subject: (resolvedAtaId != null ? `✍️ Aprove a ata: ${meetingTitle}` : `ATA PUBLICADA E PENDÊNCIAS: ${meetingTitle}`).replace(/[\r\n\t]+/g, ' ').trim(),
           html: `
