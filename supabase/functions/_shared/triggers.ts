@@ -10,8 +10,9 @@ const PRIORITY_BY_SEVERITY: Record<string, string> = { attention: 'Importante', 
 const OP_LABEL: Record<string, string> = { gt: '>', gte: '≥', lt: '<', lte: '≤', outside: 'fora de', inside: 'dentro de' }
 
 const RESEND_FROM = 'Governança Boardplan <governanca@boardplan.com.br>'
-// governanca@boardplan.com.br é só-envio; respostas aos alertas vão para uma caixa real.
-const RESEND_REPLY_TO = 'lucas_clemente@inepadconsulting.com.br'
+// governanca@boardplan.com.br é só-envio. Respostas voltam para os próprios
+// destinatários do cliente (responsável/administradores) — nunca para a INEPAD,
+// preservando a confidencialidade multi-tenant.
 
 export interface ReadingCtx {
   id: string
@@ -193,7 +194,7 @@ export async function sendAlertEmail(to: string[], p: { indicatorName: string; t
   await fetch('https://api.resend.com/emails', {
     method: 'POST',
     headers: { 'Authorization': `Bearer ${RESEND_API_KEY}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ from: RESEND_FROM, to, reply_to: RESEND_REPLY_TO, subject: `[Boardplan] Gatilho disparado: ${p.indicatorName}`, html }),
+    body: JSON.stringify({ from: RESEND_FROM, to, reply_to: to, subject: `[Boardplan] Gatilho disparado: ${p.indicatorName}`, html }),
   })
 }
 
@@ -222,6 +223,6 @@ export async function sendDigestEmail(to: string[], clientName: string, alerts: 
   await fetch('https://api.resend.com/emails', {
     method: 'POST',
     headers: { 'Authorization': `Bearer ${RESEND_API_KEY}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ from: RESEND_FROM, to, reply_to: RESEND_REPLY_TO, subject: `[Boardplan] Indicadores em alerta — ${clientName} (${alerts.length})`, html }),
+    body: JSON.stringify({ from: RESEND_FROM, to, reply_to: to, subject: `[Boardplan] Indicadores em alerta — ${clientName} (${alerts.length})`, html }),
   })
 }

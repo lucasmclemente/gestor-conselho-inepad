@@ -49,7 +49,7 @@ serve(async (req) => {
 
     const organizer = organizerInput?.email
       ? { name: organizerInput.name || organizerInput.email, email: organizerInput.email }
-      : { name: 'Governança Boardplan', email: 'lucas_clemente@inepadconsulting.com.br' }
+      : { name: 'Boardplan (não responder)', email: 'nao-responda@boardplan.com.br' }
 
     const materiais = Array.isArray(meetingData?.materiais) ? meetingData.materiais : []
     const URLV = Deno.env.get('SUPABASE_URL') ?? ''

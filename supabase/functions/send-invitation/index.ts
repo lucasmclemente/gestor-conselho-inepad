@@ -94,7 +94,7 @@ serve(async (req) => {
     // RSVP). Fallback para a conta de envio caso não seja informado.
     const organizer = organizerInput?.email
       ? { name: organizerInput.name || organizerInput.email, email: organizerInput.email }
-      : { name: 'Governança Boardplan', email: 'lucas_clemente@inepadconsulting.com.br' }
+      : { name: 'Boardplan (não responder)', email: 'nao-responda@boardplan.com.br' }
 
     // Renderiza uma lista de pautas (Ordem do Dia) — usada tanto para a agenda completa
     // (participantes internos) quanto para o recorte por responsável (participantes externos)
