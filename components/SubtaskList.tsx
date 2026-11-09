@@ -76,22 +76,22 @@ export const SubtaskList: React.FC<{
                   <span className={`flex-1 ${tiny} min-w-0 truncate ${s.status === 'Concluída' ? 'line-through text-slate-400' : 'text-slate-700'}`}>{s.title}</span>
                   {s.resp && <span className="text-[9px] text-slate-400 shrink-0 hidden sm:inline">{s.resp}</span>}
                   {s.date && <span className="text-[9px] text-slate-400 shrink-0 hidden sm:inline">{new Date(s.date + 'T00:00:00').toLocaleDateString('pt-BR')}</span>}
-                  {canEditThis && (
-                    <label className="text-slate-300 hover:text-amber-600 shrink-0 cursor-pointer" title="Anexar contexto">
-                      <Paperclip size={ic} />
-                      <input type="file" className="hidden" disabled={busy} onChange={e => { const f = e.target.files?.[0]; if (f) uploadAttachment(s.id, f); (e.target as HTMLInputElement).value = ''; }} />
-                    </label>
-                  )}
                   {canEditParent && <button onClick={() => run({ op: 'remove', subtaskId: s.id })} disabled={busy} className="text-slate-300 hover:text-red-500 shrink-0" title="Remover subtarefa"><X size={ic} /></button>}
                 </div>
-                {mats.length > 0 && (
-                  <div className="flex flex-wrap gap-1 mt-1 pl-1">
+                {(canEditThis || mats.length > 0) && (
+                  <div className="flex flex-wrap items-center gap-1 mt-1 pl-1">
                     {mats.map((mat: any) => (
                       <span key={mat.id} className="inline-flex items-center gap-1 bg-slate-50 border border-slate-200 rounded px-1.5 py-0.5">
-                        <button onClick={() => openAttachment(s.id, mat.path)} className="flex items-center gap-1 text-[9px] text-slate-600 hover:text-amber-600 max-w-[150px] truncate" title={mat.name}><FileText size={10} className="shrink-0 text-amber-500" />{mat.name}</button>
+                        <button onClick={() => openAttachment(s.id, mat.path)} className="flex items-center gap-1 text-[9px] text-slate-600 hover:text-amber-600 max-w-[150px] truncate" title={`Abrir ${mat.name}`}><FileText size={10} className="shrink-0 text-amber-500" />{mat.name}</button>
                         {canEditThis && <button onClick={() => run({ op: 'detach', subtaskId: s.id, attId: mat.id })} disabled={busy} className="text-slate-300 hover:text-red-500 shrink-0" title="Remover anexo"><X size={9} /></button>}
                       </span>
                     ))}
+                    {canEditThis && (
+                      <label className={`inline-flex items-center gap-1 ${busy ? 'opacity-50 pointer-events-none' : 'cursor-pointer'} text-[9px] font-bold uppercase tracking-wider text-slate-400 hover:text-amber-600 border border-dashed border-slate-300 hover:border-amber-400 rounded px-1.5 py-0.5 transition-colors`} title="Anexar arquivo de contexto">
+                        <Paperclip size={10} /> {busy ? 'Enviando…' : 'Anexar'}
+                        <input type="file" className="hidden" disabled={busy} onChange={e => { const f = e.target.files?.[0]; if (f) uploadAttachment(s.id, f); (e.target as HTMLInputElement).value = ''; }} />
+                      </label>
+                    )}
                   </div>
                 )}
               </div>
