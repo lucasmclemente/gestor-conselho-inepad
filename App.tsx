@@ -193,6 +193,13 @@ const App = () => {
   const [secModalUser, setSecModalUser] = useState<any>(null);
   const [secModalSelected, setSecModalSelected] = useState<string[]>([]);
   const [secModalSaving, setSecModalSaving] = useState(false);
+  // Comitês (add-on): sub-espaços que assessoram o Conselho, isolados por RLS (migração 20260769)
+  const [comitesList, setComitesList] = useState<any[]>([]);       // comitês ativos do cliente
+  const [activeComiteId, setActiveComiteId] = useState<string | null>(null); // null = espaço Conselho
+  const [comiteSel, setComiteSel] = useState<any>(null);           // comitê aberto na tela de gestão
+  const [comiteMembros, setComiteMembros] = useState<any[]>([]);   // membros do comitê aberto
+  const [newComiteNome, setNewComiteNome] = useState('');
+  const [comiteSaving, setComiteSaving] = useState(false);
 
   // Indicadores & Gatilhos (semáforos)
   const [indicatorStatuses, setIndicatorStatuses] = useState<any[]>([]);
@@ -281,12 +288,19 @@ const App = () => {
   const superAll = isSuper && superViewAll;
   // Troca de cliente pelo seletor do topo (secretário multi-empresa ou SuperAdmin)
   const handleClientSwitch = (val: string) => {
-    if (isSuper && val === SUPER_ALL) { setSuperViewAll(true); return; }
+    if (isSuper && val === SUPER_ALL) { setSuperViewAll(true); setActiveComiteId(null); return; }
     if (isSuper) setSuperViewAll(false);
+    setActiveComiteId(null); // ao trocar de empresa, volta ao espaço Conselho
     setActiveClientId(val);
   };
   // Add-on "Planejamento Estratégico": libera os menus Estratégia + Indicadores (por cliente)
   const strategyEnabled = !!clientProfile?.strategy_enabled;
+  // Add-on "Comitês": libera o seletor de espaço e a gestão de comitês (por cliente)
+  const committeesEnabled = !!clientProfile?.committees_enabled;
+  // Supervisor de comitês no front (espelha can_supervise_comites() do banco: Admin/Super ou Secretário)
+  const canSuperviseComites = isAdm || isSec;
+  // Nome do espaço ativo (Conselho ou o comitê selecionado) — usado no seletor e no título
+  const activeComiteNome = activeComiteId ? (comitesList.find((c: any) => c.id === activeComiteId)?.nome || 'Comitê') : null;
   const SCENARIOS = ['Otimista', 'Base', 'Conservador', 'Trágico'];
   const FREQ_OPTS: [string, string][] = [['off', 'Desligada'], ['daily', 'Diária'], ['weekly', 'Semanal'], ['monthly', 'Mensal']];
   // Membros do cliente atual (SuperAdmin enxerga todos; aqui escopamos ao próprio cliente)
@@ -597,7 +611,7 @@ const App = () => {
       }
       if (isControllerLike) setActiveMenu('minhas-pautas');
       if (isCertifier) setActiveMenu('certificacao');
-      const memberCols = 'id, name, email, role, client_id, created_at, secretary_clients';
+      const memberCols = 'id, name, email, role, client_id, created_at, secretary_clients, conselho_member';
       let mQuery = supabase.from('meetings').select('*');
       let lQuery = supabase.from('audit_logs').select('*');
       // Filtra por cliente exceto quando o SuperAdmin está na visão "Consolidado Geral"
@@ -623,10 +637,19 @@ const App = () => {
         mQuery.order('created_at', { ascending: false }),
         usersPromise,
         lQuery.order('log_date', { ascending: false }).limit(50),
-        supabase.from('clients').select('*').eq('client_id', cid).maybeSingle()
+        supabase.from('clients').select('*').eq('client_id', cid).maybeSingle(),
+        // Comitês do cliente (add-on). RLS devolve só os que o usuário pode ver; vazio = transparente.
+        supabase.from('comites').select('*').eq('client_id', cid).eq('ativo', true).order('nome')
       ] as const;
-      const [mRes, uRes, lRes, cRes] = await Promise.all(baseQueries);
+      const [mRes, uRes, lRes, cRes, comRes] = await Promise.all(baseQueries);
       if (mRes.data) setMeetings(mRes.data);
+      const comData = (comRes as any)?.data || [];
+      setComitesList(comData);
+      // Membro só-de-comitê (não supervisor): se não enxerga nenhuma reunião do Conselho
+      // mas participa de comitês, abre direto no espaço do comitê (senão cairia em lista vazia).
+      if (!canSuperviseComites && comData.length > 0 && !(mRes.data || []).some((m: any) => !m.comite_id)) {
+        setActiveComiteId(comData[0].id);
+      }
       if (uRes.data) setUsers(uRes.data);
       if (lRes.data) setAuditLogs(lRes.data);
       if (cRes.data) {
@@ -1368,6 +1391,63 @@ const App = () => {
     await supabase.from('maturity_criteria').update({ position: pA }).eq('id', crit.id);
     await supabase.from('maturity_criteria').update({ position: pB }).eq('id', other.id);
     await loadRubric(); await reloadActiveCriteria();
+  };
+
+  // ── Comitês (add-on) — gestão de sub-espaços e seus membros ──────────────
+  // Cria um comitê novo para o cliente ativo (supervisor: Admin/Super/Secretário)
+  const createComite = async () => {
+    if (!canSuperviseComites) return;
+    const nome = newComiteNome.trim();
+    if (!nome) return;
+    const cid = activeClientId || currentUser.client_id;
+    setComiteSaving(true);
+    const { data, error } = await supabase.from('comites').insert([{ client_id: cid, nome }]).select().single();
+    setComiteSaving(false);
+    if (error) { alert('Erro ao criar comitê: ' + error.message); return; }
+    setComitesList(prev => [...prev, data].sort((a: any, b: any) => (a.nome || '').localeCompare(b.nome || '')));
+    setNewComiteNome('');
+    addLog('Comitês', `Comitê criado: ${nome}`);
+  };
+  // Abre um comitê na tela de gestão e carrega seus membros
+  const openComiteMgmt = async (c: any) => {
+    setComiteSel(c);
+    const { data } = await supabase.from('comite_membros').select('*').eq('comite_id', c.id);
+    setComiteMembros(data || []);
+  };
+  // Adiciona um membro do cliente ao comitê aberto
+  const addComiteMembro = async (m: any) => {
+    if (!comiteSel) return;
+    const row = { comite_id: comiteSel.id, member_id: m.id, papel: m.role };
+    const { error } = await supabase.from('comite_membros').insert([row]);
+    if (error) { alert('Erro ao adicionar: ' + error.message); return; }
+    setComiteMembros(prev => [...prev, row]);
+    addLog('Comitês', `${m.name} adicionado ao comitê ${comiteSel.nome}`);
+  };
+  // Remove um membro do comitê aberto
+  const removeComiteMembro = async (memberId: string) => {
+    if (!comiteSel) return;
+    const { error } = await supabase.from('comite_membros').delete().eq('comite_id', comiteSel.id).eq('member_id', memberId);
+    if (error) { alert('Erro ao remover: ' + error.message); return; }
+    setComiteMembros(prev => prev.filter((x: any) => x.member_id !== memberId));
+  };
+  // Define se a pessoa acessa o espaço Conselho (false = só comitê). Só Administrador.
+  const setMemberConselho = async (m: any, val: boolean) => {
+    if (!isAdm) { alert('Apenas um Administrador pode alterar o acesso ao Conselho.'); return; }
+    const { error } = await supabase.from('members').update({ conselho_member: val }).eq('id', m.id);
+    if (error) { alert('Erro: ' + error.message); return; }
+    setUsers(prev => prev.map((u: any) => u.id === m.id ? { ...u, conselho_member: val } : u));
+    addLog('Comitês', `${m.name}: acesso ao Conselho ${val ? 'liberado' : 'restrito (só comitê)'}`);
+  };
+  // Desativa um comitê (soft): as reuniões ficam preservadas; some do seletor
+  const deactivateComite = async (c: any) => {
+    if (!canSuperviseComites) return;
+    if (!window.confirm(`Desativar o comitê "${c.nome}"?\n\nAs reuniões dele são preservadas, mas o comitê deixa de aparecer no seletor de espaço. Reativação é via banco.`)) return;
+    const { error } = await supabase.from('comites').update({ ativo: false }).eq('id', c.id);
+    if (error) { alert('Erro: ' + error.message); return; }
+    setComitesList(prev => prev.filter((x: any) => x.id !== c.id));
+    if (activeComiteId === c.id) setActiveComiteId(null);
+    if (comiteSel?.id === c.id) setComiteSel(null);
+    addLog('Comitês', `Comitê desativado: ${c.nome}`);
   };
 
   const saveMeeting = async () => {
@@ -2290,6 +2370,23 @@ const App = () => {
       setManagedClientProfile(data);
       setAllClientsList(prev => prev.map((c: any) => c.client_id === managedClientId ? data : c));
       addLog('Configuração', `Perguntas ao Vivo ${newVal ? 'ativado' : 'desativado'} para ${managedClientId}`);
+    }
+  };
+
+  const toggleManagedCommittees = async () => {
+    if (!managedClientId) return;
+    const newVal = !managedClientProfile?.committees_enabled;
+    const payload = {
+      client_id: managedClientId,
+      name: managedClientForm.name || managedClientId,
+      logo_url: managedClientForm.logo_url || '',
+      committees_enabled: newVal
+    };
+    const { data, error } = await supabase.from('clients').upsert(payload, { onConflict: 'client_id' }).select().single();
+    if (!error && data) {
+      setManagedClientProfile(data);
+      setAllClientsList(prev => prev.map((c: any) => c.client_id === managedClientId ? data : c));
+      addLog('Configuração', `Comitês ${newVal ? 'ativado' : 'desativado'} para ${managedClientId}`);
     }
   };
 
@@ -3404,11 +3501,12 @@ const App = () => {
             { id: 'repositorio-atas', icon: <Archive size={18} />, label: 'Repositório de Atas' },
             { id: 'perguntas-vivo', icon: <MessageSquare size={18} />, label: 'Perguntas ao Vivo', qa: true, staff: true },
             { id: 'crm', icon: <Filter size={18} />, label: 'CRM', crm: true },
+            { id: 'comites', icon: <Users size={18} />, label: 'Comitês', comites: true },
             { id: 'usuarios', icon: <UserCog size={18} />, label: isSuper ? 'Contas de Clientes' : 'Membros', adm: true },
             { id: 'rubrica', icon: <Settings size={18} />, label: 'Rubrica', super: true },
             { id: 'auditoria', icon: <History size={18} />, label: 'Auditoria', adm: true }
           ]).map((item: any) => (
-            (!item.adm || isAdm) && (!item.addon || strategyEnabled) && (!item.super || isSuper) && (!item.crm || clientProfile?.crm_enabled) && (!item.qa || clientProfile?.qa_enabled) && (!item.staff || canEdit) && (
+            (!item.adm || isAdm) && (!item.addon || strategyEnabled) && (!item.super || isSuper) && (!item.crm || clientProfile?.crm_enabled) && (!item.qa || clientProfile?.qa_enabled) && (!item.comites || (committeesEnabled && canSuperviseComites)) && (!item.staff || canEdit) && (
               <button key={item.id} onClick={() => { setActiveMenu(item.id); if (item.action) item.action(); setIsMobileMenuOpen(false); }} className={`w-full flex items-center gap-3 rounded-lg transition-all ${activeMenu === item.id ? 'bg-amber-600 text-white shadow-sm' : 'hover:bg-slate-700 hover:text-white'} ${isSidebarCollapsed ? 'justify-center p-3' : 'px-4 py-3'}`}>
                 <span className="shrink-0">{item.icon}</span>
                 {!isSidebarCollapsed && <span className="truncate">{item.label}</span>}
@@ -3536,6 +3634,15 @@ const App = () => {
                 <Building2 size={14} className="text-amber-600 shrink-0" />
                 <select value={isSuper && superViewAll ? SUPER_ALL : (activeClientId || '')} onChange={e => handleClientSwitch(e.target.value)} className="text-[10px] font-bold uppercase tracking-widest bg-transparent outline-none cursor-pointer text-amber-700 max-w-[180px]">
                   {clientSwitchList.map((c: any) => <option key={c.client_id} value={c.client_id}>{c.name || c.client_id}</option>)}
+                </select>
+              </div>
+            )}
+            {committeesEnabled && !superAll && comitesList.length > 0 && (
+              <div className="flex items-center gap-2 bg-slate-100 border border-slate-200 rounded-lg px-3 py-1.5" title="Espaço de trabalho: Conselho ou um comitê">
+                <Users size={14} className="text-slate-500 shrink-0" />
+                <select value={activeComiteId || ''} onChange={e => setActiveComiteId(e.target.value || null)} className="text-[10px] font-bold uppercase tracking-widest bg-transparent outline-none cursor-pointer text-slate-700 max-w-[200px]">
+                  <option value="">Conselho</option>
+                  {comitesList.map((c: any) => <option key={c.id} value={c.id}>{c.nome}</option>)}
                 </select>
               </div>
             )}
@@ -3859,12 +3966,92 @@ const App = () => {
                 </div>
               )}
 
+              {activeMenu === 'comites' && committeesEnabled && canSuperviseComites && (
+                <div className="space-y-6 animate-in fade-in">
+                  <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
+                    <h1 className="text-2xl font-bold text-slate-800 tracking-tight italic">Comitês</h1>
+                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1">Sub-espaços que assessoram o Conselho — reuniões, atas e plano de ação próprios, isolados</p>
+                  </div>
+
+                  <div className="grid grid-cols-1 lg:grid-cols-5 gap-6">
+                    {/* Coluna: lista de comitês + criar */}
+                    <div className="lg:col-span-2 space-y-4">
+                      <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm space-y-3">
+                        <h2 className="text-xs font-bold uppercase tracking-widest text-slate-500">Novo comitê</h2>
+                        <div className="flex gap-2">
+                          <input value={newComiteNome} onChange={e => setNewComiteNome(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') createComite(); }} placeholder="Ex.: Comitê de Auditoria" className="flex-1 border border-slate-200 rounded-lg px-3 py-2 text-sm outline-none focus:border-amber-500" />
+                          <button onClick={createComite} disabled={comiteSaving || !newComiteNome.trim()} className="bg-amber-600 hover:bg-amber-700 disabled:opacity-40 text-white px-4 py-2 rounded-lg font-bold text-xs uppercase tracking-widest flex items-center gap-1 shrink-0"><Plus size={14} /> Criar</button>
+                        </div>
+                      </div>
+                      <div className="bg-white rounded-xl border border-slate-200 shadow-sm divide-y divide-slate-100">
+                        {comitesList.length === 0
+                          ? <div className="p-8 text-center text-sm text-slate-400 italic">Nenhum comitê criado ainda.</div>
+                          : comitesList.map((c: any) => (
+                            <button key={c.id} onClick={() => openComiteMgmt(c)} className={`w-full flex items-center justify-between gap-2 px-4 py-3 text-left transition-all ${comiteSel?.id === c.id ? 'bg-amber-50' : 'hover:bg-slate-50'}`}>
+                              <span className="flex items-center gap-2 min-w-0"><Users size={15} className={comiteSel?.id === c.id ? 'text-amber-600' : 'text-slate-400'} /><span className="font-bold text-sm text-slate-700 truncate italic">{c.nome}</span></span>
+                              <ChevronRight size={16} className="text-slate-300 shrink-0" />
+                            </button>
+                          ))}
+                      </div>
+                    </div>
+
+                    {/* Coluna: membros do comitê selecionado */}
+                    <div className="lg:col-span-3">
+                      {!comiteSel ? (
+                        <div className="bg-white p-12 rounded-xl border border-dashed border-slate-300 shadow-sm text-center text-sm text-slate-400 italic h-full flex items-center justify-center">Selecione um comitê para gerir os membros.</div>
+                      ) : (
+                        <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+                          <div className="bg-slate-900 px-6 py-4 border-b-4 border-amber-600 flex items-center justify-between gap-3">
+                            <div className="min-w-0">
+                              <p className="text-amber-500 text-[10px] font-bold uppercase tracking-[2px]">Comitê</p>
+                              <h3 className="text-white text-lg font-bold italic truncate">{comiteSel.nome}</h3>
+                            </div>
+                            <button onClick={() => deactivateComite(comiteSel)} className="text-[10px] font-bold uppercase tracking-widest text-red-300 hover:text-red-200 flex items-center gap-1 shrink-0"><Trash2 size={13} /> Desativar</button>
+                          </div>
+                          <div className="p-5 space-y-5">
+                            <p className="text-[11px] text-slate-500">Adicione os membros do comitê. Quem for marcado <b>"só comitê"</b> deixa de ver o conteúdo do Conselho — isso é definido por um Administrador.</p>
+                            {clientMembers.filter((m: any) => m.email).length === 0
+                              ? <div className="text-center text-sm text-slate-400 italic py-6">Nenhum membro cadastrado neste cliente.</div>
+                              : (
+                                <div className="space-y-1.5">
+                                  {clientMembers.filter((m: any) => m.email).map((m: any) => {
+                                    const inComite = comiteMembros.some((x: any) => x.member_id === m.id);
+                                    const soComite = m.conselho_member === false;
+                                    return (
+                                      <div key={m.id} className={`flex items-center justify-between gap-3 p-3 rounded-lg border ${inComite ? 'border-amber-200 bg-amber-50/50' : 'border-slate-200'}`}>
+                                        <div className="min-w-0">
+                                          <p className="font-bold text-sm text-slate-700 truncate">{m.name} {soComite && <span className="ml-1 text-[8px] font-bold uppercase tracking-widest bg-slate-800 text-amber-400 px-1.5 py-0.5 rounded-full align-middle">só comitê</span>}</p>
+                                          <p className="text-[10px] text-slate-400 truncate">{m.email} · {m.role}</p>
+                                        </div>
+                                        <div className="flex items-center gap-2 shrink-0">
+                                          {inComite && (
+                                            <button onClick={() => setMemberConselho(m, soComite)} disabled={!isAdm} title={isAdm ? 'Alternar acesso ao Conselho' : 'Só um Administrador altera isto'} className={`text-[9px] font-bold uppercase tracking-widest px-2 py-1.5 rounded-lg border transition-all disabled:opacity-40 ${soComite ? 'border-slate-300 text-slate-500 hover:bg-slate-50' : 'border-emerald-300 text-emerald-700 hover:bg-emerald-50'}`}>
+                                              {soComite ? 'Liberar Conselho' : 'Restringir a comitê'}
+                                            </button>
+                                          )}
+                                          {inComite
+                                            ? <button onClick={() => removeComiteMembro(m.id)} className="text-[9px] font-bold uppercase tracking-widest px-3 py-1.5 rounded-lg border border-red-200 text-red-600 hover:bg-red-50 flex items-center gap-1"><UserMinus size={12} /> Remover</button>
+                                            : <button onClick={() => addComiteMembro(m)} className="text-[9px] font-bold uppercase tracking-widest px-3 py-1.5 rounded-lg bg-slate-900 text-amber-500 hover:bg-slate-800 flex items-center gap-1"><Plus size={12} /> Adicionar</button>}
+                                        </div>
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+                              )}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              )}
+
               {activeMenu === 'reunioes' && (
                 view === 'list' ? (
                   <div className="space-y-6 animate-in fade-in">
-                    <div className="flex justify-between items-center gap-4 bg-white p-4 rounded-xl border border-slate-200 shadow-sm"><h1 className="text-2xl font-bold text-slate-800 tracking-tight italic">Conselho Deliberativo</h1>{canEdit && (<div className="flex items-center gap-3 flex-wrap">{strategyEnabled && <button onClick={generateRAE} className="border border-amber-300 text-amber-700 hover:bg-amber-50 px-4 py-3 rounded-lg font-bold text-xs uppercase flex items-center justify-center gap-2 transition-all tracking-widest" title="Reunião de Análise Estratégica com pauta automática"><Compass size={15} /> Gerar RAE</button>}<button onClick={openScheduleModal} className="bg-slate-900 hover:bg-slate-800 text-amber-500 px-5 py-3 rounded-lg font-bold text-xs uppercase flex items-center justify-center gap-2 transition-all shadow-md tracking-widest"><CalendarPlus size={16} /> Programar Ano</button><button onClick={() => { setCurrentMeeting(blankMeeting); setView('details'); setTab('info'); }} className="bg-amber-600 hover:bg-amber-700 text-white px-6 py-3 rounded-lg font-bold text-xs uppercase flex items-center justify-center gap-2 transition-all shadow-md tracking-widest">+ Nova Reunião</button></div>)}</div>
+                    <div className="flex justify-between items-center gap-4 bg-white p-4 rounded-xl border border-slate-200 shadow-sm"><div className="min-w-0"><h1 className="text-2xl font-bold text-slate-800 tracking-tight italic truncate">{activeComiteNome || 'Conselho Deliberativo'}</h1>{activeComiteNome && <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-0.5 flex items-center gap-1"><Users size={11} /> Comitê · reuniões isoladas do Conselho</p>}</div>{canEdit && (<div className="flex items-center gap-3 flex-wrap">{!activeComiteId && strategyEnabled && <button onClick={generateRAE} className="border border-amber-300 text-amber-700 hover:bg-amber-50 px-4 py-3 rounded-lg font-bold text-xs uppercase flex items-center justify-center gap-2 transition-all tracking-widest" title="Reunião de Análise Estratégica com pauta automática"><Compass size={15} /> Gerar RAE</button>}{!activeComiteId && <button onClick={openScheduleModal} className="bg-slate-900 hover:bg-slate-800 text-amber-500 px-5 py-3 rounded-lg font-bold text-xs uppercase flex items-center justify-center gap-2 transition-all shadow-md tracking-widest"><CalendarPlus size={16} /> Programar Ano</button>}<button onClick={() => { setCurrentMeeting({ ...blankMeeting, comite_id: activeComiteId }); setView('details'); setTab('info'); }} className="bg-amber-600 hover:bg-amber-700 text-white px-6 py-3 rounded-lg font-bold text-xs uppercase flex items-center justify-center gap-2 transition-all shadow-md tracking-widest">+ Nova Reunião</button></div>)}</div>
                     {(() => {
-                      const all = meetings.filter((m: any) => !isExtraContainer(m) && m.type !== 'Indicadores');
+                      const all = meetings.filter((m: any) => !isExtraContainer(m) && m.type !== 'Indicadores' && (m.comite_id || null) === (activeComiteId || null));
                       const todayStr = new Date().toLocaleDateString('en-CA'); // YYYY-MM-DD local
                       const isPast = (m: any) => m.status === 'Concluída' || (!!m.date && m.date < todayStr);
                       const upcoming = all.filter((m: any) => !isPast(m)).sort((a: any, b: any) => (a.date || '9999-12-31').localeCompare(b.date || '9999-12-31'));
@@ -6442,6 +6629,25 @@ const App = () => {
                             {managedClientProfile?.qa_enabled
                               ? <p className="text-[10px] text-emerald-600 font-bold not-italic flex items-center gap-1.5"><CheckCircle2 size={12} /> Add-on ativo — menu "Perguntas ao Vivo" visível para o cliente</p>
                               : <p className="text-[10px] text-slate-400 font-normal not-italic">Add-on inativo — o cliente não verá as Perguntas ao Vivo</p>}
+                          </div>
+
+                          {/* Add-on: Comitês (sub-espaços que assessoram o Conselho) */}
+                          <div className="border-t border-slate-100 pt-5 space-y-3">
+                            <h4 className="text-[10px] font-bold uppercase text-slate-400 tracking-widest flex items-center gap-2">
+                              <Users size={13} className="text-amber-600" /> Add-on: Comitês
+                            </h4>
+                            <div className="flex items-center justify-between p-4 bg-slate-50 rounded-xl border border-slate-200">
+                              <div>
+                                <p className="text-sm font-bold text-slate-800 italic">Comitês — {managedClientForm.name || managedClientId}</p>
+                                <p className="text-[10px] text-slate-400 font-normal not-italic mt-0.5">Cria sub-espaços (comitês) com reuniões, atas e plano de ação próprios, isolados do Conselho. Gestores de comitê não acessam o conteúdo do Conselho.</p>
+                              </div>
+                              <button onClick={toggleManagedCommittees} className={`relative inline-flex h-7 w-12 shrink-0 items-center rounded-full transition-colors duration-200 focus:outline-none ${managedClientProfile?.committees_enabled ? 'bg-amber-600' : 'bg-slate-200'}`}>
+                                <span className={`inline-block h-5 w-5 transform rounded-full bg-white shadow-md transition-transform duration-200 ${managedClientProfile?.committees_enabled ? 'translate-x-6' : 'translate-x-1'}`} />
+                              </button>
+                            </div>
+                            {managedClientProfile?.committees_enabled
+                              ? <p className="text-[10px] text-emerald-600 font-bold not-italic flex items-center gap-1.5"><CheckCircle2 size={12} /> Add-on ativo — menu "Comitês" e seletor de espaço visíveis para o cliente</p>
+                              : <p className="text-[10px] text-slate-400 font-normal not-italic">Add-on inativo — o cliente não verá os Comitês</p>}
                           </div>
 
                           {/* Status da conta — ativar/inativar (reversível) */}
