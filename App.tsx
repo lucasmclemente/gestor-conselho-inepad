@@ -2904,9 +2904,20 @@ const App = () => {
     return (currentMeeting.pautas || []).map((p: any) => { const dur = parseInt(String(p.dur), 10) || 0; const start = cur; const end = cur + dur; cur = end; return { start: fmt(start), end: fmt(end) }; });
   }, [currentMeeting.pautas, currentMeeting.time]);
 
+  // Reuniões do ESPAÇO ativo (Conselho = comite_id NULL; ou o comitê selecionado).
+  // Quando o add-on está desligado, activeComiteId é sempre NULL e todas as reuniões têm
+  // comite_id NULL → scopedMeetings === meetings (transparente). Alimenta Dashboard,
+  // Plano de Ação, Deliberações, Atas e Próximas Reuniões para que troquem junto com o espaço.
+  const scopedMeetings = useMemo(
+    () => meetings.filter((m: any) => (m.comite_id || null) === (activeComiteId || null)),
+    [meetings, activeComiteId]
+  );
+  // Ao trocar de espaço, zera filtros que apontam para uma reunião específica (evita dashboard vazio)
+  useEffect(() => { setDashboardFilter('all'); setFilterOrigin('all'); setDelibFilterOrigin('all'); }, [activeComiteId]);
+
   const stats = useMemo(() => {
     const today = new Date(); today.setHours(0, 0, 0, 0);
-    const filteredM = dashboardFilter === 'all' ? meetings : meetings.filter(m => m.id === dashboardFilter);
+    const filteredM = dashboardFilter === 'all' ? scopedMeetings : scopedMeetings.filter(m => m.id === dashboardFilter);
     const allA = filteredM.flatMap(m => (m.acoes || []).map((a: any) => ({ ...a, mTitle: m.title, mId: m.id, mDate: m.date })))
       .filter(a => filterResp === 'all' || (a.resps?.length > 0 ? a.resps.includes(filterResp) : a.resp === filterResp))
       .filter(a => {
@@ -2939,7 +2950,7 @@ const App = () => {
       ],
       barData: filteredM.slice(0, 6).map(m => ({ name: m.date || 'S/D', 'Pautas': m.pautas?.length || 0, 'Ações': m.acoes?.length || 0 }))
     };
-  }, [meetings, dashboardFilter, filterResp, filterStatus, filterOrigin, filterPriority, filterObjective, strategyObjectives]);
+  }, [scopedMeetings, dashboardFilter, filterResp, filterStatus, filterOrigin, filterPriority, filterObjective, strategyObjectives]);
 
   // Ao mudar qualquer filtro, tira um retrato das ações que casam (congela a lista exibida)
   useEffect(() => {
@@ -2952,16 +2963,16 @@ const App = () => {
   const planoActions = useMemo(() => {
     const matched = stats.allActions;
     const matchedKeys = new Set(matched.map((a: any) => `${a.mId}-${a.id}`));
-    const raw = meetings.flatMap((m: any) => (m.acoes || []).map((a: any) => ({ ...a, mTitle: m.title, mId: m.id, mDate: m.date })));
+    const raw = scopedMeetings.flatMap((m: any) => (m.acoes || []).map((a: any) => ({ ...a, mTitle: m.title, mId: m.id, mDate: m.date })));
     const extras = raw.filter((a: any) => { const k = `${a.mId}-${a.id}`; return frozenActionKeys.has(k) && !matchedKeys.has(k); }).map((a: any) => ({ ...a, _stale: true }));
     return [...matched, ...extras].sort((a: any, b: any) => (PRIORITY_WEIGHT[a.priority || 'Média'] - PRIORITY_WEIGHT[b.priority || 'Média']) || ((a.date || '9999').localeCompare(b.date || '9999')));
-  }, [stats.allActions, meetings, frozenActionKeys]);
+  }, [stats.allActions, scopedMeetings, frozenActionKeys]);
 
   // Estatísticas exclusivas do Dashboard — dependem apenas do filtro de reunião
   // (não herdam os filtros de Responsável/Status/Origem do Plano de Ação)
   const dashStats = useMemo(() => {
     const today = new Date(); today.setHours(0, 0, 0, 0);
-    const filteredM = dashboardFilter === 'all' ? meetings : meetings.filter(m => m.id === dashboardFilter);
+    const filteredM = dashboardFilter === 'all' ? scopedMeetings : scopedMeetings.filter(m => m.id === dashboardFilter);
     const allA = filteredM.flatMap(m => (m.acoes || []).map((a: any) => ({ ...a, mTitle: m.title, mId: m.id, mDate: m.date })));
     const isOverdue = (a: any) => a.status !== 'Concluída' && a.date && new Date(a.date) < today;
     const totalActions = allA.length;
@@ -2989,7 +3000,7 @@ const App = () => {
         return (a.date || '9999').localeCompare(b.date || '9999');
       }),
     };
-  }, [meetings, dashboardFilter]);
+  }, [scopedMeetings, dashboardFilter]);
 
   // Estatísticas do add-on (camada estratégica da home): farol, OKR e objetivos por perspectiva
   const strategyStats = useMemo(() => {
@@ -3034,14 +3045,14 @@ const App = () => {
   // Próximas reuniões programadas (futuras, ainda não concluídas) — previsão na dashboard
   const upcomingMeetings = useMemo(() => {
     const today = new Date(); today.setHours(0, 0, 0, 0);
-    return meetings
+    return scopedMeetings
       .filter((m: any) => m.date && m.status !== 'Concluída' && new Date(m.date + 'T00:00:00') >= today)
       .sort((a: any, b: any) => (a.date || '').localeCompare(b.date || ''));
-  }, [meetings]);
+  }, [scopedMeetings]);
 
   // Consolidado de deliberações de todas as reuniões — área de acompanhamento
   const delibStats = useMemo(() => {
-    const all = meetings.flatMap((m: any) => (m.deliberacoes || []).map((d: any, idx: number) => {
+    const all = scopedMeetings.flatMap((m: any) => (m.deliberacoes || []).map((d: any, idx: number) => {
       const r = deliberationResult(d);
       return { ...d, mTitle: m.title, mId: m.id, mDate: m.date, idx, extra: m.type === 'Extraordinária', delibId: d.id, ...r };
     }));
@@ -3061,7 +3072,7 @@ const App = () => {
         return (b.mDate || '').localeCompare(a.mDate || '');
       });
     return { ...counts, list: filtered };
-  }, [meetings, delibFilterResult, delibFilterOrigin]);
+  }, [scopedMeetings, delibFilterResult, delibFilterOrigin]);
 
   // Reenvia o pedido de aprovação da ata aos conselheiros internos
   const [ataApprovalLoading, setAtaApprovalLoading] = useState(false);
@@ -3139,7 +3150,7 @@ const App = () => {
       if (mode === 'publish') {
         const parts = (currentMeeting.participants || []).filter((p: any) => !p.isExternal && selected.includes(p.name));
         const emails = parts.map((p: any) => p.email).filter(Boolean);
-        const allPending = meetings.flatMap((m: any) => (m.acoes || []).map((a: any) => ({ ...a, meetingTitle: m.title }))).filter((a: any) => a.status !== 'Concluída');
+        const allPending = scopedMeetings.flatMap((m: any) => (m.acoes || []).map((a: any) => ({ ...a, meetingTitle: m.title }))).filter((a: any) => a.status !== 'Concluída');
         const usersToNotify = parts.map((p: any) => ({ email: p.email, name: p.name, pendingActions: allPending.filter((a: any) => a.resp === p.name) })).filter((u: any) => u.email);
         const { data: mn, error } = await supabase.functions.invoke('send-minute-notification', { body: { meetingTitle: currentMeeting.title, minuteName: ataName, minuteUrl, actions: currentMeeting.acoes || [], recipients: emails, pendingSummary: usersToNotify, meetingId: currentMeeting.id, ataId, appOrigin: window.location.origin } });
         if (error || mn?.error) throw new Error(error?.message || mn?.error);
@@ -3323,7 +3334,7 @@ const App = () => {
   };
 
   const allAtas = useMemo(() => {
-    return meetings
+    return scopedMeetings
       .flatMap(m => (m.atas || []).map((ata: any) => ({
         ...ata,
         meetingTitle: m.title,
@@ -3332,7 +3343,7 @@ const App = () => {
         meetingStatus: m.status,
       })))
       .sort((a, b) => new Date(b.uploadedAt || 0).getTime() - new Date(a.uploadedAt || 0).getTime());
-  }, [meetings]);
+  }, [scopedMeetings]);
 
   const filteredAtas = useMemo(() => {
     if (!atasSearch.trim()) return allAtas;
@@ -3748,11 +3759,11 @@ const App = () => {
               {activeMenu === 'dashboard' && (
                 <div className="space-y-6 animate-in fade-in">
                   <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-                    <h1 className="text-2xl font-bold text-slate-800 tracking-tight italic">Painel de Governança · {superAll ? 'Consolidado Geral' : (clientProfile?.name || activeClientId || currentUser.client_id)}</h1>
+                    <h1 className="text-2xl font-bold text-slate-800 tracking-tight italic">Painel de Governança · {superAll ? 'Consolidado Geral' : (activeComiteNome || clientProfile?.name || activeClientId || currentUser.client_id)}</h1>
                     <div className="flex items-center gap-3 bg-white px-4 py-2 rounded-lg border border-slate-200 w-full sm:w-auto shadow-sm">
                       <Filter size={16} className="text-amber-500" /><select className="text-xs font-bold uppercase outline-none bg-transparent w-full cursor-pointer text-slate-600" value={dashboardFilter} onChange={e => setDashboardFilter(e.target.value)}>
                         <option value="all">Consolidado Geral</option>
-                        {meetings.map(m => <option key={m.id} value={m.id}>{m.title}{m.date ? ` — ${new Date(m.date + 'T00:00:00').toLocaleDateString('pt-BR')}` : ''}</option>)}
+                        {scopedMeetings.filter((m: any) => !isExtraContainer(m) && m.type !== 'Indicadores').map(m => <option key={m.id} value={m.id}>{m.title}{m.date ? ` — ${new Date(m.date + 'T00:00:00').toLocaleDateString('pt-BR')}` : ''}</option>)}
                       </select>
                     </div>
                   </div>
