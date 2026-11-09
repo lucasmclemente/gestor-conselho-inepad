@@ -301,6 +301,8 @@ const App = () => {
   const canSuperviseComites = isAdm || isSec;
   // Nome do espaço ativo (Conselho ou o comitê selecionado) — usado no seletor e no título
   const activeComiteNome = activeComiteId ? (comitesList.find((c: any) => c.id === activeComiteId)?.nome || 'Comitê') : null;
+  // O próprio usuário acessa o Conselho? (false = só comitê). Default true até carregar o perfil.
+  const iAmConselhoMember = ((users || []).find((u: any) => u.id === currentUser?.id)?.conselho_member) !== false;
   const SCENARIOS = ['Otimista', 'Base', 'Conservador', 'Trágico'];
   const FREQ_OPTS: [string, string][] = [['off', 'Desligada'], ['daily', 'Diária'], ['weekly', 'Semanal'], ['monthly', 'Mensal']];
   // Membros do cliente atual (SuperAdmin enxerga todos; aqui escopamos ao próprio cliente)
@@ -3496,6 +3498,11 @@ const App = () => {
             { id: 'minhas-pautas', icon: <Calendar size={18} />, label: 'Minhas Pautas' },
             { id: 'minhas-acoes', icon: <ListChecks size={18} />, label: 'Plano de Ação' },
             ...(strategyEnabled ? [{ id: 'indicadores', icon: <Gauge size={18} />, label: 'Indicadores' }] : []),
+            // Dentro de um comitê, o Controller/Diretor participa como membro: vê as reuniões e atas do comitê
+            ...(committeesEnabled && activeComiteId ? [
+              { id: 'reunioes', icon: <CalendarCheck size={18} />, label: 'Reuniões do Comitê', action: () => setView('list') },
+              { id: 'repositorio-atas', icon: <Archive size={18} />, label: 'Atas do Comitê' },
+            ] : []),
           ] : isCertifier ? [
             { id: 'certificacao', icon: <ShieldCheck size={18} />, label: 'Certificação' },
           ] : [
@@ -3652,7 +3659,7 @@ const App = () => {
               <div className="flex items-center gap-2 bg-slate-100 border border-slate-200 rounded-lg px-3 py-1.5" title="Espaço de trabalho: Conselho ou um comitê">
                 <Users size={14} className="text-slate-500 shrink-0" />
                 <select value={activeComiteId || ''} onChange={e => setActiveComiteId(e.target.value || null)} className="text-[10px] font-bold uppercase tracking-widest bg-transparent outline-none cursor-pointer text-slate-700 max-w-[200px]">
-                  <option value="">Conselho</option>
+                  {iAmConselhoMember && <option value="">Conselho</option>}
                   {comitesList.map((c: any) => <option key={c.id} value={c.id}>{c.nome}</option>)}
                 </select>
               </div>
