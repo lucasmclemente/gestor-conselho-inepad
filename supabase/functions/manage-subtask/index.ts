@@ -10,12 +10,15 @@ function cors(req: Request): Record<string, string> {
 }
 
 const STATUSES = ['Pendente', 'Em andamento', 'Concluída'];
+const BUCKET = 'meeting-files';
 
-// Gerencia SUBTAREFAS de uma ação do plano (meetings.acoes[i].subtasks[]).
-// Pode mutar: supervisor do tenant (Administrador/Secretário/SuperAdmin) OU o(s)
-// responsável(is) da ação-mãe (ex.: um Controller/Diretor na sua própria tarefa).
-// Esses papéis não têm escrita direta em meetings (RLS); esta função grava com
-// service role, escopada ao tenant do solicitante. op: 'add' | 'update' | 'remove'.
+// Gerencia SUBTAREFAS de uma ação do plano (meetings.acoes[i].subtasks[]) e seus anexos.
+// Papéis sem escrita direta em meetings (RLS) operam via service role, escopados ao tenant.
+// Permissões:
+//   • supervisor (Administrador/Secretário/SuperAdmin): tudo
+//   • responsável da AÇÃO-mãe: tudo nas subtarefas dela
+//   • responsável da SUBTAREFA: muda status e sobe/remove anexos da sua subtarefa (não apaga a subtarefa nem troca título/resp/prazo)
+// ops: add | update | remove | signUpload | attach | detach | signDownload
 serve(async (req) => {
   const c = cors(req);
   if (req.method === 'OPTIONS') return new Response('ok', { headers: c });
@@ -34,9 +37,11 @@ serve(async (req) => {
   if (!['Administrador', 'Secretário', 'Conselheiro', 'SuperAdmin', 'Controller', 'Diretor'].includes(role)) return json({ error: 'Sem permissão.' }, 403);
 
   try {
-    const { meetingId, actionId, op, subtask, subtaskId, patch } = await req.json();
+    const body = await req.json();
+    const { meetingId, actionId, op, subtaskId, subtask, patch, name, path, attId } = body;
     if (!meetingId || actionId == null || !op) return json({ error: 'Parâmetros ausentes.' }, 400);
-    if (!['add', 'update', 'remove'].includes(op)) return json({ error: 'Operação inválida.' }, 400);
+    const OPS = ['add', 'update', 'remove', 'signUpload', 'attach', 'detach', 'signDownload'];
+    if (!OPS.includes(op)) return json({ error: 'Operação inválida.' }, 400);
 
     const admin = createClient(Deno.env.get('SUPABASE_URL') ?? '', Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '', { auth: { autoRefreshToken: false, persistSession: false } });
 
@@ -55,56 +60,103 @@ serve(async (req) => {
     let myName = user.email || '';
     try { const { data: m } = await admin.from('members').select('name').eq('id', user.id).maybeSingle(); if (m?.name) myName = m.name; } catch (_) { /* usa e-mail */ }
 
-    // Autorização de mutação: supervisor do tenant OU responsável da ação-mãe
     const isSupervisor = isSuper || role === 'Administrador' || role === 'Secretário';
     const respList: string[] = acoes[idx].resps?.length > 0 ? acoes[idx].resps : (acoes[idx].resp ? [acoes[idx].resp] : []);
-    const isResp = !!myName && respList.includes(myName);
-    if (!isSupervisor && !isResp) return json({ error: 'Só o responsável pela ação ou a secretaria podem alterar as subtarefas.' }, 403);
+    const isParentResp = !!myName && respList.includes(myName);
 
     const subs = [...(acoes[idx].subtasks || [])];
+    const si = subtaskId != null ? subs.findIndex((s: any) => String(s.id) === String(subtaskId)) : -1;
+    const isSubResp = si >= 0 && !!myName && subs[si]?.resp === myName;
 
     const cleanStatus = (s: any) => STATUSES.includes(String(s)) ? String(s) : 'Pendente';
     const cleanTitle = (t: any) => String(t || '').trim().slice(0, 300);
     const cleanResp = (r: any) => String(r || '').trim().slice(0, 200);
     const cleanDate = (d: any) => { const v = String(d || '').trim(); return /^\d{4}-\d{2}-\d{2}$/.test(v) ? v : ''; };
+    const safeName = (n: string) => String(n || 'arquivo').replace(/[^\w.\-]+/g, '_').slice(-120);
+
+    const save = async () => {
+      acoes[idx] = { ...acoes[idx], subtasks: subs };
+      const { error } = await admin.from('meetings').update({ acoes }).eq('id', meeting.id);
+      if (error) throw new Error('Erro ao gravar.');
+      try { await admin.from('audit_logs').insert([{ username: myName || 'Membro', action: 'Plano de Ação', details: `Subtarefa (${op}) em: ${acoes[idx].title || 'ação'}`, client_id: meeting.client_id }]); } catch (_) { /* silencioso */ }
+    };
+
+    // Toda operação exceto 'add' e 'signDownload' atua sobre uma subtarefa existente
+    if (['update', 'remove', 'signUpload', 'attach', 'detach'].includes(op) && si < 0) return json({ error: 'Subtarefa não encontrada.' }, 404);
 
     if (op === 'add') {
+      if (!(isSupervisor || isParentResp)) return json({ error: 'Só o responsável pela ação ou a secretaria criam subtarefas.' }, 403);
       const title = cleanTitle(subtask?.title);
       if (!title) return json({ error: 'Informe o título da subtarefa.' }, 400);
       if (subs.length >= 50) return json({ error: 'Limite de 50 subtarefas por ação.' }, 400);
-      const st = {
-        id: crypto.randomUUID(),
-        title,
-        resp: cleanResp(subtask?.resp),
-        date: cleanDate(subtask?.date),
-        status: cleanStatus(subtask?.status),
-        createdBy: myName,
-        createdAt: new Date().toISOString(),
-      };
-      subs.push(st);
-    } else if (op === 'update') {
-      const si = subs.findIndex((s: any) => String(s.id) === String(subtaskId));
-      if (si < 0) return json({ error: 'Subtarefa não encontrada.' }, 404);
+      subs.push({ id: crypto.randomUUID(), title, resp: cleanResp(subtask?.resp), date: cleanDate(subtask?.date), status: cleanStatus(subtask?.status), materiais: [], createdBy: myName, createdAt: new Date().toISOString() });
+      await save();
+      return json({ ok: true, action: acoes[idx] });
+    }
+
+    if (op === 'update') {
       const p = patch || {};
+      const keys = Object.keys(p);
+      const onlyStatus = keys.length > 0 && keys.every(k => k === 'status');
+      const allowed = isSupervisor || isParentResp || (isSubResp && onlyStatus);
+      if (!allowed) return json({ error: 'Sem permissão para editar esta subtarefa.' }, 403);
       const next = { ...subs[si] };
       if (p.title != null) { const t = cleanTitle(p.title); if (!t) return json({ error: 'Título inválido.' }, 400); next.title = t; }
       if (p.resp != null) next.resp = cleanResp(p.resp);
       if (p.date != null) next.date = cleanDate(p.date);
       if (p.status != null) next.status = cleanStatus(p.status);
       subs[si] = next;
-    } else { // remove
-      const si = subs.findIndex((s: any) => String(s.id) === String(subtaskId));
-      if (si < 0) return json({ error: 'Subtarefa não encontrada.' }, 404);
-      subs.splice(si, 1);
+      await save();
+      return json({ ok: true, action: acoes[idx] });
     }
 
-    acoes[idx] = { ...acoes[idx], subtasks: subs };
-    const { error } = await admin.from('meetings').update({ acoes }).eq('id', meeting.id);
-    if (error) return json({ error: 'Erro ao gravar a subtarefa.' }, 400);
+    if (op === 'remove') {
+      if (!(isSupervisor || isParentResp)) return json({ error: 'Só o responsável pela ação ou a secretaria removem subtarefas.' }, 403);
+      subs.splice(si, 1);
+      await save();
+      return json({ ok: true, action: acoes[idx] });
+    }
 
-    try { await admin.from('audit_logs').insert([{ username: myName || 'Membro', action: 'Plano de Ação', details: `Subtarefa (${op}) em: ${acoes[idx].title || 'ação'}`, client_id: meeting.client_id }]); } catch (_) { /* silencioso */ }
+    if (op === 'signUpload') {
+      if (!(isSupervisor || isParentResp || isSubResp)) return json({ error: 'Sem permissão para anexar nesta subtarefa.' }, 403);
+      const stPath = `${meeting.client_id}/subtasks/${String(actionId)}/${String(subtaskId)}/${Date.now()}_${crypto.randomUUID().slice(0, 8)}_${safeName(name)}`;
+      const { data: su, error } = await admin.storage.from(BUCKET).createSignedUploadUrl(stPath);
+      if (error || !su) return json({ error: 'Não foi possível preparar o upload.' }, 400);
+      return json({ ok: true, path: su.path, token: su.token });
+    }
 
-    return json({ ok: true, action: acoes[idx] });
+    if (op === 'attach') {
+      if (!(isSupervisor || isParentResp || isSubResp)) return json({ error: 'Sem permissão para anexar nesta subtarefa.' }, 403);
+      if (!path || !String(path).startsWith(`${meeting.client_id}/subtasks/${String(actionId)}/${String(subtaskId)}/`)) return json({ error: 'Caminho de anexo inválido.' }, 400);
+      const mats = [...(subs[si].materiais || [])];
+      if (mats.length >= 20) return json({ error: 'Limite de 20 anexos por subtarefa.' }, 400);
+      mats.push({ id: crypto.randomUUID(), name: cleanTitle(name) || 'arquivo', path: String(path), uploadedAt: new Date().toISOString(), uploadedBy: myName });
+      subs[si] = { ...subs[si], materiais: mats };
+      await save();
+      return json({ ok: true, action: acoes[idx] });
+    }
+
+    if (op === 'detach') {
+      if (!(isSupervisor || isParentResp || isSubResp)) return json({ error: 'Sem permissão para remover o anexo.' }, 403);
+      const mats = [...(subs[si].materiais || [])];
+      const mi = mats.findIndex((x: any) => String(x.id) === String(attId));
+      if (mi < 0) return json({ error: 'Anexo não encontrado.' }, 404);
+      const removed = mats.splice(mi, 1)[0];
+      subs[si] = { ...subs[si], materiais: mats };
+      await save();
+      try { await admin.storage.from(BUCKET).remove([removed.path]); } catch (_) { /* arquivo já pode ter sumido */ }
+      return json({ ok: true, action: acoes[idx] });
+    }
+
+    if (op === 'signDownload') {
+      // Qualquer membro do tenant com acesso à reunião pode abrir um anexo de contexto
+      if (!path || !String(path).startsWith(`${meeting.client_id}/subtasks/`)) return json({ error: 'Caminho inválido.' }, 400);
+      const { data: dl, error } = await admin.storage.from(BUCKET).createSignedUrl(String(path), 60 * 60 * 24 * 7);
+      if (error || !dl) return json({ error: 'Não foi possível abrir o anexo.' }, 400);
+      return json({ ok: true, url: dl.signedUrl });
+    }
+
+    return json({ error: 'Operação inválida.' }, 400);
   } catch (e: any) {
     return json({ error: e.message }, 400);
   }
