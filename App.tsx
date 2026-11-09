@@ -5374,6 +5374,7 @@ const App = () => {
                               {cards.length === 0 ? <p className="text-[11px] text-slate-300 italic px-1 py-4 text-center">—</p> : cards.map((acao: any) => {
                                 const resps: string[] = acao.resps?.length > 0 ? acao.resps : (acao.resp ? [acao.resp] : []);
                                 const stIdx = ['Pendente', 'Em andamento', 'Concluída'].indexOf(acao.status);
+                                const acaoKey = `${acao.mId}-${acao.id}`;
                                 return (
                                   <div key={`${acao.mId}-${acao.id}`} className="bg-white rounded-lg border border-slate-200 p-3 shadow-sm">
                                     <p className="text-sm font-bold italic text-slate-800 leading-snug">{acao.title}</p>
@@ -5392,6 +5393,46 @@ const App = () => {
                                       )}
                                     </div>
                                     {acao.date && <p className="text-[9px] text-slate-400 mt-1.5 flex items-center gap-1"><Calendar size={9} />{new Date(acao.date + 'T00:00:00').toLocaleDateString('pt-BR')}</p>}
+
+                                    {/* Subtarefas */}
+                                    {(() => {
+                                      const subs = acao.subtasks || [];
+                                      const done = subs.filter((s: any) => s.status === 'Concluída').length;
+                                      const open = subOpen[acaoKey] ?? false;
+                                      const form = subForm[acaoKey] || { title: '', resp: '', date: '' };
+                                      const canEditSub = canEdit || resps.includes(currentUser?.name);
+                                      const parts = (meetings.find((mm: any) => mm.id === acao.mId)?.participants || []).filter((p: any) => !p.isExternal);
+                                      const setForm = (patch: any) => setSubForm(prev => ({ ...prev, [acaoKey]: { ...form, ...patch } }));
+                                      const addSub = async () => { if (!form.title.trim()) return; await manageSubtaskGlobal(acao.mId, acao.id, 'add', { subtask: form }); setForm({ title: '', resp: '', date: '' }); };
+                                      if (subs.length === 0 && !canEditSub) return null;
+                                      return (
+                                        <div className="mt-2 pt-2 border-t border-slate-100 not-italic">
+                                          <button onClick={() => setSubOpen(prev => ({ ...prev, [acaoKey]: !open }))} className="flex items-center gap-1 text-[9px] font-bold uppercase tracking-widest text-slate-500 hover:text-amber-600">
+                                            <GitBranch size={10} /> Subtarefas {subs.length > 0 && <span className={`px-1 py-0.5 rounded-full text-[8px] ${done === subs.length ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-500'}`}>{done}/{subs.length}</span>}
+                                            <ChevronDown size={10} className={`transition-transform ${open ? 'rotate-180' : ''}`} />
+                                          </button>
+                                          {open && (
+                                            <div className="mt-1.5 space-y-1 pl-2 border-l-2 border-slate-100">
+                                              {subs.map((s: any) => (
+                                                <div key={s.id} className="flex items-center gap-1.5">
+                                                  <button onClick={() => canEditSub && manageSubtaskGlobal(acao.mId, acao.id, 'update', { subtaskId: s.id, patch: { status: nextSubStatus(s.status) } })} disabled={subBusy || !canEditSub} title={canEditSub ? 'Avançar status' : undefined} className={`text-[8px] font-bold uppercase px-1 py-0.5 rounded-full shrink-0 ${subStatusChip(s.status)}`}>{s.status}</button>
+                                                  <span className={`flex-1 text-[10px] min-w-0 truncate ${s.status === 'Concluída' ? 'line-through text-slate-400' : 'text-slate-700'}`}>{s.title}</span>
+                                                  {canEditSub && <button onClick={() => manageSubtaskGlobal(acao.mId, acao.id, 'remove', { subtaskId: s.id })} disabled={subBusy} className="text-slate-300 hover:text-red-500 shrink-0" title="Remover"><X size={11} /></button>}
+                                                </div>
+                                              ))}
+                                              {canEditSub && (
+                                                <div className="flex flex-wrap items-center gap-1 pt-1">
+                                                  <input value={form.title} onChange={e => setForm({ title: e.target.value })} onKeyDown={e => { if (e.key === 'Enter') addSub(); }} placeholder="Nova subtarefa" className="flex-1 min-w-[90px] text-[10px] border border-slate-200 rounded px-1.5 py-0.5 outline-none focus:border-amber-400" />
+                                                  <input list={`dlk-${acaoKey}`} value={form.resp} onChange={e => setForm({ resp: e.target.value })} placeholder="Resp." className="w-16 text-[10px] border border-slate-200 rounded px-1.5 py-0.5 outline-none focus:border-amber-400" />
+                                                  <datalist id={`dlk-${acaoKey}`}>{parts.map((p: any, pi: number) => <option key={pi} value={p.name} />)}</datalist>
+                                                  <button disabled={subBusy || !form.title.trim()} onClick={addSub} className="text-[9px] font-bold uppercase bg-slate-900 text-amber-500 hover:bg-slate-800 px-1.5 py-0.5 rounded disabled:opacity-40 flex items-center" title="Adicionar"><Plus size={10} /></button>
+                                                </div>
+                                              )}
+                                            </div>
+                                          )}
+                                        </div>
+                                      );
+                                    })()}
                                   </div>
                                 );
                               })}
