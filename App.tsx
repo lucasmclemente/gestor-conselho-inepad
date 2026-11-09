@@ -11,7 +11,7 @@ import {
   Clock, CheckCircle2, AlertCircle, FileText, Send, X, Trash2, Coffee, Paperclip, Tag,
   Upload, Save, Lock, Target, FileCheck, BarChart3,
   PieChart as PieIcon, LogIn, User, Key, LogOut, UserCheck,
-  Mail, UserCog, Settings, Camera, UserCircle, History, Filter, MessageSquare, Download, ExternalLink, ListChecks, Plus, Edit2, Check, Menu, ChevronUp, ChevronDown, Play, Square, Timer, SkipForward, Building2, ChevronLeft, UserMinus, ThumbsUp, ThumbsDown, CircleSlash, MinusCircle, Archive, Search, PenLine, ShieldCheck, Scale, Monitor, MapPin, Gauge, TrendingUp, TrendingDown, Bell, Compass, Sparkles, Users, Activity
+  Mail, UserCog, Settings, Camera, UserCircle, History, Filter, MessageSquare, Download, ExternalLink, ListChecks, Plus, Edit2, Check, Menu, ChevronUp, ChevronDown, Play, Square, Timer, SkipForward, Building2, ChevronLeft, UserMinus, ThumbsUp, ThumbsDown, CircleSlash, MinusCircle, Archive, Search, PenLine, ShieldCheck, Scale, Monitor, MapPin, Gauge, TrendingUp, TrendingDown, Bell, Compass, Sparkles, Users, Activity, GitBranch
 } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend, LineChart, Line, ReferenceLine } from 'recharts';
 import { PRIORITIES, PRIORITY_STYLES, PRIORITY_WEIGHT } from './constants';
@@ -149,6 +149,10 @@ const App = () => {
   const [commentKey, setCommentKey] = useState<string | null>(null);
   const [commentValue, setCommentValue] = useState('');
   const [commentSaving, setCommentSaving] = useState(false);
+  // Subtarefas do plano de ação (via Edge Function manage-subtask)
+  const [subOpen, setSubOpen] = useState<Record<string, boolean>>({});
+  const [subForm, setSubForm] = useState<Record<string, { title: string; resp: string; date: string }>>({});
+  const [subBusy, setSubBusy] = useState(false);
   const [editingRespsKey, setEditingRespsKey] = useState<string | null>(null);
   const [newUserForm, setnewUserForm] = useState({ name: '', email: '', role: 'Conselheiro', password: '', client_id: '' });
   const [clientProfile, setClientProfile] = useState<any>(null);
@@ -1680,6 +1684,23 @@ const App = () => {
       : m));
     setCommentKey(null); setCommentValue('');
   };
+
+  // Cria/edita/remove uma subtarefa de uma ação (manage-subtask, service role).
+  // Autoriza supervisor (Adm/Sec/Super) ou o responsável da ação-mãe.
+  const manageSubtaskGlobal = async (meetingId: string, actionId: any, op: 'add' | 'update' | 'remove', payload: any) => {
+    setSubBusy(true);
+    try {
+      const { data, error } = await supabase.functions.invoke('manage-subtask', { body: { meetingId, actionId, op, ...payload } });
+      if (error || (data as any)?.error) throw new Error(error?.message || (data as any)?.error);
+      const updated = (data as any).action;
+      setMeetings(prev => prev.map((m: any) => m.id === meetingId
+        ? { ...m, acoes: (m.acoes || []).map((a: any) => String(a.id) === String(actionId) ? updated : a) }
+        : m));
+    } catch (e: any) { alert('Erro na subtarefa: ' + (e?.message || e)); }
+    finally { setSubBusy(false); }
+  };
+  const subStatusChip = (s: string) => s === 'Concluída' ? 'bg-emerald-100 text-emerald-700' : s === 'Em andamento' ? 'bg-amber-100 text-amber-700' : 'bg-slate-100 text-slate-500';
+  const nextSubStatus = (s: string) => s === 'Pendente' ? 'Em andamento' : s === 'Em andamento' ? 'Concluída' : 'Pendente';
 
   // Troca de senha do próprio usuário: confirma a identidade re-autenticando com a
   // senha atual (protege sessão deixada aberta) e então define a nova senha.
@@ -5234,6 +5255,49 @@ const App = () => {
                                     <button onClick={() => { setCommentKey(acaoKey); setCommentValue(''); }} className="text-[9px] text-slate-400 hover:text-amber-600 font-normal not-italic flex items-center gap-1 transition-colors"><MessageSquare size={10} /> adicionar observação</button>
                                   )}
                                 </div>
+
+                                {/* Subtarefas */}
+                                {(() => {
+                                  const subs = acao.subtasks || [];
+                                  const done = subs.filter((s: any) => s.status === 'Concluída').length;
+                                  const open = subOpen[acaoKey] ?? subs.length > 0;
+                                  const form = subForm[acaoKey] || { title: '', resp: '', date: '' };
+                                  const canEditSub = canEdit || resps.includes(currentUser?.name);
+                                  const parts = (meetings.find((mm: any) => mm.id === acao.mId)?.participants || []).filter((p: any) => !p.isExternal);
+                                  const setForm = (patch: any) => setSubForm(prev => ({ ...prev, [acaoKey]: { ...form, ...patch } }));
+                                  const addSub = async () => { if (!form.title.trim()) return; await manageSubtaskGlobal(acao.mId, acao.id, 'add', { subtask: form }); setForm({ title: '', resp: '', date: '' }); };
+                                  if (subs.length === 0 && !canEditSub) return null;
+                                  return (
+                                    <div className="mt-2 pt-2 border-t border-slate-100 not-italic font-normal">
+                                      <button onClick={() => setSubOpen(prev => ({ ...prev, [acaoKey]: !open }))} className="flex items-center gap-1.5 text-[9px] font-bold uppercase tracking-widest text-slate-500 hover:text-amber-600">
+                                        <GitBranch size={11} /> Subtarefas {subs.length > 0 && <span className={`px-1.5 py-0.5 rounded-full text-[8px] ${done === subs.length ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-500'}`}>{done}/{subs.length}</span>}
+                                        <ChevronDown size={11} className={`transition-transform ${open ? 'rotate-180' : ''}`} />
+                                      </button>
+                                      {open && (
+                                        <div className="mt-1.5 space-y-1 pl-2.5 border-l-2 border-slate-100">
+                                          {subs.map((s: any) => (
+                                            <div key={s.id} className="flex items-center gap-1.5">
+                                              <button onClick={() => canEditSub && manageSubtaskGlobal(acao.mId, acao.id, 'update', { subtaskId: s.id, patch: { status: nextSubStatus(s.status) } })} disabled={subBusy || !canEditSub} title={canEditSub ? 'Clique para avançar o status' : undefined} className={`text-[8px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded-full shrink-0 ${subStatusChip(s.status)}`}>{s.status}</button>
+                                              <span className={`flex-1 text-[11px] min-w-0 truncate ${s.status === 'Concluída' ? 'line-through text-slate-400' : 'text-slate-700'}`}>{s.title}</span>
+                                              {s.resp && <span className="text-[9px] text-slate-400 shrink-0 hidden lg:inline">{s.resp}</span>}
+                                              {s.date && <span className="text-[9px] text-slate-400 shrink-0 hidden lg:inline">{new Date(s.date + 'T00:00:00').toLocaleDateString('pt-BR')}</span>}
+                                              {canEditSub && <button onClick={() => manageSubtaskGlobal(acao.mId, acao.id, 'remove', { subtaskId: s.id })} disabled={subBusy} className="text-slate-300 hover:text-red-500 shrink-0" title="Remover"><X size={12} /></button>}
+                                            </div>
+                                          ))}
+                                          {canEditSub && (
+                                            <div className="flex flex-wrap items-center gap-1 pt-1">
+                                              <input value={form.title} onChange={e => setForm({ title: e.target.value })} onKeyDown={e => { if (e.key === 'Enter') addSub(); }} placeholder="Nova subtarefa" className="flex-1 min-w-[120px] text-[11px] border border-slate-200 rounded px-2 py-1 outline-none focus:border-amber-400" />
+                                              <input list={`dlp-${acaoKey}`} value={form.resp} onChange={e => setForm({ resp: e.target.value })} placeholder="Resp." className="w-24 text-[11px] border border-slate-200 rounded px-2 py-1 outline-none focus:border-amber-400" />
+                                              <datalist id={`dlp-${acaoKey}`}>{parts.map((p: any, pi: number) => <option key={pi} value={p.name} />)}</datalist>
+                                              <input type="date" value={form.date} onChange={e => setForm({ date: e.target.value })} className="text-[11px] border border-slate-200 rounded px-2 py-1 outline-none focus:border-amber-400 text-slate-500" />
+                                              <button disabled={subBusy || !form.title.trim()} onClick={addSub} className="text-[9px] font-bold uppercase tracking-wider bg-slate-900 text-amber-500 hover:bg-slate-800 px-2 py-1 rounded disabled:opacity-40 flex items-center gap-1"><Plus size={11} /> Add</button>
+                                            </div>
+                                          )}
+                                        </div>
+                                      )}
+                                    </div>
+                                  );
+                                })()}
                               </td>
 
                               {/* RESPONSÁVEIS — chips + dropdown */}

@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { supabase } from '../services/supabaseClient';
-import { Calendar, ChevronLeft, Paperclip, Plus, FileText, ListChecks, Clock, MapPin, MessageSquare } from 'lucide-react';
+import { Calendar, ChevronLeft, Paperclip, Plus, FileText, ListChecks, Clock, MapPin, MessageSquare, GitBranch, ChevronDown, X } from 'lucide-react';
 
 // Área restrita do perfil Controller.
 // view='pautas': só as reuniões onde ele é responsável de alguma pauta → vê APENAS as pautas dele,
@@ -14,6 +14,25 @@ export const ControllerArea: React.FC<{ currentUser: any; meetings: any[]; onMee
   const [commentKey, setCommentKey] = useState<string | null>(null);
   const [commentValue, setCommentValue] = useState('');
   const [commentSaving, setCommentSaving] = useState(false);
+  // Subtarefas do plano de ação
+  const [subOpen, setSubOpen] = useState<Record<string, boolean>>({});
+  const [subForm, setSubForm] = useState<Record<string, { title: string; resp: string; date: string }>>({});
+  const [subBusy, setSubBusy] = useState(false);
+
+  // Cria/edita/remove uma subtarefa de uma ação (via Edge Function manage-subtask, service role)
+  const manageSubtask = async (meetingId: string, actionId: any, op: 'add' | 'update' | 'remove', payload: any) => {
+    setSubBusy(true);
+    try {
+      const { data, error } = await supabase.functions.invoke('manage-subtask', { body: { meetingId, actionId, op, ...payload } });
+      if (error || (data as any)?.error) throw new Error(error?.message || (data as any)?.error);
+      const updated = (data as any).action;
+      const m = meetings.find((mm: any) => mm.id === meetingId);
+      if (m) onMeetingUpdated({ ...m, acoes: (m.acoes || []).map((a: any) => String(a.id) === String(actionId) ? updated : a) });
+    } catch (e: any) { alert('Erro na subtarefa: ' + (e?.message || e)); }
+    finally { setSubBusy(false); }
+  };
+  const subStatusChip = (s: string) => s === 'Concluída' ? 'bg-emerald-100 text-emerald-700' : s === 'Em andamento' ? 'bg-amber-100 text-amber-700' : 'bg-slate-100 text-slate-500';
+  const nextSubStatus = (s: string) => s === 'Pendente' ? 'Em andamento' : s === 'Em andamento' ? 'Concluída' : 'Pendente';
 
   // Registra uma observação (append-only) numa ação do plano — via add-action-comment (service role)
   const addComment = async (meetingId: string, actionId: any) => {
@@ -99,6 +118,46 @@ export const ControllerArea: React.FC<{ currentUser: any; meetings: any[]; onMee
                   {a.date && <span className="flex items-center gap-1"><Clock size={11} /> prazo {fmtDate(a.date)}</span>}
                 </div>
                 {a.obs && <p className="text-xs text-slate-500 mt-2 bg-slate-50 rounded-lg p-2 border border-slate-100">{a.obs}</p>}
+
+                {/* Subtarefas */}
+                {(() => {
+                  const subs = a.subtasks || [];
+                  const done = subs.filter((s: any) => s.status === 'Concluída').length;
+                  const key = `${a.meetingId}-${a.id}`;
+                  const open = subOpen[key] ?? subs.length > 0;
+                  const form = subForm[key] || { title: '', resp: '', date: '' };
+                  const parts = (meetings.find((mm: any) => mm.id === a.meetingId)?.participants || []).filter((p: any) => !p.isExternal);
+                  const setForm = (patch: any) => setSubForm(prev => ({ ...prev, [key]: { ...form, ...patch } }));
+                  const addSub = async () => { if (!form.title.trim()) return; await manageSubtask(a.meetingId, a.id, 'add', { subtask: form }); setForm({ title: '', resp: '', date: '' }); };
+                  return (
+                    <div className="mt-2 pt-2 border-t border-slate-100">
+                      <button onClick={() => setSubOpen(prev => ({ ...prev, [key]: !open }))} className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-widest text-slate-500 hover:text-amber-600">
+                        <GitBranch size={12} /> Subtarefas {subs.length > 0 && <span className={`px-1.5 py-0.5 rounded-full text-[9px] ${done === subs.length ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-500'}`}>{done}/{subs.length}</span>}
+                        <ChevronDown size={12} className={`transition-transform ${open ? 'rotate-180' : ''}`} />
+                      </button>
+                      {open && (
+                        <div className="mt-2 space-y-1.5 pl-3 border-l-2 border-slate-100">
+                          {subs.map((s: any) => (
+                            <div key={s.id} className="flex items-center gap-2">
+                              <button onClick={() => manageSubtask(a.meetingId, a.id, 'update', { subtaskId: s.id, patch: { status: nextSubStatus(s.status) } })} disabled={subBusy} title="Clique para avançar o status" className={`text-[8px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded-full shrink-0 ${subStatusChip(s.status)}`}>{s.status}</button>
+                              <span className={`flex-1 text-xs min-w-0 truncate ${s.status === 'Concluída' ? 'line-through text-slate-400' : 'text-slate-700'}`}>{s.title}</span>
+                              {s.resp && <span className="text-[10px] text-slate-400 shrink-0 hidden sm:inline">{s.resp}</span>}
+                              {s.date && <span className="text-[10px] text-slate-400 shrink-0 hidden sm:inline">{fmtDate(s.date)}</span>}
+                              <button onClick={() => manageSubtask(a.meetingId, a.id, 'remove', { subtaskId: s.id })} disabled={subBusy} className="text-slate-300 hover:text-red-500 shrink-0" title="Remover"><X size={13} /></button>
+                            </div>
+                          ))}
+                          <div className="flex flex-wrap items-center gap-1.5 pt-1">
+                            <input value={form.title} onChange={e => setForm({ title: e.target.value })} onKeyDown={e => { if (e.key === 'Enter') addSub(); }} placeholder="Nova subtarefa" className="flex-1 min-w-[140px] text-xs border border-slate-200 rounded px-2 py-1 outline-none focus:border-amber-400" />
+                            <input list={`dl-${key}`} value={form.resp} onChange={e => setForm({ resp: e.target.value })} placeholder="Responsável" className="w-28 text-xs border border-slate-200 rounded px-2 py-1 outline-none focus:border-amber-400" />
+                            <datalist id={`dl-${key}`}>{parts.map((p: any, pi: number) => <option key={pi} value={p.name} />)}</datalist>
+                            <input type="date" value={form.date} onChange={e => setForm({ date: e.target.value })} className="text-xs border border-slate-200 rounded px-2 py-1 outline-none focus:border-amber-400 text-slate-500" />
+                            <button disabled={subBusy || !form.title.trim()} onClick={addSub} className="text-[10px] font-bold uppercase tracking-wider bg-slate-900 text-amber-500 hover:bg-slate-800 px-2.5 py-1 rounded disabled:opacity-40 flex items-center gap-1"><Plus size={12} /> Add</button>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })()}
 
                 {/* Observações (append-only) */}
                 <div className="mt-2 pt-2 border-t border-slate-100">
