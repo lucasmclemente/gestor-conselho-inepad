@@ -25,6 +25,7 @@ import { PublicQA } from './components/PublicQA';
 import { LiveQA } from './components/LiveQA';
 import { ControllerArea } from './components/ControllerArea';
 import { SubtaskList } from './components/SubtaskList';
+import { ComitesAcompanhamento } from './components/ComitesAcompanhamento';
 import { Engajamento } from './components/Engajamento';
 import { SealVerify } from './components/SealVerify';
 import { Diretorio } from './components/Diretorio';
@@ -201,6 +202,11 @@ const App = () => {
   const [comiteMembros, setComiteMembros] = useState<any[]>([]);   // membros do comitê aberto
   const [newComiteNome, setNewComiteNome] = useState('');
   const [comiteSaving, setComiteSaving] = useState(false);
+  // Comitês Fase 2 — acompanhamento (read-only) dos planos de ação dos comitês pelo Conselho
+  const [comiteTab, setComiteTab] = useState<'gestao' | 'acompanhamento'>('gestao'); // aba da tela Comitês
+  const [comiteAcoes, setComiteAcoes] = useState<any[]>([]);        // linhas da RPC comites_acoes()
+  const [comiteAcoesLoading, setComiteAcoesLoading] = useState(false);
+  const [comiteAcompStatus, setComiteAcompStatus] = useState('all'); // filtro do Acompanhamento (deep-link do dashboard)
 
   // Indicadores & Gatilhos (semáforos)
   const [indicatorStatuses, setIndicatorStatuses] = useState<any[]>([]);
@@ -300,6 +306,8 @@ const App = () => {
   const committeesEnabled = !!clientProfile?.committees_enabled;
   // Supervisor de comitês no front (espelha can_supervise_comites() do banco: Admin/Super ou Secretário)
   const canSuperviseComites = isAdm || isSec;
+  // Quem vê o menu/acompanhamento de Comitês = o Conselho (supervisores + Conselheiros)
+  const canSeeComitesMenu = committeesEnabled && (canSuperviseComites || currentUser?.role === 'Conselheiro');
   // Nome do espaço ativo (Conselho ou o comitê selecionado) — usado no seletor e no título
   const activeComiteNome = activeComiteId ? (comitesList.find((c: any) => c.id === activeComiteId)?.nome || 'Comitê') : null;
   // O próprio usuário acessa o Conselho? (false = só comitê). Default true até carregar o perfil.
@@ -2925,6 +2933,21 @@ const App = () => {
   // Ao trocar de espaço, zera filtros que apontam para uma reunião específica (evita dashboard vazio)
   useEffect(() => { setDashboardFilter('all'); setFilterOrigin('all'); setDelibFilterOrigin('all'); }, [activeComiteId]);
 
+  // Comitês Fase 2 — carrega as ações dos comitês (RPC gated no banco) para o Conselho acompanhar/cobrar.
+  // Só no espaço Conselho e quando o add-on está ligado; a RPC devolve apenas quem é supervisor/Conselho do tenant.
+  const fetchComiteAcoes = async () => {
+    if (!committeesEnabled || activeComiteId || !canSeeComitesMenu) { setComiteAcoes([]); return; }
+    setComiteAcoesLoading(true);
+    try {
+      const { data, error } = await supabase.rpc('comites_acoes');
+      if (!error) setComiteAcoes(data || []);
+    } catch (_) { /* silencioso */ }
+    finally { setComiteAcoesLoading(false); }
+  };
+  useEffect(() => { fetchComiteAcoes(); /* eslint-disable-next-line */ }, [committeesEnabled, activeComiteId, canSeeComitesMenu, activeClientId]);
+  // Conselheiro só tem a aba Acompanhamento; supervisor começa na Gestão
+  useEffect(() => { if (!canSuperviseComites) setComiteTab('acompanhamento'); }, [canSuperviseComites]);
+
   const stats = useMemo(() => {
     const today = new Date(); today.setHours(0, 0, 0, 0);
     const filteredM = dashboardFilter === 'all' ? scopedMeetings : scopedMeetings.filter(m => m.id === dashboardFilter);
@@ -3532,7 +3555,7 @@ const App = () => {
             { id: 'rubrica', icon: <Settings size={18} />, label: 'Rubrica', super: true },
             { id: 'auditoria', icon: <History size={18} />, label: 'Auditoria', adm: true }
           ]).map((item: any) => (
-            (!item.adm || isAdm) && (!item.addon || strategyEnabled) && (!item.super || isSuper) && (!item.crm || clientProfile?.crm_enabled) && (!item.qa || clientProfile?.qa_enabled) && (!item.comites || (committeesEnabled && canSuperviseComites)) && (!item.staff || canEdit) && (
+            (!item.adm || isAdm) && (!item.addon || strategyEnabled) && (!item.super || isSuper) && (!item.crm || clientProfile?.crm_enabled) && (!item.qa || clientProfile?.qa_enabled) && (!item.comites || canSeeComitesMenu) && (!item.staff || canEdit) && (
               <button key={item.id} onClick={() => { setActiveMenu(item.id); if (item.action) item.action(); setIsMobileMenuOpen(false); }} className={`w-full flex items-center gap-3 rounded-lg transition-all ${activeMenu === item.id ? 'bg-amber-600 text-white shadow-sm' : 'hover:bg-slate-700 hover:text-white'} ${isSidebarCollapsed ? 'justify-center p-3' : 'px-4 py-3'}`}>
                 <span className="shrink-0">{item.icon}</span>
                 {!isSidebarCollapsed && <span className="truncate">{item.label}</span>}
@@ -3816,6 +3839,17 @@ const App = () => {
                       <div><p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest flex items-center gap-1">Em Atraso <ChevronRight size={12} className="opacity-0 group-hover:opacity-100 transition-opacity" /></p><p className={`text-2xl font-bold mt-1 ${dashStats.atrasadas > 0 ? 'text-red-600' : 'text-slate-800'}`}>{dashStats.atrasadas}</p></div>
                     </button>
 
+                    {/* Ações de comitês em atraso — atalho ao Acompanhamento (Fase 2). Só no espaço Conselho. */}
+                    {committeesEnabled && !activeComiteId && comitesList.length > 0 && canSeeComitesMenu && (() => {
+                      const over = (comiteAcoes || []).filter((a: any) => a.status !== 'Concluída' && /^\d{4}-\d{2}-\d{2}$/.test(String(a.due_date)) && String(a.due_date) < new Date().toLocaleDateString('en-CA')).length;
+                      return (
+                        <button onClick={() => { setComiteAcompStatus('atrasadas'); setComiteTab('acompanhamento'); setActiveMenu('comites'); }} className={`group bg-white p-6 rounded-xl border shadow-sm flex items-start gap-4 text-left transition-all hover:shadow-md ${over > 0 ? 'border-red-200 hover:border-red-300' : 'border-slate-200 hover:border-amber-300'}`}>
+                          <div className={`p-3 rounded-lg ${over > 0 ? 'bg-red-100 text-red-600' : 'bg-slate-100 text-slate-400'}`}><Users /></div>
+                          <div><p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest flex items-center gap-1">Comitês em Atraso <ChevronRight size={12} className="opacity-0 group-hover:opacity-100 transition-opacity" /></p><p className={`text-2xl font-bold mt-1 ${over > 0 ? 'text-red-600' : 'text-slate-800'}`}>{over}</p></div>
+                        </button>
+                      );
+                    })()}
+
                   </div>
                   <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                     {/* Status das Ações */}
@@ -3992,8 +4026,21 @@ const App = () => {
                 </div>
               )}
 
-              {activeMenu === 'comites' && committeesEnabled && canSuperviseComites && (
+              {activeMenu === 'comites' && canSeeComitesMenu && (
                 <div className="space-y-6 animate-in fade-in">
+                  {/* Abas: Gestão (supervisores) | Acompanhamento (Conselho). Conselheiro vê só Acompanhamento. */}
+                  {canSuperviseComites && (
+                    <div className="bg-white px-2 rounded-xl border border-slate-200 shadow-sm flex gap-1">
+                      {[['gestao', 'Gestão'], ['acompanhamento', 'Acompanhamento']].map(([k, label]) => (
+                        <button key={k} onClick={() => setComiteTab(k as any)} className={`px-4 py-3 text-[11px] font-bold uppercase tracking-widest transition-all border-b-2 ${comiteTab === k ? 'text-amber-600 border-amber-600' : 'text-slate-400 border-transparent hover:text-slate-700'}`}>{label}</button>
+                      ))}
+                    </div>
+                  )}
+
+                  {comiteTab === 'acompanhamento' || !canSuperviseComites ? (
+                    <ComitesAcompanhamento acoes={comiteAcoes} loading={comiteAcoesLoading} currentUser={currentUser} statusFilter={comiteAcompStatus} onStatusFilter={setComiteAcompStatus} onRefetch={fetchComiteAcoes} />
+                  ) : (
+                  <>
                   <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
                     <h1 className="text-2xl font-bold text-slate-800 tracking-tight italic">Comitês</h1>
                     <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1">Sub-espaços que assessoram o Conselho — reuniões, atas e plano de ação próprios, isolados</p>
@@ -4069,6 +4116,8 @@ const App = () => {
                       )}
                     </div>
                   </div>
+                  </>
+                  )}
                 </div>
               )}
 
