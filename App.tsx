@@ -2407,6 +2407,22 @@ const App = () => {
       addLog('Configuração', `Comitês ${newVal ? 'ativado' : 'desativado'} para ${managedClientId}`);
     }
   };
+  const toggleManagedComiteCobranca = async () => {
+    if (!managedClientId) return;
+    const newVal = !managedClientProfile?.committee_auto_charge;
+    const payload = {
+      client_id: managedClientId,
+      name: managedClientForm.name || managedClientId,
+      logo_url: managedClientForm.logo_url || '',
+      committee_auto_charge: newVal
+    };
+    const { data, error } = await supabase.from('clients').upsert(payload, { onConflict: 'client_id' }).select().single();
+    if (!error && data) {
+      setManagedClientProfile(data);
+      setAllClientsList(prev => prev.map((c: any) => c.client_id === managedClientId ? data : c));
+      addLog('Configuração', `Cobrança automática de comitês ${newVal ? 'ativada' : 'desativada'} para ${managedClientId}`);
+    }
+  };
 
   // Cria um novo cliente (tenant) — apenas SuperAdmin
   const createClient = async () => {
@@ -6744,6 +6760,17 @@ const App = () => {
                             {managedClientProfile?.committees_enabled
                               ? <p className="text-[10px] text-emerald-600 font-bold not-italic flex items-center gap-1.5"><CheckCircle2 size={12} /> Add-on ativo — menu "Comitês" e seletor de espaço visíveis para o cliente</p>
                               : <p className="text-[10px] text-slate-400 font-normal not-italic">Add-on inativo — o cliente não verá os Comitês</p>}
+                            {managedClientProfile?.committees_enabled && (
+                              <div className="flex items-center justify-between p-4 bg-white rounded-xl border border-slate-200 mt-1">
+                                <div className="pr-3">
+                                  <p className="text-sm font-bold text-slate-800 italic">Cobrança automática (semanal)</p>
+                                  <p className="text-[10px] text-slate-400 font-normal not-italic mt-0.5">Toda segunda de manhã, um e-mail cobra os responsáveis por ações de comitê atrasadas ou vencendo em até 3 dias. Começa desligado.</p>
+                                </div>
+                                <button onClick={toggleManagedComiteCobranca} className={`relative inline-flex h-7 w-12 shrink-0 items-center rounded-full transition-colors duration-200 focus:outline-none ${managedClientProfile?.committee_auto_charge ? 'bg-amber-600' : 'bg-slate-200'}`}>
+                                  <span className={`inline-block h-5 w-5 transform rounded-full bg-white shadow-md transition-transform duration-200 ${managedClientProfile?.committee_auto_charge ? 'translate-x-6' : 'translate-x-1'}`} />
+                                </button>
+                              </div>
+                            )}
                           </div>
 
                           {/* Status da conta — ativar/inativar (reversível) */}

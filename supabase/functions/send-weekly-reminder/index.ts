@@ -265,10 +265,12 @@ serve(async (req) => {
       return contained ? contained[1] : null
     }
 
-    // Busca todas as reuniões com ações
+    // Busca as reuniões do CONSELHO com ações.
+    // Ações de comitê (comite_id não nulo) têm seu próprio cron (cron-cobrar-comites)
+    // para não cobrar o mesmo responsável duas vezes.
     const { data: meetings, error: meetErr } = await supabaseAdmin
       .from('meetings')
-      .select('id, title, acoes, client_id')
+      .select('id, title, acoes, client_id, comite_id')
 
     if (meetErr) throw new Error('Erro ao buscar reuniões: ' + meetErr.message)
 
@@ -277,6 +279,7 @@ serve(async (req) => {
     const byEmail: Record<string, { name: string; actions: any[] }> = {}
 
     for (const meeting of meetings ?? []) {
+      if (meeting.comite_id) continue // reuniões de comitê são cobradas pelo cron de comitês
       const acoes: any[] = meeting.acoes ?? []
       for (const acao of acoes) {
         if (acao.status === 'Concluída') continue
