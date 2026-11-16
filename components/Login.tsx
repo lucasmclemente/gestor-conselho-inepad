@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { ChevronRight, ShieldCheck } from 'lucide-react';
+import { ChevronRight, ShieldCheck, Building2 } from 'lucide-react';
 import { supabase } from '../services/supabaseClient';
 import { BoardplanLogo } from './Brand';
 
@@ -16,6 +16,24 @@ export const Login: React.FC<{ onEnterRecovery?: () => void }> = ({ onEnterRecov
   const [verifying, setVerifying] = useState(false);
   const [sendingReset, setSendingReset] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [ssoLoading, setSsoLoading] = useState(false);
+
+  // Login único (SSO) por domínio: usa o e-mail digitado para achar o provedor
+  // da empresa e redirecionar ao Entra/Google dela. O provisionamento (allowlist)
+  // acontece no retorno, no App (provision-sso).
+  const startSso = async () => {
+    const em = authForm.email.trim().toLowerCase();
+    const domain = em.split('@')[1] || '';
+    if (!em || !domain) { alert('Digite seu e-mail corporativo primeiro para entrar com a conta da empresa.'); return; }
+    setSsoLoading(true);
+    const { data, error } = await supabase.auth.signInWithSSO({ domain });
+    if (error || !data?.url) {
+      setSsoLoading(false);
+      alert('Login único não está disponível para este e-mail.\n\nUse e-mail e senha, ou fale com o administrador da sua empresa.');
+      return;
+    }
+    window.location.href = data.url; // redireciona ao provedor (Entra/Google)
+  };
 
   return (
     <div className="min-h-screen flex flex-col md:flex-row font-sans text-slate-900">
@@ -99,6 +117,17 @@ export const Login: React.FC<{ onEnterRecovery?: () => void }> = ({ onEnterRecov
                 <input type="password" placeholder="••••••••" className="w-full mt-1.5 p-3.5 bg-white border border-slate-200 rounded-lg outline-none font-semibold focus:border-amber-400 transition-colors" value={authForm.password} onChange={e => setAuthForm({ ...authForm, password: e.target.value })} required />
               </div>
               <button disabled={loading} className="w-full bg-amber-600 hover:bg-amber-700 text-white py-3.5 rounded-lg font-bold uppercase tracking-widest text-xs shadow-md transition-all disabled:opacity-50 flex items-center justify-center gap-2">{loading ? 'Entrando...' : <>Entrar <ChevronRight size={16} /></>}</button>
+
+              {/* Login único (SSO) — para funcionários de empresas com SSO habilitado */}
+              <div className="flex items-center gap-3 py-1">
+                <span className="flex-1 h-px bg-slate-200" />
+                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">ou</span>
+                <span className="flex-1 h-px bg-slate-200" />
+              </div>
+              <button type="button" disabled={ssoLoading} onClick={startSso} className="w-full bg-slate-900 hover:bg-slate-800 text-amber-500 py-3.5 rounded-lg font-bold uppercase tracking-widest text-xs shadow-md transition-all disabled:opacity-50 flex items-center justify-center gap-2">
+                <Building2 size={15} /> {ssoLoading ? 'Redirecionando…' : 'Entrar com a conta da empresa'}
+              </button>
+
               <button type="button" onClick={() => { setForgotMode(true); setForgotEmail(authForm.email); }} className="w-full text-center text-xs text-slate-400 hover:text-amber-600 transition-colors font-bold pt-1">
                 Esqueci minha senha
               </button>

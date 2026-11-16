@@ -375,9 +375,40 @@ const App = () => {
     // Lê os claims de segurança (role/client_id/secretary_clients) do app_metadata,
     // que só o service_role grava — impede autopromoção via updateUser.
     // O nome (exibição) continua no user_metadata, editável pelo próprio usuário.
-    const { data: authData } = await supabase.auth.getUser();
-    const user = authData?.user;
-    const appMeta = (user as any)?.app_metadata;
+    let { data: authData } = await supabase.auth.getUser();
+    let user = authData?.user;
+    let appMeta = (user as any)?.app_metadata;
+
+    // ── Login único (SSO): provisionamento allowlist no 1º acesso ──
+    // O SSO cria um usuário NOVO sem papel/empresa. provision-sso confere se o
+    // e-mail é membro cadastrado de um cliente com SSO habilitado e grava os
+    // claims; se não for, nega o acesso. (SSO não usa o MFA do app — vem do IdP.)
+    const ssoProviders = [appMeta?.provider,
+      ...(Array.isArray(appMeta?.providers) ? appMeta.providers : []),
+      ...(Array.isArray(user?.identities) ? user!.identities.map((i: any) => i.provider) : [])
+    ].map((p: any) => String(p || ''));
+    const isSsoUser = ssoProviders.some(p => p.startsWith('sso'));
+    if (isSsoUser && !(appMeta?.role && appMeta?.client_id)) {
+      try {
+        const { data: prov } = await supabase.functions.invoke('provision-sso');
+        if (!(prov as any)?.ok) {
+          await supabase.auth.signOut();
+          setCurrentUser(null); setMfaStage(null);
+          alert('Seu e-mail não está cadastrado como membro deste conselho. Procure o administrador da sua empresa.');
+          return;
+        }
+        await supabase.auth.refreshSession();
+        ({ data: authData } = await supabase.auth.getUser());
+        user = authData?.user;
+        appMeta = (user as any)?.app_metadata;
+      } catch (_) {
+        await supabase.auth.signOut();
+        setCurrentUser(null); setMfaStage(null);
+        alert('Não foi possível validar seu acesso por SSO agora. Tente novamente.');
+        return;
+      }
+    }
+
     const userMeta = user?.user_metadata;
     let profile: any = null;
     if (appMeta?.role && appMeta?.client_id) {
@@ -408,7 +439,7 @@ const App = () => {
     // ── MFA (2FA): porta de segurança antes de liberar o app ──
     // 1) tem fator verificado → exige o desafio (código do app)
     // 2) o cliente exige MFA e ele ainda não cadastrou → força o cadastro
-    try {
+    if (!isSsoUser) try {
       const { data: aal } = await supabase.auth.mfa.getAuthenticatorAssuranceLevel();
       setMfaEmail(profile.email || '');
       if (aal?.currentLevel === 'aal1' && aal?.nextLevel === 'aal2') {
