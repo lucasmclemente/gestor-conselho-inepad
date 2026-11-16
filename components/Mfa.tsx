@@ -54,8 +54,14 @@ const EnrollPanel: React.FC<{ onVerified: () => void }> = ({ onVerified }) => {
     if (c.length < 6) { setErr('Digite os 6 dígitos do aplicativo.'); return; }
     setBusy(true); setErr('');
     const { error } = await supabase.auth.mfa.challengeAndVerify({ factorId, code: c });
+    if (error) { setBusy(false); setErr('Código inválido ou expirado. Abra o app e tente o código atual.'); setCode(''); return; }
+    // Dedupe: mantém só o fator recém-verificado; remove fatores TOTP antigos
+    // (evita o estado "o app mostra o código de um, o login cobra o de outro").
+    try {
+      const { data } = await supabase.auth.mfa.listFactors();
+      for (const f of (data?.totp || [])) { if (f.id !== factorId) { try { await supabase.auth.mfa.unenroll({ factorId: f.id }); } catch { /* ignore */ } } }
+    } catch { /* ignore */ }
     setBusy(false);
-    if (error) { setErr('Código inválido ou expirado. Abra o app e tente o código atual.'); setCode(''); return; }
     onVerified();
   };
 
@@ -115,9 +121,18 @@ const ChallengePanel: React.FC<{ onVerified: () => void }> = ({ onVerified }) =>
     const c = code.replace(/\D/g, '');
     if (c.length < 6) { setErr('Digite os 6 dígitos do aplicativo.'); return; }
     setBusy(true); setErr('');
-    const { error } = await supabase.auth.mfa.challengeAndVerify({ factorId, code: c });
+    // Robusto a fatores duplicados: tenta cada fator TOTP verificado até um casar
+    // (se o app tiver mais de uma entrada "Boardplan", o código certo ainda entra).
+    let list: any[] = [];
+    try { const { data } = await supabase.auth.mfa.listFactors(); list = (data?.totp || []).filter((f: any) => f.status === 'verified'); } catch { /* ignore */ }
+    if (list.length === 0 && factorId) list = [{ id: factorId }];
+    let ok = false;
+    for (const f of list) {
+      const { error } = await supabase.auth.mfa.challengeAndVerify({ factorId: f.id, code: c });
+      if (!error) { ok = true; break; }
+    }
     setBusy(false);
-    if (error) { setErr('Código inválido ou expirado. Abra o app e tente o código atual.'); setCode(''); return; }
+    if (!ok) { setErr('Código inválido ou expirado. Abra o app e tente o código atual.'); setCode(''); return; }
     onVerified();
   };
 
