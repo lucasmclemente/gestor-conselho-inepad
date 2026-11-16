@@ -26,7 +26,7 @@ export const Login: React.FC<{ onEnterRecovery?: () => void }> = ({ onEnterRecov
     const domain = em.split('@')[1] || '';
     if (!em || !domain) { alert('Digite seu e-mail corporativo primeiro para entrar com a conta da empresa.'); return; }
     setSsoLoading(true);
-    const { data, error } = await supabase.auth.signInWithSSO({ domain });
+    const { data, error } = await supabase.auth.signInWithSSO({ domain, options: { redirectTo: window.location.origin } });
     if (error || !data?.url) {
       setSsoLoading(false);
       alert('Login único não está disponível para este e-mail.\n\nUse e-mail e senha, ou fale com o administrador da sua empresa.');
