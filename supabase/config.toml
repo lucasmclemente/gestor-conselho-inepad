@@ -151,12 +151,11 @@ max_indexes = 5
 enabled = true
 # The base URL of your website. Used as an allow-list for redirects and for constructing URLs used
 # in emails.
-# Site URL da branch develop (a branch reaplica este valor — por isso NÃO pode ser
-# 127.0.0.1, senão o retorno de OAuth/SSO cai num endereço que não existe).
-site_url = "https://gestor-conselho-in-git-b02f6a-lucas-clementes-projects-f023a2b6.vercel.app"
+# PRODUÇÃO: a aplicação vive em app.boardplan.com.br. (Na branch develop este
+# valor é outro — ver config.toml da develop; não unificar sem querer num merge.)
+site_url = "https://app.boardplan.com.br"
 # URLs que os provedores (incl. SSO/SAML) podem redirecionar após autenticar.
-# Curinga cobre o alias estável da develop e os previews da Vercel.
-additional_redirect_urls = ["https://gestor-conselho-*.vercel.app/**", "http://localhost:3000/**", "http://127.0.0.1:3000/**"]
+additional_redirect_urls = ["https://app.boardplan.com.br/**", "https://gestor-conselho-*.vercel.app/**", "http://localhost:3000/**"]
 # How long tokens are valid for, in seconds. Defaults to 3600 (1 hour), maximum 604,800 (1 week).
 jwt_expiry = 3600
 # JWT issuer URL. If not set, defaults to the local API URL (http://127.0.0.1:<port>/auth/v1).
