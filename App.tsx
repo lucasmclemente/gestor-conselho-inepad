@@ -710,12 +710,15 @@ const App = () => {
           supabase.from('members').select('client_id')
         ]);
         const clientsWithProfile: any[] = allClientsRes.data || [];
-        const knownIds = new Set(clientsWithProfile.map((c: any) => c.client_id));
-        (allMembersRes.data || []).forEach((m: any) => knownIds.add(m.client_id));
+        // Ignora client_id nulo/vazio (ex.: membro órfão) — senão o sort abaixo
+        // estoura ("Cannot read properties of null") e a lista de clientes fica vazia,
+        // fazendo o seletor de cliente do topo sumir.
+        const knownIds = new Set<string>(clientsWithProfile.map((c: any) => c.client_id).filter(Boolean));
+        (allMembersRes.data || []).forEach((m: any) => { if (m.client_id) knownIds.add(m.client_id); });
         const fullList = Array.from(knownIds).map(id => {
           return clientsWithProfile.find((c: any) => c.client_id === id)
             || { client_id: id, name: id, logo_url: null, clicksign_enabled: false };
-        }).sort((a: any, b: any) => a.client_id.localeCompare(b.client_id));
+        }).sort((a: any, b: any) => String(a.client_id || '').localeCompare(String(b.client_id || '')));
         setAllClientsList(fullList);
       }
       // Indicadores & Gatilhos do cliente ativo (semáforos + alertas + cadastros + séries)
