@@ -70,7 +70,9 @@ const EnrollPanel: React.FC<{ onVerified: () => void }> = ({ onVerified }) => {
       </ol>
       {qr && (
         <div className="flex flex-col items-center gap-3">
-          <div className="p-3 bg-white border border-slate-200 rounded-xl" style={{ width: 200 }} dangerouslySetInnerHTML={{ __html: qr }} />
+          {qr.indexOf('<svg') >= 0
+            ? <div className="p-3 bg-white border border-slate-200 rounded-xl [&>svg]:w-full [&>svg]:h-auto" style={{ width: 200 }} dangerouslySetInnerHTML={{ __html: qr.slice(qr.indexOf('<svg')) }} />
+            : <img src={qr} alt="QR code para o app autenticador" className="p-3 bg-white border border-slate-200 rounded-xl" style={{ width: 200, height: 200 }} />}
           <div className="text-center">
             <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Ou digite a chave manualmente</p>
             <code className="text-[11px] font-mono text-slate-600 break-all select-all">{secret}</code>
