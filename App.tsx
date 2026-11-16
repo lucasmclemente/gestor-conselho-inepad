@@ -26,6 +26,7 @@ import { LiveQA } from './components/LiveQA';
 import { ControllerArea } from './components/ControllerArea';
 import { SubtaskList } from './components/SubtaskList';
 import { ComitesAcompanhamento } from './components/ComitesAcompanhamento';
+import { MfaGate, MfaManageModal } from './components/Mfa';
 import { Engajamento } from './components/Engajamento';
 import { SealVerify } from './components/SealVerify';
 import { Diretorio } from './components/Diretorio';
@@ -143,6 +144,10 @@ const App = () => {
   const [tmpDelib, setTmpDelib] = useState({ title: '', voters: [] as string[], votes: {} as any });
   const [editingObsKey, setEditingObsKey] = useState<string | null>(null);
   const [obsInputValue, setObsInputValue] = useState('');
+  // MFA (2FA): porta de segurança entre a sessão e o app
+  const [mfaStage, setMfaStage] = useState<null | 'challenge' | 'enroll'>(null);
+  const [mfaEmail, setMfaEmail] = useState('');
+  const [mfa2Modal, setMfa2Modal] = useState(false);
   // Troca de senha do próprio usuário (self-service)
   const [pwModal, setPwModal] = useState(false);
   const [pwForm, setPwForm] = useState({ atual: '', nova: '', confirma: '' });
@@ -354,7 +359,7 @@ const App = () => {
       // Sem guard isRecoveryLink aqui — o render prioriza isRecovering (checado antes de currentUser)
       // Isso garante que o login normal funciona depois do reset de senha
       if (session) fetchMemberProfile(session.user.id);
-      else { setCurrentUser(null); setIsRecovering(false); setActiveClientId(null); }
+      else { setCurrentUser(null); setIsRecovering(false); setActiveClientId(null); setMfaStage(null); }
     });
     return () => subscription.unsubscribe();
   }, []);
@@ -393,7 +398,29 @@ const App = () => {
         return;
       }
     }
+    // ── MFA (2FA): porta de segurança antes de liberar o app ──
+    // 1) tem fator verificado → exige o desafio (código do app)
+    // 2) o cliente exige MFA e ele ainda não cadastrou → força o cadastro
+    try {
+      const { data: aal } = await supabase.auth.mfa.getAuthenticatorAssuranceLevel();
+      setMfaEmail(profile.email || '');
+      if (aal?.currentLevel === 'aal1' && aal?.nextLevel === 'aal2') {
+        setMfaStage('challenge'); setCurrentUser(null); return;
+      }
+      const { data: cliMfa } = await supabase.from('clients').select('mfa_required').eq('client_id', profile.client_id).maybeSingle();
+      if (cliMfa?.mfa_required && aal?.currentLevel !== 'aal2') {
+        setMfaStage('enroll'); setCurrentUser(null); return;
+      }
+    } catch (_) { /* nunca bloqueia o login legado se a checagem de MFA falhar */ }
+    setMfaStage(null);
     setCurrentUser(profile);
+  };
+
+  // Após passar/cadastrar o MFA (sessão já é aal2), reprocessa o perfil → libera o app
+  const refreshAfterMfa = async () => {
+    const { data } = await supabase.auth.getUser();
+    if (data?.user) fetchMemberProfile(data.user.id);
+    else setMfaStage(null);
   };
 
   // Ao abrir a aba de Atas, atualiza o status de aprovação a partir do banco (as
@@ -2423,6 +2450,25 @@ const App = () => {
       addLog('Configuração', `Cobrança automática de comitês ${newVal ? 'ativada' : 'desativada'} para ${managedClientId}`);
     }
   };
+  const toggleManagedMfa = async () => {
+    if (!managedClientId) return;
+    const newVal = !managedClientProfile?.mfa_required;
+    if (newVal && !confirm(`Exigir verificação em 2 fatores de TODOS os usuários de ${managedClientForm.name || managedClientId}?\n\nNo próximo login, quem ainda não tiver o 2º fator será obrigado a cadastrá-lo para entrar.`)) return;
+    const payload = {
+      client_id: managedClientId,
+      name: managedClientForm.name || managedClientId,
+      logo_url: managedClientForm.logo_url || '',
+      mfa_required: newVal
+    };
+    const { data, error } = await supabase.from('clients').upsert(payload, { onConflict: 'client_id' }).select().single();
+    if (!error && data) {
+      setManagedClientProfile(data);
+      setAllClientsList(prev => prev.map((c: any) => c.client_id === managedClientId ? data : c));
+      addLog('Configuração', `MFA obrigatório ${newVal ? 'ativado' : 'desativado'} para ${managedClientId}`);
+    } else if (error) {
+      alert('Erro ao salvar: ' + error.message);
+    }
+  };
 
   // Cria um novo cliente (tenant) — apenas SuperAdmin
   const createClient = async () => {
@@ -3508,6 +3554,11 @@ const App = () => {
     return <RecoverPassword onDone={() => setIsRecovering(false)} />;
   }
 
+  // ── MFA: desafio ou cadastro obrigatório antes de liberar o app ──
+  if (mfaStage) {
+    return <MfaGate stage={mfaStage} email={mfaEmail} onVerified={refreshAfterMfa} onSignOut={async () => { setMfaStage(null); await supabase.auth.signOut(); }} />;
+  }
+
   if (!currentUser) {
     return <Login onEnterRecovery={() => setIsRecovering(true)} />;
   }
@@ -3583,6 +3634,10 @@ const App = () => {
           <button onClick={() => { setPwForm({ atual: '', nova: '', confirma: '' }); setPwModal(true); }} className={`w-full flex items-center gap-3 rounded-lg text-slate-400 hover:bg-slate-700 hover:text-white transition-all text-[10px] font-bold uppercase tracking-widest ${isSidebarCollapsed ? 'justify-center p-3' : 'px-4 py-3'}`} title="Alterar senha">
             <Key size={18} />
             {!isSidebarCollapsed && <span>Alterar senha</span>}
+          </button>
+          <button onClick={() => setMfa2Modal(true)} className={`w-full flex items-center gap-3 rounded-lg text-slate-400 hover:bg-slate-700 hover:text-white transition-all text-[10px] font-bold uppercase tracking-widest ${isSidebarCollapsed ? 'justify-center p-3' : 'px-4 py-3'}`} title="Verificação em 2 fatores">
+            <ShieldCheck size={18} />
+            {!isSidebarCollapsed && <span>Verificação 2 fatores</span>}
           </button>
           <button onClick={async () => { await supabase.auth.signOut(); setCurrentUser(null); }} className={`w-full flex items-center gap-3 rounded-lg text-red-400 hover:bg-red-500/10 hover:text-red-300 transition-all text-[10px] font-bold uppercase tracking-widest ${isSidebarCollapsed ? 'justify-center p-3' : 'px-4 py-3'}`}>
             <LogOut size={18} />
@@ -3687,6 +3742,7 @@ const App = () => {
             </div>
           </div>
         )}
+        {mfa2Modal && <MfaManageModal onClose={() => setMfa2Modal(false)} required={!!clientProfile?.mfa_required} />}
       </aside>
 
       <main className="flex-1 flex flex-col h-screen overflow-hidden">
@@ -6771,6 +6827,25 @@ const App = () => {
                                 </button>
                               </div>
                             )}
+                          </div>
+
+                          {/* Segurança: MFA (2FA) obrigatório por cliente */}
+                          <div className="border-t border-slate-100 pt-5 space-y-3">
+                            <h4 className="text-[10px] font-bold uppercase text-slate-400 tracking-widest flex items-center gap-2">
+                              <ShieldCheck size={13} className="text-amber-600" /> Segurança — Verificação em 2 fatores
+                            </h4>
+                            <div className="flex items-center justify-between p-4 bg-slate-50 rounded-xl border border-slate-200">
+                              <div className="pr-3">
+                                <p className="text-sm font-bold text-slate-800 italic">Exigir 2FA de {managedClientForm.name || managedClientId}</p>
+                                <p className="text-[10px] text-slate-400 font-normal not-italic mt-0.5">Todos os usuários desta empresa precisam cadastrar e usar um app autenticador (TOTP) para entrar. Começa desligado.</p>
+                              </div>
+                              <button onClick={toggleManagedMfa} className={`relative inline-flex h-7 w-12 shrink-0 items-center rounded-full transition-colors duration-200 focus:outline-none ${managedClientProfile?.mfa_required ? 'bg-amber-600' : 'bg-slate-200'}`}>
+                                <span className={`inline-block h-5 w-5 transform rounded-full bg-white shadow-md transition-transform duration-200 ${managedClientProfile?.mfa_required ? 'translate-x-6' : 'translate-x-1'}`} />
+                              </button>
+                            </div>
+                            {managedClientProfile?.mfa_required
+                              ? <p className="text-[10px] text-emerald-600 font-bold not-italic flex items-center gap-1.5"><CheckCircle2 size={12} /> 2FA obrigatório — exigido no próximo login de cada usuário</p>
+                              : <p className="text-[10px] text-slate-400 font-normal not-italic">2FA opcional — cada usuário pode ativar no próprio perfil</p>}
                           </div>
 
                           {/* Status da conta — ativar/inativar (reversível) */}
