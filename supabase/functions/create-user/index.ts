@@ -59,11 +59,15 @@ serve(async (req) => {
 
   try {
     const body = await req.json();
-    const { name, email, password, role, client_id, created_by } = body;
+    const { name, email, password, role, created_by } = body;
+    // Normaliza o client_id e recusa vazio/"null"/"undefined": um client_id nulo
+    // cria membro órfão e quebra telas que ordenam por client_id (seletor de cliente).
+    const client_id = typeof body.client_id === 'string' ? body.client_id.trim() : '';
+    const cidLower = client_id.toLowerCase();
 
-    if (!name || !email || !password || !role || !client_id) {
+    if (!name || !email || !password || !role || !client_id || cidLower === 'null' || cidLower === 'undefined') {
       return new Response(
-        JSON.stringify({ error: "Todos os campos são obrigatórios." }),
+        JSON.stringify({ error: "Todos os campos são obrigatórios (empresa/cliente incluído)." }),
         { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
@@ -94,6 +98,17 @@ serve(async (req) => {
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "",
       { auth: { autoRefreshToken: false, persistSession: false } }
     );
+
+    // Recusa client_id que não existe na tabela clients (evita órfão por digitação
+    // ou por estado "Consolidado Geral" sem empresa selecionada).
+    const { data: clientRow } = await supabaseAdmin
+      .from('clients').select('client_id').eq('client_id', client_id).maybeSingle();
+    if (!clientRow) {
+      return new Response(
+        JSON.stringify({ error: `Empresa "${client_id}" não encontrada. Crie o cliente antes de cadastrar membros.` }),
+        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
 
     // 1. Cria o usuário no Auth
     const { data: authData, error: authCreateError } = await supabaseAdmin.auth.admin.createUser({
