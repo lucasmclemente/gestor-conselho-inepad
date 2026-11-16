@@ -351,6 +351,15 @@ const App = () => {
       }
       // Limpa hash/query para não reprocessar em refresh
       window.history.replaceState(null, '', window.location.pathname);
+    } else if (h.get('access_token') && h.get('refresh_token')) {
+      // Retorno de login SSO (flowType 'implicit'): os tokens chegam no hash e o
+      // detectSessionInUrl está DESLIGADO — então estabelecemos a sessão manualmente.
+      // O SIGNED_IN resultante dispara o fetchMemberProfile, que provisiona o usuário
+      // SSO (provision-sso) e libera o acesso. Sem isto, a sessão não nasce e cai no login.
+      const access_token = h.get('access_token') as string;
+      const refresh_token = h.get('refresh_token') as string;
+      window.history.replaceState(null, '', window.location.pathname);
+      supabase.auth.setSession({ access_token, refresh_token });
     }
 
     supabase.auth.getSession().then(({ data: { session } }) => {
