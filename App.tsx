@@ -193,6 +193,7 @@ const App = () => {
   const [timeElapsed, setTimeElapsed] = useState(0);
   const [isSessionActive, setIsSessionActive] = useState(false);
   const currentMeetingRef = useRef<any>(null);
+  const ssoProvisioningRef = useRef(false); // evita provisionar SSO em paralelo (corrida no retorno)
   const pautaStartRef = useRef<number | null>(null);   // relógio real (ms) do início da pauta ativa
   const overshootAlertedRef = useRef(false);           // evita repetir o alerta de estouro
   const [noteAutoSaved, setNoteAutoSaved] = useState(false);
@@ -398,6 +399,10 @@ const App = () => {
     ].map((p: any) => String(p || ''));
     const isSsoUser = ssoProviders.some(p => p.startsWith('sso'));
     if (isSsoUser && !(appMeta?.role && appMeta?.client_id)) {
+      // Dedupe: o retorno do SSO dispara fetchMemberProfile mais de uma vez; só a
+      // primeira chamada provisiona — as demais aguardam (evita negação por corrida).
+      if (ssoProvisioningRef.current) return;
+      ssoProvisioningRef.current = true;
       try {
         const { data: prov } = await supabase.functions.invoke('provision-sso');
         if (!(prov as any)?.ok) {
@@ -415,6 +420,8 @@ const App = () => {
         setCurrentUser(null); setMfaStage(null);
         alert('Não foi possível validar seu acesso por SSO agora. Tente novamente.');
         return;
+      } finally {
+        ssoProvisioningRef.current = false;
       }
     }
 
