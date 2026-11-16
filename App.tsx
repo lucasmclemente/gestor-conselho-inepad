@@ -79,6 +79,11 @@ const App = () => {
   // Plano de Ação: retrato das ações que casam com o filtro no momento em que ele muda.
   // Editar uma ação (que a tire do filtro) NÃO a remove da lista até o filtro mudar de novo.
   const [frozenActionKeys, setFrozenActionKeys] = useState<Set<string>>(new Set());
+  // Evidência obrigatória ao avançar o status de uma ação de COMITÊ (Em andamento/Concluída)
+  const [evidenceModal, setEvidenceModal] = useState<null | { meetingId: string; actionId: any; newStatus: string; title: string }>(null);
+  const [evidenceFile, setEvidenceFile] = useState<File | null>(null);
+  const [evidenceNote, setEvidenceNote] = useState('');
+  const [evidenceBusy, setEvidenceBusy] = useState(false);
   const [delibFileUploading, setDelibFileUploading] = useState<number | null>(null); // índice da deliberação em upload
   const [filterOrigin, setFilterOrigin] = useState('all');
   const [filterPriority, setFilterPriority] = useState('all');
@@ -1756,6 +1761,99 @@ const App = () => {
     setMeetings(prev => prev.map(m => m.id === meetingId ? { ...m, acoes: newAcoes } : m));
     return true;
   };
+
+  // ── Evidência obrigatória nas ações dos COMITÊS ──────────────────────────────
+  // Dentro de um comitê (activeComiteId != null), para marcar uma ação como
+  // "Em andamento" ou "Concluída" o gestor precisa ter ao menos 1 evidência anexada.
+  // Fora de comitê (espaço Conselho) nada muda.
+  const requestActionStatus = (meetingId: string, actionId: string | number, newStatus: string) => {
+    if (!canEdit) return;
+    const needsEvidence = !!activeComiteId && (newStatus === 'Em andamento' || newStatus === 'Concluída');
+    if (needsEvidence) {
+      const meeting = meetings.find(m => m.id === meetingId);
+      const acao = (meeting?.acoes || []).find((a: any) => String(a.id) === String(actionId));
+      const hasEvidence = (acao?.evidencias || []).length > 0;
+      if (!hasEvidence) {
+        setEvidenceFile(null); setEvidenceNote('');
+        setEvidenceModal({ meetingId, actionId, newStatus, title: acao?.title || 'Ação' });
+        return;
+      }
+    }
+    updateActionStatusGlobal(meetingId, actionId, newStatus);
+  };
+
+  const confirmEvidence = async () => {
+    if (!evidenceModal || !evidenceFile) return;
+    const { meetingId, actionId, newStatus } = evidenceModal;
+    setEvidenceBusy(true);
+    try {
+      const safe = evidenceFile.name.replace(/[^\w.\-]+/g, '_');
+      const path = `${currentUser.client_id}/evidencias/${meetingId}/${actionId}-${Date.now()}-${safe}`;
+      const { error: upErr } = await supabase.storage.from('meeting-files').upload(path, evidenceFile, { upsert: true });
+      if (upErr) throw new Error(upErr.message);
+      const meeting = meetings.find(m => m.id === meetingId);
+      const acao = (meeting?.acoes || []).find((a: any) => String(a.id) === String(actionId));
+      const ev = { id: newUid(), name: evidenceFile.name, path, at: new Date().toISOString(), by: currentUser?.name || '', note: (evidenceNote || '').trim() || undefined };
+      const evidencias = [...(acao?.evidencias || []), ev];
+      const statusChanged = acao?.status !== newStatus;
+      const ok = await updateActionFields(meetingId, actionId, statusChanged ? { evidencias, status: newStatus } : { evidencias });
+      if (ok) {
+        addLog('Plano de Ação', `Evidência "${evidenceFile.name}" anexada à ação "${acao?.title || ''}"${statusChanged ? ` (status → ${newStatus})` : ''} em comitê.`);
+        setEvidenceModal(null); setEvidenceFile(null); setEvidenceNote('');
+      }
+    } catch (e: any) {
+      alert('Erro ao anexar evidência: ' + (e?.message || e));
+    } finally {
+      setEvidenceBusy(false);
+    }
+  };
+
+  const openEvidence = async (path: string) => {
+    const { data, error } = await supabase.storage.from('meeting-files').createSignedUrl(path, 60 * 60);
+    if (error || !data?.signedUrl) { alert('Não foi possível abrir a evidência.'); return; }
+    window.open(data.signedUrl, '_blank');
+  };
+
+  const removeEvidence = async (meetingId: string, actionId: string | number, evId: string) => {
+    if (!canEdit) return;
+    if (!window.confirm('Remover esta evidência? A ação pode voltar a exigir uma nova para avançar o status.')) return;
+    const meeting = meetings.find(m => m.id === meetingId);
+    const acao = (meeting?.acoes || []).find((a: any) => String(a.id) === String(actionId));
+    const ev = (acao?.evidencias || []).find((e: any) => e.id === evId);
+    const evidencias = (acao?.evidencias || []).filter((e: any) => e.id !== evId);
+    const ok = await updateActionFields(meetingId, actionId, { evidencias });
+    if (ok && ev?.path) { try { await supabase.storage.from('meeting-files').remove([ev.path]); } catch { /* best-effort */ } }
+  };
+
+  // Bloco de evidências de uma ação (só aparece dentro de um comitê)
+  const renderEvidencias = (acao: any) => {
+    if (!activeComiteId) return null;
+    const evs = acao.evidencias || [];
+    if (evs.length === 0 && !canEdit) return null;
+    return (
+      <div className="mt-2 pt-2 border-t border-slate-100 not-italic font-normal">
+        <div className="flex items-center gap-1.5 text-[9px] font-bold uppercase tracking-widest text-slate-500 mb-1">
+          <ShieldCheck size={12} className="text-emerald-600" /> Evidências
+          {evs.length > 0 && <span className="px-1.5 py-0.5 rounded-full text-[8px] bg-emerald-100 text-emerald-700">{evs.length}</span>}
+        </div>
+        <div className="flex flex-wrap items-center gap-1">
+          {evs.map((ev: any) => (
+            <span key={ev.id} className="inline-flex items-center gap-1 bg-slate-50 border border-slate-200 rounded px-1.5 py-0.5">
+              <button onClick={() => openEvidence(ev.path)} className="flex items-center gap-1 text-[9px] text-slate-600 hover:text-amber-600 max-w-[170px] truncate" title={`Abrir ${ev.name}${ev.by ? ' · ' + ev.by : ''}${ev.at ? ' · ' + new Date(ev.at).toLocaleDateString('pt-BR') : ''}`}><FileText size={10} className="shrink-0 text-emerald-500" />{ev.name}</button>
+              {canEdit && <button onClick={() => removeEvidence(acao.mId, acao.id, ev.id)} className="text-slate-300 hover:text-red-500 shrink-0" title="Remover evidência"><X size={9} /></button>}
+            </span>
+          ))}
+          {canEdit && (
+            <button onClick={() => { setEvidenceFile(null); setEvidenceNote(''); setEvidenceModal({ meetingId: acao.mId, actionId: acao.id, newStatus: acao.status, title: acao.title }); }} className="inline-flex items-center gap-1 text-[9px] font-bold uppercase tracking-wider text-slate-400 hover:text-amber-600 border border-dashed border-slate-300 hover:border-amber-400 rounded px-1.5 py-0.5 transition-colors" title="Anexar evidência">
+              <Paperclip size={10} /> Anexar evidência
+            </button>
+          )}
+        </div>
+        {evs.length === 0 && <p className="text-[9px] text-slate-400 mt-1">Obrigatória para marcar <b>Em andamento</b> ou <b>Concluída</b>.</p>}
+      </div>
+    );
+  };
+
   const openActionModal = (acao: any) => {
     if (!canEdit) return;
     setActionModal({ mId: acao.mId, id: acao.id, title: acao.title || '', why: acao.why || '', where: acao.where || '', how: acao.how || '', how_much: acao.how_much || '', objective_id: acao.objective_id || '', obs: acao.obs || '' });
@@ -5373,6 +5471,9 @@ const App = () => {
                                   canEditParent={canEdit || resps.includes(currentUser?.name)}
                                   onChanged={(ua: any) => applyActionUpdate(acao.mId, acao.id, ua)}
                                 />
+
+                                {/* Evidências (obrigatórias nas ações de comitê) */}
+                                {renderEvidencias(acao)}
                               </td>
 
                               {/* RESPONSÁVEIS — chips + dropdown */}
@@ -5427,7 +5528,7 @@ const App = () => {
                               </td>
                               <td className="px-6 py-4"><input type="date" className="bg-transparent border-none outline-none text-[10px] font-bold text-slate-600" value={acao.date || ''} onChange={e => updateActionDateGlobal(acao.mId, acao.id, e.target.value)} disabled={!canEdit} /></td>
                               <td className="px-6 py-4 text-center"><select value={acao.priority || 'Média'} onChange={e => updateActionPriorityGlobal(acao.mId, acao.id, e.target.value)} className={`px-3 py-1.5 rounded-lg text-[10px] font-bold uppercase cursor-pointer border ${PRIORITY_STYLES[acao.priority || 'Média']}`} disabled={!canEdit}>{PRIORITIES.map(p => <option key={p} value={p}>{p}</option>)}</select></td>
-                              <td className="px-6 py-4 text-center"><select value={acao.status} onChange={e => updateActionStatusGlobal(acao.mId, acao.id, e.target.value)} className="px-3 py-1.5 rounded-lg text-[10px] font-bold uppercase bg-amber-50 text-amber-700 cursor-pointer" disabled={!canEdit}><option value="Pendente">Aguardando</option><option value="Em andamento">Execução</option><option value="Concluída">Finalizado</option></select></td>
+                              <td className="px-6 py-4 text-center"><select value={acao.status} onChange={e => requestActionStatus(acao.mId, acao.id, e.target.value)} className="px-3 py-1.5 rounded-lg text-[10px] font-bold uppercase bg-amber-50 text-amber-700 cursor-pointer" disabled={!canEdit}><option value="Pendente">Aguardando</option><option value="Em andamento">Execução</option><option value="Concluída">Finalizado</option></select></td>
                               {canEdit && <td className="px-6 py-4 text-center"><div className="flex items-center justify-center gap-2"><button onClick={() => openActionModal(acao)} className="text-slate-300 hover:text-amber-600 transition-colors" title="Detalhes 5W2H"><PenLine size={15} /></button><button onClick={() => deleteActionGlobal(acao.mId, acao.id)} className="text-slate-200 hover:text-red-600 transition-colors" title="Excluir"><Trash2 size={16} /></button></div></td>}
                             </tr>
                           );
@@ -5460,9 +5561,9 @@ const App = () => {
                                       </div>
                                       {canEdit && (
                                         <div className="flex items-center gap-1 shrink-0">
-                                          <button disabled={stIdx <= 0} onClick={() => updateActionStatusGlobal(acao.mId, acao.id, ['Pendente', 'Em andamento', 'Concluída'][stIdx - 1])} className="text-slate-300 hover:text-amber-600 disabled:opacity-20" title="Voltar"><ChevronLeft size={15} /></button>
+                                          <button disabled={stIdx <= 0} onClick={() => requestActionStatus(acao.mId, acao.id, ['Pendente', 'Em andamento', 'Concluída'][stIdx - 1])} className="text-slate-300 hover:text-amber-600 disabled:opacity-20" title="Voltar"><ChevronLeft size={15} /></button>
                                           <button onClick={() => openActionModal(acao)} className="text-slate-300 hover:text-amber-600" title="Detalhes 5W2H"><PenLine size={12} /></button>
-                                          <button disabled={stIdx >= 2} onClick={() => updateActionStatusGlobal(acao.mId, acao.id, ['Pendente', 'Em andamento', 'Concluída'][stIdx + 1])} className="text-slate-300 hover:text-amber-600 disabled:opacity-20" title="Avançar"><ChevronRight size={15} /></button>
+                                          <button disabled={stIdx >= 2} onClick={() => requestActionStatus(acao.mId, acao.id, ['Pendente', 'Em andamento', 'Concluída'][stIdx + 1])} className="text-slate-300 hover:text-amber-600 disabled:opacity-20" title="Avançar"><ChevronRight size={15} /></button>
                                         </div>
                                       )}
                                     </div>
@@ -5478,6 +5579,7 @@ const App = () => {
                                       onChanged={(ua: any) => applyActionUpdate(acao.mId, acao.id, ua)}
                                       compact
                                     />
+                                    {renderEvidencias(acao)}
                                   </div>
                                 );
                               })}
@@ -7496,6 +7598,38 @@ const App = () => {
       )}
 
       {/* ===== Modal: Detalhes da Ação (5W2H) ===== */}
+      {evidenceModal && (
+        <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-md z-[110] flex items-center justify-center p-4">
+          <div className="bg-white w-full max-w-md rounded-2xl shadow-2xl overflow-hidden flex flex-col animate-in zoom-in-95">
+            <div className="p-6 border-b flex justify-between items-center bg-slate-50">
+              <h3 className="text-lg font-bold text-slate-800 italic flex items-center gap-2"><ShieldCheck size={20} className="text-emerald-600" /> Evidência da ação</h3>
+              <button onClick={() => { setEvidenceModal(null); setEvidenceFile(null); setEvidenceNote(''); }} disabled={evidenceBusy} className="p-2 hover:bg-slate-200 rounded-full text-slate-400 disabled:opacity-40"><X size={20} /></button>
+            </div>
+            <div className="flex-1 overflow-y-auto p-6 space-y-4 bg-slate-50/30">
+              <p className="text-sm text-slate-600 leading-relaxed">
+                Para marcar <b className="text-slate-800">"{evidenceModal.title}"</b> como <b className="text-amber-700 uppercase">{evidenceModal.newStatus}</b>, anexe um documento que comprove o andamento ou a conclusão (PDF, imagem, planilha etc.).
+              </p>
+              <div>
+                <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Arquivo da evidência *</label>
+                <label className={`mt-1 flex items-center gap-2 border-2 border-dashed rounded-xl px-4 py-5 ${evidenceBusy ? 'opacity-50 pointer-events-none' : 'cursor-pointer hover:border-amber-400'} ${evidenceFile ? 'border-emerald-300 bg-emerald-50/40' : 'border-slate-300'}`}>
+                  {evidenceFile ? <FileText size={18} className="text-emerald-600 shrink-0" /> : <Upload size={18} className="text-slate-400 shrink-0" />}
+                  <span className={`text-sm truncate ${evidenceFile ? 'text-slate-700 font-medium' : 'text-slate-400'}`}>{evidenceFile ? evidenceFile.name : 'Clique para escolher o arquivo…'}</span>
+                  <input type="file" className="hidden" disabled={evidenceBusy} onChange={e => setEvidenceFile(e.target.files?.[0] || null)} />
+                </label>
+              </div>
+              <div>
+                <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Observação (opcional)</label>
+                <textarea value={evidenceNote} onChange={e => setEvidenceNote(e.target.value)} rows={2} disabled={evidenceBusy} placeholder="Ex.: contrato assinado, e-mail de confirmação, relatório entregue…" className="w-full mt-1 p-3 rounded-lg border border-slate-200 outline-none focus:border-amber-400 text-sm resize-none" />
+              </div>
+            </div>
+            <div className="p-6 border-t bg-white flex gap-3">
+              <button onClick={() => { setEvidenceModal(null); setEvidenceFile(null); setEvidenceNote(''); }} disabled={evidenceBusy} className="flex-1 border border-slate-200 text-slate-600 py-3 rounded-xl font-bold uppercase text-[10px] tracking-[2px] hover:bg-slate-50 disabled:opacity-40">Cancelar</button>
+              <button disabled={evidenceBusy || !evidenceFile} onClick={confirmEvidence} className="flex-[2] bg-emerald-600 text-white py-3 rounded-xl font-bold uppercase text-[10px] tracking-[2px] flex items-center justify-center gap-2 hover:bg-emerald-700 shadow-xl disabled:opacity-50"><ShieldCheck size={16} /> {evidenceBusy ? 'Enviando…' : 'Anexar e confirmar'}</button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {actionModal && (
         <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-md z-[100] flex items-center justify-center p-4">
           <div className="bg-white w-full max-w-lg rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[92vh] animate-in zoom-in-95">
