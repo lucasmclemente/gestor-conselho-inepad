@@ -175,6 +175,8 @@ const App = () => {
   const [managedClientId, setManagedClientId] = useState<string | null>(null);
   const [managedClientProfile, setManagedClientProfile] = useState<any>(null);
   const [managedClientForm, setManagedClientForm] = useState({ name: '', logo_url: '' });
+  const [managedSsoDomainsInput, setManagedSsoDomainsInput] = useState('');
+  const [managedSsoSaving, setManagedSsoSaving] = useState(false);
   const [savingManagedClient, setSavingManagedClient] = useState(false);
   const managedLogoRef = useRef<HTMLInputElement>(null);
   const [newClientForm, setNewClientForm] = useState({ client_id: '', name: '' });
@@ -2437,12 +2439,13 @@ const App = () => {
   const selectClientForManagement = async (clientId: string) => {
     if (managedClientId === clientId) {
       setManagedClientId(null); setManagedClientProfile(null);
-      setManagedClientForm({ name: '', logo_url: '' }); return;
+      setManagedClientForm({ name: '', logo_url: '' }); setManagedSsoDomainsInput(''); return;
     }
     setManagedClientId(clientId);
     const { data } = await supabase.from('clients').select('*').eq('client_id', clientId).maybeSingle();
     setManagedClientProfile(data || null);
     setManagedClientForm({ name: data?.name || clientId, logo_url: data?.logo_url || '' });
+    setManagedSsoDomainsInput(((data?.sso_domains as string[]) || []).join(', '));
   };
 
   const saveManagedClientProfile = async () => {
@@ -2567,6 +2570,53 @@ const App = () => {
       alert('Erro ao salvar: ' + error.message);
     }
   };
+  // SSO (login único) por cliente — base: liga/desliga + domínios corporativos.
+  // Ainda não altera o fluxo de login; só registra a intenção/configuração por tenant.
+  const toggleManagedSso = async () => {
+    if (!managedClientId) return;
+    const newVal = !managedClientProfile?.sso_enabled;
+    const payload = {
+      client_id: managedClientId,
+      name: managedClientForm.name || managedClientId,
+      logo_url: managedClientForm.logo_url || '',
+      sso_enabled: newVal
+    };
+    const { data, error } = await supabase.from('clients').upsert(payload, { onConflict: 'client_id' }).select().single();
+    if (!error && data) {
+      setManagedClientProfile(data);
+      setAllClientsList(prev => prev.map((c: any) => c.client_id === managedClientId ? data : c));
+      addLog('Configuração', `SSO ${newVal ? 'habilitado' : 'desabilitado'} para ${managedClientId}`);
+    } else if (error) {
+      alert('Erro ao salvar: ' + error.message);
+    }
+  };
+  const saveManagedSsoDomains = async () => {
+    if (!managedClientId) return;
+    // normaliza: minúsculas, sem @, sem protocolo/caminho, sem duplicatas
+    const domains = Array.from(new Set(
+      managedSsoDomainsInput
+        .split(/[\s,;]+/)
+        .map(d => d.trim().toLowerCase().replace(/^@/, '').replace(/^https?:\/\//, '').replace(/\/.*$/, ''))
+        .filter(Boolean)
+    ));
+    setManagedSsoSaving(true);
+    const payload = {
+      client_id: managedClientId,
+      name: managedClientForm.name || managedClientId,
+      logo_url: managedClientForm.logo_url || '',
+      sso_domains: domains
+    };
+    const { data, error } = await supabase.from('clients').upsert(payload, { onConflict: 'client_id' }).select().single();
+    setManagedSsoSaving(false);
+    if (!error && data) {
+      setManagedClientProfile(data);
+      setManagedSsoDomainsInput(((data.sso_domains as string[]) || []).join(', '));
+      setAllClientsList(prev => prev.map((c: any) => c.client_id === managedClientId ? data : c));
+      addLog('Configuração', `Domínios SSO de ${managedClientId}: ${domains.join(', ') || '(vazio)'}`);
+    } else if (error) {
+      alert('Erro ao salvar domínios: ' + error.message);
+    }
+  };
 
   // Cria um novo cliente (tenant) — apenas SuperAdmin
   const createClient = async () => {
@@ -2623,7 +2673,7 @@ const App = () => {
       const deletedId = managedClientId;
       setAllClientsList(prev => prev.filter((c: any) => c.client_id !== deletedId));
       setUsers(prev => prev.filter((u: any) => u.client_id !== deletedId));
-      setManagedClientId(null); setManagedClientProfile(null); setManagedClientForm({ name: '', logo_url: '' });
+      setManagedClientId(null); setManagedClientProfile(null); setManagedClientForm({ name: '', logo_url: '' }); setManagedSsoDomainsInput('');
       addLog('Exclusão', `Empresa excluída: ${deletedId}`);
       alert(`✅ Empresa excluída.` + (data?.summary ? `\n${data.summary}` : ''));
     } catch (e: any) {
@@ -6948,6 +6998,34 @@ const App = () => {
                             {managedClientProfile?.mfa_required
                               ? <p className="text-[10px] text-emerald-600 font-bold not-italic flex items-center gap-1.5"><CheckCircle2 size={12} /> 2FA obrigatório — exigido no próximo login de cada usuário</p>
                               : <p className="text-[10px] text-slate-400 font-normal not-italic">2FA opcional — cada usuário pode ativar no próprio perfil</p>}
+                          </div>
+
+                          {/* Segurança: SSO (login único) por cliente */}
+                          <div className="border-t border-slate-100 pt-5 space-y-3">
+                            <h4 className="text-[10px] font-bold uppercase text-slate-400 tracking-widest flex items-center gap-2">
+                              <Key size={13} className="text-amber-600" /> Segurança — Login único (SSO)
+                            </h4>
+                            <div className="flex items-center justify-between p-4 bg-slate-50 rounded-xl border border-slate-200">
+                              <div className="pr-3">
+                                <p className="text-sm font-bold text-slate-800 italic">Habilitar SSO para {managedClientForm.name || managedClientId}</p>
+                                <p className="text-[10px] text-slate-400 font-normal not-italic mt-0.5">Funcionários entram com a conta corporativa (Microsoft Entra ou Google Workspace). Conselheiros externos seguem e-mail + senha + 2FA. Começa desligado.</p>
+                              </div>
+                              <button onClick={toggleManagedSso} className={`relative inline-flex h-7 w-12 shrink-0 items-center rounded-full transition-colors duration-200 focus:outline-none ${managedClientProfile?.sso_enabled ? 'bg-amber-600' : 'bg-slate-200'}`}>
+                                <span className={`inline-block h-5 w-5 transform rounded-full bg-white shadow-md transition-transform duration-200 ${managedClientProfile?.sso_enabled ? 'translate-x-6' : 'translate-x-1'}`} />
+                              </button>
+                            </div>
+                            <div className="p-4 bg-slate-50 rounded-xl border border-slate-200 space-y-2">
+                              <label className="text-[10px] font-bold uppercase text-slate-400 tracking-widest">Domínios de e-mail corporativo</label>
+                              <p className="text-[10px] text-slate-400 font-normal not-italic">Quem entrar com e-mail destes domínios é reconhecido como funcionário deste cliente. Separe por vírgula.</p>
+                              <input type="text" value={managedSsoDomainsInput} onChange={e => setManagedSsoDomainsInput(e.target.value)} placeholder="empresa.com, empresa.com.br" className="w-full p-3 border border-slate-200 rounded-lg text-sm outline-none focus:border-amber-500 transition-colors" />
+                              <div className="flex items-center gap-1.5 flex-wrap">
+                                {(managedClientProfile?.sso_domains || []).length === 0
+                                  ? <span className="text-[10px] text-slate-300 italic">Nenhum domínio salvo.</span>
+                                  : (managedClientProfile?.sso_domains || []).map((d: string) => <span key={d} className="text-[10px] font-bold bg-white border border-slate-200 text-slate-600 rounded-full px-2 py-0.5">@{d}</span>)}
+                              </div>
+                              <button onClick={saveManagedSsoDomains} disabled={managedSsoSaving} className="bg-slate-900 text-amber-500 hover:bg-slate-800 px-3 py-2 rounded-lg font-bold uppercase text-[10px] tracking-widest disabled:opacity-40 flex items-center gap-1.5"><Save size={13} /> {managedSsoSaving ? 'Salvando…' : 'Salvar domínios'}</button>
+                            </div>
+                            <p className="text-[10px] text-slate-400 font-normal not-italic">Estes campos são a base do SSO. O provedor de cada cliente (Entra/Google) ainda é configurado no Supabase e a ligação efetiva do login vem na próxima etapa.</p>
                           </div>
 
                           {/* Status da conta — ativar/inativar (reversível) */}
