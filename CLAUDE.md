@@ -1,6 +1,6 @@
 # CLAUDE.md — Boardplan | INEPAD Governança e Sucessão
 > Arquivo de contexto do projeto. Cole nas Project Instructions do Claude.
-> Última atualização: 14/10/2026 (v5)
+> Última atualização: 19/11/2026 (v5.1 — MFA enforçado no servidor)
 
 ---
 
@@ -253,6 +253,18 @@ GESTOR-CONSELHO-INEPAD/
 | RLS server_audit_logs configurada | SELECT para admins; INSERT via trigger SECURITY DEFINER (não exposto via API) |
 | `process_audit_log` SECURITY DEFINER segura | `SET search_path = ''` + EXECUTE revogado de PUBLIC/anon/authenticated — zero warnings no linter |
 | Plano de Ações (global e reuniões) | Múltiplos responsáveis (chips) + campo de observação inline — ambos os contextos |
+| **MFA (2FA) enforçado no servidor** | RLS RESTRICTIVE exige `aal2` para tenants com `clients.mfa_required` (migração `20260774`) — token `aal1` deixa de acessar dados via API direta |
+
+### 5.1 MFA (2 fatores) — enforcement no servidor (19/11/2026)
+
+O MFA TOTP (flag por cliente `clients.mfa_required`, UI em `components/Mfa.tsx`, gate no `App.tsx` por AAL) era enforçado **só no React**: um token `aal1` (só senha, sem o desafio TOTP) já era válido e acessava **todos os dados via API PostgREST direta**, pois nenhuma policy checava `auth.jwt()->>'aal'` (achado **A1 ALTO** da auditoria de 18/11/2026).
+
+**Fix (migração `20260774_mfa_enforce_aal2.sql`, em prod e develop desde 19/11/2026):**
+- Helper `public.mfa_satisfied()` (SECURITY DEFINER, `search_path=''`): `true` se a sessão é `aal2` **OU** o tenant do chamador não exige MFA.
+- Policies **`RESTRICTIVE`** (AND com as permissivas) exigindo `aal2` em **43 tabelas** de dados sensíveis (núcleo, indicadores, estratégia, OKR, maturidade, QA, comitês, CRM), via loop `do $$` com guard `to_regclass`.
+- **Salvaguardas anti-deadlock** (o app lê isso ainda em `aal1`, antes do gate): `clients` **fica fora** do gate; `members` libera a **própria linha** (`id = auth.uid()`, bootstrap do perfil); `audit_logs`/`server_audit_logs` não bloqueiam INSERT.
+- Edge Functions usam `service_role`, que **ignora RLS** (inclusive RESTRICTIVE) → nenhum fluxo de servidor afetado. Tenant sem `mfa_required` → `mfa_satisfied()` sempre `true`, zero impacto.
+- **⚠ Divergência prod × develop:** a develop usa `public.jwt_client_id()`; a **produção** usa o schema `internal.*` → variante `20260774_mfa_enforce_aal2_PROD.sql` com `internal.get_my_client_id()` no helper. **Não mergear a versão develop crua para aplicar em prod.**
 
 ### RLS Policies ativas — `meetings` (ambos os projetos)
 | Policy | Comando | Descrição |
