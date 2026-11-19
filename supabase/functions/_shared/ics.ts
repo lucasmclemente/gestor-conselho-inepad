@@ -39,6 +39,11 @@ const esc = (s: string) =>
     .replace(/,/g, '\\,')
     .replace(/\r?\n/g, '\\n');
 
+// Sanitiza e-mail antes de entrar no `mailto:` — remove espaços e caracteres que
+// não existem em e-mail válido mas permitiriam injetar linhas/parâmetros no .ics
+// (CR/LF, `:`, `;`, `,`). Defesa contra injeção de cabeçalho iCalendar.
+const escEmail = (s: string) => String(s ?? '').replace(/[\s:;,"]/g, '');
+
 export function buildICS(
   events: ICSEvent[],
   attendees: ICSAttendee[],
@@ -51,7 +56,7 @@ export function buildICS(
     .filter((a) => a.email)
     .map(
       (a) =>
-        `ATTENDEE;ROLE=REQ-PARTICIPANT;PARTSTAT=NEEDS-ACTION;RSVP=TRUE;CN=${esc(a.name || a.email)}:mailto:${a.email}`,
+        `ATTENDEE;ROLE=REQ-PARTICIPANT;PARTSTAT=NEEDS-ACTION;RSVP=TRUE;CN=${esc(a.name || a.email)}:mailto:${escEmail(a.email)}`,
     );
 
   const vevents = events.flatMap((ev) => {
@@ -66,7 +71,7 @@ export function buildICS(
       `SUMMARY:${esc(ev.title)}`,
       ev.location ? `LOCATION:${esc(ev.location)}` : '',
       ev.description ? `DESCRIPTION:${esc(ev.description)}` : '',
-      `ORGANIZER;CN=${esc(organizer.name)}:mailto:${organizer.email}`,
+      `ORGANIZER;CN=${esc(organizer.name)}:mailto:${escEmail(organizer.email)}`,
       ...attendeeLines,
       'STATUS:CONFIRMED',
       'TRANSP:OPAQUE',

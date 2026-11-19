@@ -77,13 +77,16 @@ serve(async (req) => {
       return json({ ok: false, reason: 'domain_not_enabled' }, 200, cors);
     }
 
-    // 2) Allowlist: o e-mail precisa já ser membro de um desses clientes
+    // 2) Allowlist: o e-mail precisa já ser membro de um desses clientes.
+    //    Comparação case-insensitive feita em JS (match EXATO) — não usar .ilike com
+    //    o e-mail como padrão, pois `%`/`_` no e-mail virariam curinga (injeção).
     const { data: members } = await admin
       .from('members')
       .select('id, name, role, client_id, email')
-      .ilike('email', email)
       .in('client_id', clientIds);
-    const member = (members || [])[0];
+    const member = (members || []).find(
+      (m: any) => (m.email || '').trim().toLowerCase() === email,
+    );
     if (!member) {
       await admin.auth.admin.deleteUser(user.id).catch(() => {});
       return json({ ok: false, reason: 'not_member' }, 200, cors);
