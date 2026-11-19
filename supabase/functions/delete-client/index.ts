@@ -1,6 +1,14 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2"
 
+// ─────────────────────────────────────────────────────────────────────────────
+// delete-client — exclusão DEFINITIVA de um cliente (cancelamento/LGPD). Só SuperAdmin.
+// Apaga: logins (auth.users), TODOS os dados do cliente (via purge_client_data —
+// toda tabela com client_id, não só members/meetings), os arquivos do Storage
+// (meeting-files, client-logos, crm-recordings, crm-attachments) e, por fim, o
+// registro em clients. NÃO apaga audit_logs/server_audit_logs (trilha imutável).
+// ─────────────────────────────────────────────────────────────────────────────
+
 const ALLOWED_ORIGINS = [
   'https://conselho.inepadconsulting.com', 'https://app.boardplan.com.br',
   'http://localhost:3000',
@@ -17,21 +25,33 @@ function getCorsHeaders(req: Request): Record<string, string> {
   }
 }
 
+// Coleta paths de arquivos do Storage a partir das URLs salvas nos dados.
+function collectFromUrls(node: unknown, meetingFiles: Set<string>, clientLogos: Set<string>) {
+  if (node == null) return
+  if (typeof node === 'string') {
+    const mf = node.match(/\/(?:sign|public)\/meeting-files\/([^?"'\s\\]+)/)
+    if (mf) { try { meetingFiles.add(decodeURIComponent(mf[1])) } catch { meetingFiles.add(mf[1]) } }
+    const cl = node.match(/\/(?:sign|public)\/client-logos\/([^?"'\s\\]+)/)
+    if (cl) { try { clientLogos.add(decodeURIComponent(cl[1])) } catch { clientLogos.add(cl[1]) } }
+    return
+  }
+  if (Array.isArray(node)) { for (const v of node) collectFromUrls(v, meetingFiles, clientLogos); return }
+  if (typeof node === 'object') {
+    for (const k of Object.keys(node as Record<string, unknown>)) {
+      collectFromUrls((node as Record<string, unknown>)[k], meetingFiles, clientLogos)
+    }
+  }
+}
+
 serve(async (req) => {
   const corsHeaders = getCorsHeaders(req)
   if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders })
-  if (req.method !== 'POST') {
-    return new Response(JSON.stringify({ error: 'Method Not Allowed' }), {
-      status: 405, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-    })
-  }
+  const json = (b: unknown, s = 200) =>
+    new Response(JSON.stringify(b), { status: s, headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
+  if (req.method !== 'POST') return json({ error: 'Method Not Allowed' }, 405)
 
   const authHeader = req.headers.get('Authorization')
-  if (!authHeader) {
-    return new Response(JSON.stringify({ error: 'Unauthorized' }), {
-      status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-    })
-  }
+  if (!authHeader) return json({ error: 'Unauthorized' }, 401)
 
   // Identifica o solicitante a partir do JWT
   const supabaseClient = createClient(
@@ -40,75 +60,84 @@ serve(async (req) => {
     { global: { headers: { Authorization: authHeader } } }
   )
   const { data: { user }, error: authError } = await supabaseClient.auth.getUser()
-  if (authError || !user) {
-    return new Response(JSON.stringify({ error: 'Unauthorized' }), {
-      status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-    })
-  }
+  if (authError || !user) return json({ error: 'Unauthorized' }, 401)
 
   // Somente SuperAdmin pode excluir empresas
   const role = (user.app_metadata as any)?.role
   const callerClientId = (user.app_metadata as any)?.client_id
-  if (role !== 'SuperAdmin') {
-    return new Response(JSON.stringify({ error: 'Apenas SuperAdmin pode excluir empresas.' }), {
-      status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-    })
-  }
+  if (role !== 'SuperAdmin') return json({ error: 'Apenas SuperAdmin pode excluir empresas.' }, 403)
 
   try {
     const { client_id } = await req.json()
-    if (!client_id || typeof client_id !== 'string') {
-      return new Response(JSON.stringify({ error: 'client_id é obrigatório.' }), {
-        status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      })
-    }
+    const cid = typeof client_id === 'string' ? client_id.trim() : ''
+    if (!cid) return json({ error: 'client_id é obrigatório.' }, 400)
     // Trava de segurança: não permite excluir a própria empresa do SuperAdmin
-    if (client_id === callerClientId) {
-      return new Response(JSON.stringify({ error: 'Você não pode excluir a própria empresa.' }), {
-        status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      })
-    }
+    if (cid === callerClientId) return json({ error: 'Você não pode excluir a própria empresa.' }, 400)
 
-    const supabaseAdmin = createClient(
+    const admin = createClient(
       Deno.env.get('SUPABASE_URL') ?? '',
-      Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
+      Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '',
+      { auth: { autoRefreshToken: false, persistSession: false } }
     )
 
-    // 1) Remove os logins (auth.users) dos membros desta empresa
-    const { data: members } = await supabaseAdmin
-      .from('members').select('id, name').eq('client_id', client_id)
-    let deletedAuth = 0
-    for (const m of members ?? []) {
-      const { error: delErr } = await supabaseAdmin.auth.admin.deleteUser(m.id)
-      if (!delErr) deletedAuth++
-      else console.error(`[delete-client] Falha ao remover login ${m.id}:`, delErr.message)
+    // 1) Snapshot dos dados ANTES de apagar — p/ pegar ids de membros e refs de arquivos
+    const { data: dump } = await admin.rpc('export_client_data', { cid })
+    const data = (dump ?? {}) as Record<string, any[]>
+    const memberIds: string[] = (data.members ?? []).map((m: any) => m.id).filter(Boolean)
+
+    const meetingFiles = new Set<string>()
+    const clientLogos = new Set<string>()
+    collectFromUrls(data, meetingFiles, clientLogos)
+    const crmRecordings = new Set<string>()
+    for (const act of (data.crm_activities ?? [])) {
+      if (act?.recording_path) crmRecordings.add(String(act.recording_path))
     }
 
-    // 2) Remove os registros de membros
-    const { count: membersCount } = await supabaseAdmin
-      .from('members').delete({ count: 'exact' }).eq('client_id', client_id)
+    // 2) Remove os logins (auth.users) dos membros desta empresa
+    let deletedAuth = 0
+    for (const id of memberIds) {
+      const { error: delErr } = await admin.auth.admin.deleteUser(id)
+      if (!delErr) deletedAuth++
+      else console.error(`[delete-client] Falha ao remover login ${id}:`, delErr.message)
+    }
 
-    // 3) Remove as reuniões (inclui pautas/atas/deliberações em jsonb)
-    const { count: meetingsCount } = await supabaseAdmin
-      .from('meetings').delete({ count: 'exact' }).eq('client_id', client_id)
+    // 3) Apaga TODOS os dados do cliente (toda tabela com client_id, menos clients + auditoria)
+    const { data: purge, error: purgeErr } = await admin.rpc('purge_client_data', { cid })
+    if (purgeErr) throw new Error('Erro ao apagar os dados: ' + purgeErr.message)
 
-    // 4) Remove o registro do cliente
-    const { error: clientErr } = await supabaseAdmin
-      .from('clients').delete().eq('client_id', client_id)
+    // 4) Apaga os arquivos do Storage
+    let removedFiles = 0
+    const removeBatch = async (bucket: string, paths: string[]) => {
+      if (paths.length === 0) return
+      try {
+        const { data: rm } = await admin.storage.from(bucket).remove(paths)
+        removedFiles += (rm?.length ?? 0)
+      } catch (e) { console.error(`[delete-client] Storage ${bucket}:`, (e as Error).message) }
+    }
+    await removeBatch('meeting-files', [...meetingFiles])
+    await removeBatch('crm-recordings', [...crmRecordings])
+    await removeBatch('client-logos', [...clientLogos])
+    // rede de segurança: varre por prefixo <client_id>/ nos buckets de CRM e no logo
+    for (const bucket of ['crm-recordings', 'crm-attachments', 'client-logos']) {
+      try {
+        const { data: listed } = await admin.storage.from(bucket).list(cid, { limit: 1000 })
+        const paths = (listed ?? []).filter((f) => f?.name && !f.name.endsWith('/')).map((f) => `${cid}/${f.name}`)
+        await removeBatch(bucket, paths)
+      } catch { /* bucket pode não existir */ }
+    }
+
+    // 5) Remove o registro do cliente
+    const { error: clientErr } = await admin.from('clients').delete().eq('client_id', cid)
     if (clientErr) throw new Error('Erro ao remover o cliente: ' + clientErr.message)
 
-    // Observação: audit_logs e server_audit_logs NÃO são apagados — são trilhas
-    // imutáveis por design (mantêm o histórico mesmo após o encerramento da conta).
+    // Observação: audit_logs e server_audit_logs NÃO são apagados (trilha imutável).
+    const deleted = (purge as any)?.deleted ?? {}
+    const totalRows = Object.values(deleted).reduce((a: number, b: any) => a + Number(b || 0), 0)
+    const summary = `${totalRows} registro(s) em ${Object.keys(deleted).length} tabela(s), ${deletedAuth} login(s) e ${removedFiles} arquivo(s) removidos.`
+    console.log(`[delete-client] Empresa ${cid} excluída por ${user.email}. ${summary}`)
 
-    const summary = `${meetingsCount ?? 0} reuniões, ${membersCount ?? 0} membros e ${deletedAuth} login(s) removidos.`
-    console.log(`[delete-client] Empresa ${client_id} excluída por ${user.email}. ${summary}`)
-
-    return new Response(JSON.stringify({ success: true, summary }), {
-      status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-    })
+    return json({ success: true, summary, deleted, remaining: (purge as any)?.remaining ?? [] })
   } catch (error: any) {
-    return new Response(JSON.stringify({ error: error.message }), {
-      status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-    })
+    return json({ error: error.message }, 400)
   }
 })
