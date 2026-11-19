@@ -182,6 +182,7 @@ const App = () => {
   const [newClientForm, setNewClientForm] = useState({ client_id: '', name: '' });
   const [creatingClient, setCreatingClient] = useState(false);
   const [deletingClient, setDeletingClient] = useState(false);
+  const [exportingClient, setExportingClient] = useState(false);
 
   // Perfil Assistente — gestão de materiais via Edge Function (sem acesso direto às reuniões)
   const [assistantMeetings, setAssistantMeetings] = useState<any[]>([]);
@@ -2730,6 +2731,33 @@ const App = () => {
       alert('Erro ao excluir: ' + (e?.message || e));
     } finally {
       setDeletingClient(false);
+    }
+  };
+
+  // Exporta TODOS os dados da empresa (JSON aberto + links dos arquivos) — apenas SuperAdmin
+  const exportClientData = async () => {
+    if (!managedClientId) return;
+    setExportingClient(true);
+    try {
+      const { data, error } = await supabase.functions.invoke('export-client', { body: { client_id: managedClientId } });
+      if (error) throw new Error(error.message);
+      if (data?.error) throw new Error(data.error);
+      // Baixa o pacote como arquivo JSON (dados + manifesto de arquivos com links de 7 dias)
+      const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `boardplan-export-${managedClientId}-${new Date().toISOString().slice(0, 10)}.json`;
+      document.body.appendChild(a); a.click(); a.remove();
+      URL.revokeObjectURL(url);
+      const counts = data?.counts || {};
+      const totalRows = Object.values(counts).reduce((x: number, y: any) => x + Number(y || 0), 0);
+      addLog('Exportação', `Dados exportados: ${managedClientId}`);
+      alert(`✅ Exportação concluída (download iniciado).\n\n${totalRows} registro(s) em ${Object.keys(counts).length} tabela(s).\n${(data?.files?.length || 0)} arquivo(s) com link de download (válido por 7 dias) incluídos no JSON.`);
+    } catch (e: any) {
+      alert('Erro ao exportar: ' + (e?.message || e));
+    } finally {
+      setExportingClient(false);
     }
   };
 
@@ -7090,6 +7118,22 @@ const App = () => {
                               </div>
                               <button onClick={toggleManagedActive} className={`relative inline-flex h-7 w-12 shrink-0 items-center rounded-full transition-colors duration-200 focus:outline-none ${(managedClientProfile?.active ?? true) ? 'bg-emerald-600' : 'bg-slate-300'}`}>
                                 <span className={`inline-block h-5 w-5 transform rounded-full bg-white shadow-md transition-transform duration-200 ${(managedClientProfile?.active ?? true) ? 'translate-x-6' : 'translate-x-1'}`} />
+                              </button>
+                            </div>
+                          </div>
+
+                          {/* Exportar dados — portabilidade (saída/LGPD) */}
+                          <div className="border-t border-slate-100 pt-5 space-y-3">
+                            <h4 className="text-[10px] font-bold uppercase text-slate-500 tracking-widest flex items-center gap-2">
+                              <Download size={13} /> Portabilidade de Dados
+                            </h4>
+                            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-4 bg-slate-50 rounded-xl border border-slate-200">
+                              <div>
+                                <p className="text-sm font-bold text-slate-800 italic">Exportar todos os dados</p>
+                                <p className="text-[10px] text-slate-400 font-normal not-italic mt-0.5">Baixa um JSON (formato aberto) com todos os dados da empresa + links para os arquivos do Storage (válidos por 7 dias).</p>
+                              </div>
+                              <button onClick={exportClientData} disabled={exportingClient} className="shrink-0 px-5 py-2.5 bg-slate-900 hover:bg-slate-800 text-amber-500 rounded-lg font-bold text-[10px] uppercase tracking-widest flex items-center justify-center gap-2 transition-all shadow-md disabled:opacity-50">
+                                <Download size={14} /> {exportingClient ? 'Exportando...' : 'Exportar dados'}
                               </button>
                             </div>
                           </div>
