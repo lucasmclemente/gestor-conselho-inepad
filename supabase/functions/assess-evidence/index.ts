@@ -73,8 +73,9 @@ serve(async (req) => {
     const tenantOk = role === 'SuperAdmin' || cid === homeClient || secClients.includes(cid)
     if (!tenantOk) return json({ error: 'Sem permissão para este cliente.' }, 403)
     // A pasta do arquivo tem que ser do próprio cliente (path: maturidade/<cid>/...)
+    // e sem travessia de diretório (`..`) — defesa em profundidade.
     const seg = String(path).split('/')
-    if (seg[0] !== 'maturidade' || seg[1] !== cid) return json({ error: 'Caminho de evidência inválido.' }, 400)
+    if (seg[0] !== 'maturidade' || seg[1] !== cid || seg.includes('..')) return json({ error: 'Caminho de evidência inválido.' }, 400)
 
     const ANTHROPIC_API_KEY = Deno.env.get('ANTHROPIC_API_KEY')
     if (!ANTHROPIC_API_KEY) return json({ error: 'IA não configurada (ANTHROPIC_API_KEY ausente).' }, 500)
