@@ -104,6 +104,11 @@ serve(async (req) => {
         status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       })
     }
+    if (recipients.length > 200) { // B3: cap anti-spam
+      return new Response(JSON.stringify({ error: 'Muitos destinatários (máx. 200).' }), {
+        status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      })
+    }
 
     // Organizador do convite: e-mail real de quem está programando as reuniões (recebe
     // as respostas RSVP). Fallback para a conta de envio caso não seja informado.
@@ -152,7 +157,8 @@ serve(async (req) => {
       },
       body: JSON.stringify({
         from: 'Governança Boardplan <governanca@boardplan.com.br>',
-        to: recipients,
+        to: [organizer.email], // B4: não expor a lista no To: — destinatários vão em BCC
+        bcc: recipients,
         reply_to: organizer.email,
         subject: `Agenda de Reuniões do Conselho${year ? ` — ${year}` : ''}`,
         attachments: [

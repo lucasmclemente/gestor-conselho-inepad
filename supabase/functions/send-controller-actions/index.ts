@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2"
+import { safeAppOrigin } from "../_shared/appOrigin.ts"
 
 // E-mail específico do perfil Controller: envia SOMENTE o plano de ação dele.
 // Nunca inclui a ata nem link de aprovação (diferente de send-minute-notification).
@@ -53,7 +54,7 @@ serve(async (req) => {
   try {
     const { meetingTitle, meetingId, recipients, appOrigin } = await req.json()
     const RESEND_API_KEY = Deno.env.get('RESEND_API_KEY')
-    const origin = (typeof appOrigin === 'string' && /^https?:\/\//.test(appOrigin)) ? appOrigin.replace(/\/$/, '') : 'https://app.boardplan.com.br'
+    const origin = safeAppOrigin(appOrigin)
     if (!meetingId) return json({ error: 'Parâmetro ausente (meetingId).' }, 400)
 
     const admin = createClient(

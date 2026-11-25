@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2"
+import { timingSafeEqual } from "../_shared/ctCompare.ts"
 
 // ── Helpers ───────────────────────────────────────────────────────
 
@@ -179,7 +180,7 @@ serve(async (req) => {
 
   // Verifica o segredo do cron
   const cronSecret = Deno.env.get('CRON_SECRET')
-  if (!cronSecret || req.headers.get('x-cron-secret') !== cronSecret) {
+  if (!cronSecret || !(await timingSafeEqual(req.headers.get('x-cron-secret') ?? '', cronSecret))) {
     return new Response(JSON.stringify({ error: 'Unauthorized' }), {
       status: 401,
       headers: { 'Content-Type': 'application/json' },

@@ -88,6 +88,10 @@ serve(async (req) => {
     if (role !== 'SuperAdmin' && (!cid || (cid !== homeClient && !secClients.includes(cid)))) {
       return new Response(JSON.stringify({ error: 'Sem permissão para esta empresa.' }), { status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
     }
+    // B3: cap de destinatários (anti-spam/bomba de e-mail branded)
+    if (Array.isArray(recipients) && recipients.length > 200) {
+      return new Response(JSON.stringify({ error: 'Muitos destinatários (máx. 200).' }), { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
+    }
     const RESEND_API_KEY = Deno.env.get('RESEND_API_KEY')
 
     // Organizador do convite: e-mail real de quem está convocando (recebe as respostas
