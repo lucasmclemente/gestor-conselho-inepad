@@ -183,6 +183,7 @@ const App = () => {
   const [creatingClient, setCreatingClient] = useState(false);
   const [deletingClient, setDeletingClient] = useState(false);
   const [exportingClient, setExportingClient] = useState(false);
+  const [waTesting, setWaTesting] = useState(false);
 
   // Perfil Assistente — gestão de materiais via Edge Function (sem acesso direto às reuniões)
   const [assistantMeetings, setAssistantMeetings] = useState<any[]>([]);
@@ -2586,6 +2587,41 @@ const App = () => {
       addLog('Configuração', `Comitês ${newVal ? 'ativado' : 'desativado'} para ${managedClientId}`);
     }
   };
+
+  const toggleManagedWhatsApp = async () => {
+    if (!managedClientId) return;
+    const newVal = !managedClientProfile?.whatsapp_enabled;
+    const payload = {
+      client_id: managedClientId,
+      name: managedClientForm.name || managedClientId,
+      logo_url: managedClientForm.logo_url || '',
+      whatsapp_enabled: newVal
+    };
+    const { data, error } = await supabase.from('clients').upsert(payload, { onConflict: 'client_id' }).select().single();
+    if (!error && data) {
+      setManagedClientProfile(data);
+      setAllClientsList(prev => prev.map((c: any) => c.client_id === managedClientId ? data : c));
+      addLog('Configuração', `WhatsApp ${newVal ? 'ativado' : 'desativado'} para ${managedClientId}`);
+    }
+  };
+
+  // Teste de envio do WhatsApp (SuperAdmin): dispara 'hello_world' p/ um número — valida os secrets da Meta.
+  const sendWhatsAppTest = async () => {
+    const to = window.prompt('Enviar WhatsApp de teste (template "hello_world") para qual número?\nCom DDD, ex: 16988135491');
+    if (!to) return;
+    setWaTesting(true);
+    try {
+      const { data, error } = await supabase.functions.invoke('send-whatsapp-test', { body: { to, template: 'hello_world', lang: 'en_US' } });
+      if (error) throw new Error(error.message);
+      if (data?.error) throw new Error(data.error);
+      alert(data?.ok ? `✅ Enviado! (id: ${data.wam_id || '—'})\nConfira o WhatsApp do número.` : `Falhou: ${data?.error || 'erro desconhecido'}`);
+    } catch (e: any) {
+      alert('Erro ao enviar: ' + (e?.message || e));
+    } finally {
+      setWaTesting(false);
+    }
+  };
+
   const toggleManagedComiteCobranca = async () => {
     if (!managedClientId) return;
     const newVal = !managedClientProfile?.committee_auto_charge;
@@ -7054,6 +7090,36 @@ const App = () => {
                                 </div>
                                 <button onClick={toggleManagedComiteCobranca} className={`relative inline-flex h-7 w-12 shrink-0 items-center rounded-full transition-colors duration-200 focus:outline-none ${managedClientProfile?.committee_auto_charge ? 'bg-amber-600' : 'bg-slate-200'}`}>
                                   <span className={`inline-block h-5 w-5 transform rounded-full bg-white shadow-md transition-transform duration-200 ${managedClientProfile?.committee_auto_charge ? 'translate-x-6' : 'translate-x-1'}`} />
+                                </button>
+                              </div>
+                            )}
+                          </div>
+
+                          {/* Add-on: WhatsApp (avisos) */}
+                          <div className="border-t border-slate-100 pt-5 space-y-3">
+                            <h4 className="text-[10px] font-bold uppercase text-slate-400 tracking-widest flex items-center gap-2">
+                              <MessageSquare size={13} className="text-amber-600" /> Add-on: WhatsApp
+                            </h4>
+                            <div className="flex items-center justify-between p-4 bg-slate-50 rounded-xl border border-slate-200">
+                              <div>
+                                <p className="text-sm font-bold text-slate-800 italic">Avisos por WhatsApp — {managedClientForm.name || managedClientId}</p>
+                                <p className="text-[10px] text-slate-400 font-normal not-italic mt-0.5">Espelha os e-mails (convocações, atas, alertas) por WhatsApp aos conselheiros que autorizaram. O e-mail continua sendo o canal oficial; o WhatsApp é reforço.</p>
+                              </div>
+                              <button onClick={toggleManagedWhatsApp} className={`relative inline-flex h-7 w-12 shrink-0 items-center rounded-full transition-colors duration-200 focus:outline-none ${managedClientProfile?.whatsapp_enabled ? 'bg-amber-600' : 'bg-slate-200'}`}>
+                                <span className={`inline-block h-5 w-5 transform rounded-full bg-white shadow-md transition-transform duration-200 ${managedClientProfile?.whatsapp_enabled ? 'translate-x-6' : 'translate-x-1'}`} />
+                              </button>
+                            </div>
+                            {managedClientProfile?.whatsapp_enabled
+                              ? <p className="text-[10px] text-emerald-600 font-bold not-italic flex items-center gap-1.5"><CheckCircle2 size={12} /> Add-on ativo — conselheiros com telefone + opt-in recebem avisos por WhatsApp</p>
+                              : <p className="text-[10px] text-slate-400 font-normal not-italic">Add-on inativo — só e-mail</p>}
+                            {isSuper && (
+                              <div className="flex items-center justify-between p-4 bg-white rounded-xl border border-slate-200 mt-1">
+                                <div className="pr-3">
+                                  <p className="text-sm font-bold text-slate-800 italic">Enviar WhatsApp de teste</p>
+                                  <p className="text-[10px] text-slate-400 font-normal not-italic mt-0.5">Dispara o template "hello_world" para um número (valida os secrets da Meta). Só SuperAdmin.</p>
+                                </div>
+                                <button onClick={sendWhatsAppTest} disabled={waTesting} className="shrink-0 px-4 py-2 bg-slate-900 text-amber-500 rounded-lg font-bold text-[10px] uppercase tracking-widest disabled:opacity-50">
+                                  {waTesting ? 'Enviando...' : 'Enviar teste'}
                                 </button>
                               </div>
                             )}
