@@ -1,6 +1,6 @@
 # CLAUDE.md — Boardplan | INEPAD Governança e Sucessão
 > Arquivo de contexto do projeto. Cole nas Project Instructions do Claude.
-> Última atualização: 19/11/2026 (v5.1 — MFA enforçado no servidor)
+> Última atualização: 25/11/2026 (v5.2 — portabilidade de dados + hardening pós-auditoria)
 
 ---
 
@@ -266,6 +266,21 @@ O MFA TOTP (flag por cliente `clients.mfa_required`, UI em `components/Mfa.tsx`,
 - Edge Functions usam `service_role`, que **ignora RLS** (inclusive RESTRICTIVE) → nenhum fluxo de servidor afetado. Tenant sem `mfa_required` → `mfa_satisfied()` sempre `true`, zero impacto.
 - **⚠ Divergência prod × develop:** a develop usa `public.jwt_client_id()`; a **produção** usa o schema `internal.*` → variante `20260774_mfa_enforce_aal2_PROD.sql` com `internal.get_my_client_id()` no helper. **Não mergear a versão develop crua para aplicar em prod.**
 
+### 5.2 Portabilidade e exclusão de dados (saída/cancelamento + LGPD) — 19–25/11/2026
+
+Migração `20260775_client_data_portability.sql` + Edge Functions `export-client`/`delete-client` (só SuperAdmin):
+- **`export_client_data(cid)`** / **`purge_client_data(cid)`** (SECURITY DEFINER, só `service_role`): varrem **automaticamente** toda tabela do schema `public` com coluna `client_id` (via `information_schema` → incluem tabelas futuras sem manutenção). Export devolve `{tabela:[linhas...]}` (**44 tabelas** em prod); purge apaga tudo **exceto `clients` (apagada à parte) e `audit_logs`/`server_audit_logs` (trilha imutável)**, FK-safe por várias passadas (+ limpa `qa_votes` órfãos; `comite_membros` sai por cascade de `comites`).
+- **`export-client`**: dump JSON (formato aberto) + links assinados (7 dias) dos arquivos do Storage, descobertos pelas URLs salvas nos próprios dados. **Botão "Exportar dados"** em Contas de Clientes → seção "Portabilidade de Dados" (acima da Zona de Perigo).
+- **`delete-client`** (reescrita): antes só apagava members+meetings+clients (deixava indicadores/estratégia/maturidade/QA/comitês/CRM + Storage **órfãos** — gap de LGPD). Agora apaga **todos** os dados + Storage (meeting-files/client-logos/crm-recordings/crm-attachments) + logins, preservando a auditoria.
+- **⚠ Limitação:** o dump "tudo num JSON" **não escala** para um tenant gigante (a INEPAD deu timeout — ~95k linhas, quase tudo CRM/Bitrix). Contas só-governança ficam pequenas, então cobre o caso real de saída. Evolução futura (se precisar): NDJSON por tabela no Storage.
+
+### 5.3 Hardening pós-auditoria (security-audit-skill da Cloudflare, 18/11/2026)
+
+Auditoria multiagente adversarial. Achado **A1 ALTO** (MFA só client-side) → resolvido em 5.1. Demais itens acionáveis, todos **em produção**:
+- **3 fixes (19/11):** `provision-sso` (match de e-mail exato em JS, sem o curinga do `.ilike`); `assess-evidence` (rejeita `..` no path da evidência); `_shared/ics.ts` (`escEmail()` sanitiza o `mailto:` — anti-injeção de linha iCal).
+- **6 Baixos B1–B6 (25/11, migração `20260776`):** **B1** `comites_acoes()` exige papel com alçada (exclui Assistente/Controller/Diretor, que passavam pelo `is_conselho_member()` default-true); **B2** `appOrigin` validado contra o allowlist (`_shared/appOrigin.ts`) em 5 funções de e-mail; **B3** cap de 200 destinatários (anti-spam/bomba) em send-invitation/send-materials-notification/send-calendar-invites; **B4** convite de calendário em **BCC** (não expõe a lista no `To:`); **B5** `CRON_SECRET` comparado em tempo constante (`_shared/ctCompare.ts`) em reevaluate-triggers/send-weekly-reminder; **B6** `Assistente` removido do gate de `add-action-comment`.
+- Restam só **needs-validation** de baixa confiança (vários já cobertos por remediações anteriores, ex. Telnyx/CRM apagados).
+
 ### RLS Policies ativas — `meetings` (ambos os projetos)
 | Policy | Comando | Descrição |
 |---|---|---|
@@ -334,9 +349,12 @@ O MFA TOTP (flag por cliente `clients.mfa_required`, UI em `components/Mfa.tsx`,
 | `crm-save-recording` | Recebe o blob (webm/opus) gravado no navegador (MediaRecorder) ao fim da ligação, sobe em `crm-recordings/` e vincula ao negócio (desde 01/09/2026 a gravação é client-side) | ON (Comercial/Adm/Super) |
 | `telnyx-webhook` | Recebe eventos Telnyx (Ed25519 fail-closed + anti-SSRF) — **ocioso** desde a migração p/ gravação client-side | — (público, valida assinatura) |
 | `goto-oauth` / `goto-call` / `goto-cron` | Integração GoTo (telefonia anterior) — **dormentes** após a virada p/ Telnyx | OFF (`--no-verify-jwt`) |
+| `export-client` | **Portabilidade (saída/LGPD)** — exporta todos os dados de um cliente: JSON aberto via `export_client_data` + links assinados (7d) dos arquivos do Storage. Botão "Exportar dados" em Contas de Clientes | ON (código: SuperAdmin) |
+| `delete-client` | **Exclusão/LGPD** — apaga **todos** os dados do cliente (`purge_client_data`) + Storage + logins (auth.users); preserva a trilha de auditoria. Reescrita (antes só members+meetings+clients) | OFF (config.toml; valida SuperAdmin em código) |
 
 > **Código compartilhado:** `supabase/functions/_shared/ics.ts` — gerador de `.ics` (iCalendar/RFC 5545) com RSVP, usado por `send-invitation` e `send-calendar-invites`. Converte horário de Brasília (UTC−3) para UTC. Empacotado automaticamente no deploy de cada função que o importa.
 > **Tokens HMAC:** `supabase/functions/_shared/votetoken.ts` — `signToken`/`verifyToken` (HMAC-SHA256, `TOKEN_SIGNING_SECRET` com fallback p/ service key), usados nos links sem login: voto (`k:'vote'`), ata (`k:'ata'`), coleta (`collect`), materiais de pauta (`pautamat`) e rastreio de materiais (`matopen`).
+> **Validação de origem / segredos (hardening 25/11):** `supabase/functions/_shared/appOrigin.ts` — `safeAppOrigin()` valida o `appOrigin` recebido no corpo contra o allowlist de origens (B2); `supabase/functions/_shared/ctCompare.ts` — `timingSafeEqual()` compara o `CRON_SECRET` em tempo constante (B5).
 > **Deploy OFF/`--no-verify-jwt`:** funções que abrem por GET sem apikey (webhooks e `track-material`) devem ser deployadas com `--no-verify-jwt`; elas validam token/HMAC no código.
 
 ### Programação anual de reuniões — fluxo
