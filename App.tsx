@@ -162,7 +162,7 @@ const App = () => {
   const [commentValue, setCommentValue] = useState('');
   const [commentSaving, setCommentSaving] = useState(false);
   const [editingRespsKey, setEditingRespsKey] = useState<string | null>(null);
-  const [newUserForm, setnewUserForm] = useState({ name: '', email: '', role: 'Conselheiro', password: '', client_id: '' });
+  const [newUserForm, setnewUserForm] = useState({ name: '', email: '', role: 'Conselheiro', password: '', client_id: '', phone: '', wa_opt_in: false });
   const [clientProfile, setClientProfile] = useState<any>(null);
   const [clientProfileForm, setClientProfileForm] = useState({ name: '', logo_url: '' });
   const [savingClientProfile, setSavingClientProfile] = useState(false);
@@ -1952,6 +1952,8 @@ const App = () => {
           password: newUserForm.password,
           role: newUserForm.role,
           client_id: clientId,
+          phone: newUserForm.phone || null,
+          wa_opt_in: !!newUserForm.wa_opt_in,
           created_by: currentUser.name
         },
         headers: { Authorization: `Bearer ${accessToken}` }
@@ -1980,7 +1982,7 @@ const App = () => {
 
       setUsers(prev => [...prev, membroVerificado].sort((a, b) => a.name.localeCompare(b.name)));
       addLog('Cadastro', `Novo membro: ${membroVerificado.name} (${membroVerificado.role}) — ${clientId}`);
-      setnewUserForm({ name: '', email: '', role: 'Conselheiro', password: '', client_id: '' });
+      setnewUserForm({ name: '', email: '', role: 'Conselheiro', password: '', client_id: '', phone: '', wa_opt_in: false });
       alert(`✅ Membro ${membroVerificado.name} cadastrado com sucesso!`);
     } catch (err: any) {
       alert("Erro ao cadastrar: " + (err.message || "Verifique se a Edge Function 'create-user' está publicada."));
@@ -7257,6 +7259,16 @@ const App = () => {
                             {isSuper && <option value="SuperAdmin">SuperAdmin</option>}
                           </select>
                         </div>
+                        {clientProfile?.whatsapp_enabled && (
+                          <div className="space-y-1">
+                            <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest flex items-center gap-1.5"><MessageSquare size={11} className="text-amber-600" /> WhatsApp (opcional)</label>
+                            <input type="tel" placeholder="Telefone com DDD, ex: 16988887777" className="w-full p-3 border border-slate-200 rounded-lg text-sm font-bold outline-none focus:border-amber-500 transition-colors" value={newUserForm.phone} onChange={e => setnewUserForm({ ...newUserForm, phone: e.target.value })} />
+                            <label className="flex items-center gap-2 mt-1.5 cursor-pointer">
+                              <input type="checkbox" checked={newUserForm.wa_opt_in} onChange={e => setnewUserForm({ ...newUserForm, wa_opt_in: e.target.checked })} className="accent-amber-600" />
+                              <span className="text-[11px] text-slate-600 font-normal not-italic">Autoriza receber avisos por WhatsApp (opt-in — LGPD)</span>
+                            </label>
+                          </div>
+                        )}
                         <div className="space-y-1">
                           <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Empresa (Client ID)</label>
                           {isSuper ? (

@@ -59,7 +59,7 @@ serve(async (req) => {
 
   try {
     const body = await req.json();
-    const { name, email, password, role, created_by } = body;
+    const { name, email, password, role, created_by, phone, wa_opt_in } = body;
     // Normaliza o client_id e recusa vazio/"null"/"undefined": um client_id nulo
     // cria membro órfão e quebra telas que ordenam por client_id (seletor de cliente).
     const client_id = typeof body.client_id === 'string' ? body.client_id.trim() : '';
@@ -133,6 +133,9 @@ serve(async (req) => {
       email,
       role,
       client_id,
+      phone: phone || null,
+      wa_opt_in: !!wa_opt_in,
+      wa_opt_in_at: wa_opt_in ? new Date().toISOString() : null,
     }], { onConflict: 'email' });
 
     if (memberError) {
