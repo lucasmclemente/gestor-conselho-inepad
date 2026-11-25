@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2"
+import { safeAppOrigin } from "../_shared/appOrigin.ts"
 import { signToken } from "../_shared/votetoken.ts"
 
 const ALLOWED_ORIGINS = [
@@ -69,7 +70,7 @@ serve(async (req) => {
     const { meetingTitle, minuteName, minuteUrl, actions, pendingSummary, meetingId, ataId, appOrigin } = await req.json()
     const RESEND_API_KEY = Deno.env.get('RESEND_API_KEY')
     const SECRET = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
-    const origin = (typeof appOrigin === 'string' && /^https?:\/\//.test(appOrigin)) ? appOrigin.replace(/\/$/, '') : 'https://app.boardplan.com.br'
+    const origin = safeAppOrigin(appOrigin)
     const exp = Date.now() + 7 * 24 * 60 * 60 * 1000
 
     // Blindagem: a ATA NUNCA vai para convidados externos (filtro no servidor). Também

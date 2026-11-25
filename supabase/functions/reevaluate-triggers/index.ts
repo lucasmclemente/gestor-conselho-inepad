@@ -1,6 +1,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2"
 import { fireForReadingMeta, sendDigestEmail } from "../_shared/triggers.ts"
+import { timingSafeEqual } from "../_shared/ctCompare.ts"
 
 // Acionada por pg_cron (diariamente). Respeita a frequência por cliente
 // (governance_settings.reeval_frequency) e o last_reeval_at. Protegida por segredo.
@@ -21,7 +22,7 @@ serve(async (req) => {
   if (req.method !== 'POST') return json({ error: 'Method Not Allowed' }, 405)
 
   const secret = Deno.env.get('CRON_SECRET')
-  if (!secret || req.headers.get('x-cron-secret') !== secret) return json({ error: 'Unauthorized' }, 401)
+  if (!secret || !(await timingSafeEqual(req.headers.get('x-cron-secret') ?? '', secret))) return json({ error: 'Unauthorized' }, 401)
 
   const admin = createClient(Deno.env.get('SUPABASE_URL') ?? '', Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '', { auth: { autoRefreshToken: false, persistSession: false } })
   const now = Date.now()

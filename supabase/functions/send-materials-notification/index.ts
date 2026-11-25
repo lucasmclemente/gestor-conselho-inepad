@@ -43,6 +43,7 @@ serve(async (req) => {
   try {
     const { meetingData, recipients, organizer: organizerInput } = await req.json()
     if (!Array.isArray(recipients) || recipients.length === 0) return json({ error: 'Sem destinatários.' }, 400)
+    if (recipients.length > 200) return json({ error: 'Muitos destinatários (máx. 200).' }, 400) // B3
     const cid = meetingData?.client_id
     if (role !== 'SuperAdmin' && (!cid || (cid !== homeClient && !secClients.includes(cid)))) return json({ error: 'Sem permissão para esta empresa.' }, 403)
     const RESEND_API_KEY = Deno.env.get('RESEND_API_KEY')
