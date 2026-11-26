@@ -1,12 +1,18 @@
-// Envio de templates do WhatsApp via Meta Cloud API (direta, sem BSP).
+// Envio de WhatsApp via Twilio (BSP) — substitui a Meta Cloud API direta.
 // Empacotado no deploy de cada função que importa (igual ics.ts/triggers.ts).
-// INERTE sem os secrets: se faltar PHONE_NUMBER_ID/ACCESS_TOKEN, devolve ok:false
+// INERTE sem os secrets: se faltar ACCOUNT_SID/AUTH_TOKEN, devolve ok:false
 // sem lançar — o fluxo de e-mail NUNCA quebra por causa do WhatsApp.
 //
-// Secrets (por ambiente): WHATSAPP_PHONE_NUMBER_ID, WHATSAPP_ACCESS_TOKEN.
-// A API de templates recusa parâmetros com \n, \t ou 4+ espaços → sanitizamos.
+// Secrets (por ambiente):
+//   TWILIO_ACCOUNT_SID      (ex: AC...)
+//   TWILIO_AUTH_TOKEN       (segredo — colar no Supabase, nunca no código)
+//   TWILIO_WHATSAPP_FROM    (ex: 'whatsapp:+14155238886' = número da Sandbox)
+//
+// Sandbox: manda TEXTO livre (sendText) para quem fez o "join" — ótimo p/ validar.
+// Produção: manda TEMPLATE aprovado (sendTemplate) via Content SID do Twilio.
 
-const GRAPH_VERSION = 'v21.0';
+const TWILIO_API = 'https://api.twilio.com/2010-04-01';
+const SANDBOX_FROM = 'whatsapp:+14155238886'; // número padrão da Sandbox do Twilio
 
 // Normaliza telefone para E.164 do Brasil (+55DDDNÚMERO). Devolve null se inválido.
 export function toE164BR(raw: unknown): string | null {
@@ -24,61 +30,64 @@ export function toE164BR(raw: unknown): string | null {
   return '+' + d;
 }
 
-// Remove quebras/tabs/sequências de espaço que a Meta reprova em parâmetro de template.
-function sanitizeParam(s: unknown): string {
-  return String(s ?? '').replace(/[\r\n\t]+/g, ' ').replace(/\s{2,}/g, ' ').trim().slice(0, 1024);
+function creds() {
+  const sid = Deno.env.get('TWILIO_ACCOUNT_SID');
+  const token = Deno.env.get('TWILIO_AUTH_TOKEN');
+  const from = Deno.env.get('TWILIO_WHATSAPP_FROM') || SANDBOX_FROM;
+  return { sid, token, from };
 }
 
-export interface SendTemplateOpts {
-  to: string;                 // telefone do membro (qualquer formato; normalizamos)
-  template: string;           // ex: 'convocacao_reuniao'
-  lang?: string;              // default 'pt_BR'
-  bodyParams?: string[];      // {{1}}, {{2}}... do corpo
-  urlButtonSuffix?: string;   // sufixo dinâmico do botão URL (ex: token/id)
-}
-
-export async function sendTemplate(opts: SendTemplateOpts): Promise<{ ok: boolean; wam_id?: string; error?: string }> {
-  const PHONE_NUMBER_ID = Deno.env.get('WHATSAPP_PHONE_NUMBER_ID');
-  const ACCESS_TOKEN = Deno.env.get('WHATSAPP_ACCESS_TOKEN');
-  if (!PHONE_NUMBER_ID || !ACCESS_TOKEN) return { ok: false, error: 'WhatsApp não configurado' };
-
-  const to = toE164BR(opts.to);
-  if (!to) return { ok: false, error: 'Telefone inválido' };
-
-  const components: any[] = [];
-  const bodyParams = (opts.bodyParams || []).map((p) => ({ type: 'text', text: sanitizeParam(p) }));
-  if (bodyParams.length > 0) components.push({ type: 'body', parameters: bodyParams });
-  if (opts.urlButtonSuffix != null && opts.urlButtonSuffix !== '') {
-    components.push({
-      type: 'button',
-      sub_type: 'url',
-      index: '0',
-      parameters: [{ type: 'text', text: sanitizeParam(opts.urlButtonSuffix) }],
-    });
-  }
-
-  const body = {
-    messaging_product: 'whatsapp',
-    to: to.replace(/^\+/, ''),   // a Meta aceita sem o '+'
-    type: 'template',
-    template: {
-      name: opts.template,
-      language: { code: opts.lang || 'pt_BR' },
-      ...(components.length > 0 ? { components } : {}),
-    },
-  };
-
+async function post(sid: string, token: string, params: Record<string, string>): Promise<{ ok: boolean; wam_id?: string; error?: string }> {
   try {
-    const res = await fetch(`https://graph.facebook.com/${GRAPH_VERSION}/${PHONE_NUMBER_ID}/messages`, {
+    const res = await fetch(`${TWILIO_API}/Accounts/${sid}/Messages.json`, {
       method: 'POST',
-      headers: { 'Authorization': `Bearer ${ACCESS_TOKEN}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
+      headers: {
+        'Authorization': 'Basic ' + btoa(`${sid}:${token}`),
+        'Content-Type': 'application/x-www-form-urlencoded',
+      },
+      body: new URLSearchParams(params).toString(),
     });
     const j: any = await res.json().catch(() => ({}));
-    if (!res.ok) return { ok: false, error: j?.error?.message || `HTTP ${res.status}` };
-    const wam_id = j?.messages?.[0]?.id;
-    return { ok: true, wam_id };
+    if (!res.ok) return { ok: false, error: j?.message || `HTTP ${res.status}` };
+    return { ok: true, wam_id: j?.sid };
   } catch (e) {
     return { ok: false, error: (e as Error).message };
   }
+}
+
+// Mensagem de TEXTO livre (Sandbox, ou dentro da janela de 24h de serviço).
+export async function sendText(opts: { to: string; body: string }): Promise<{ ok: boolean; wam_id?: string; error?: string }> {
+  const { sid, token, from } = creds();
+  if (!sid || !token) return { ok: false, error: 'WhatsApp (Twilio) não configurado' };
+  const to = toE164BR(opts.to);
+  if (!to) return { ok: false, error: 'Telefone inválido' };
+  return post(sid, token, {
+    From: from,
+    To: `whatsapp:${to}`,
+    Body: String(opts.body ?? '').slice(0, 1500),
+  });
+}
+
+export interface SendTemplateOpts {
+  to: string;                          // telefone do membro (qualquer formato; normalizamos)
+  contentSid: string;                  // Content SID do template aprovado no Twilio (HX...)
+  variables?: Record<string, string>;  // {"1":"...","2":"..."} do corpo/botão
+}
+
+// TEMPLATE aprovado (produção) via Content SID do Twilio.
+export async function sendTemplate(opts: SendTemplateOpts): Promise<{ ok: boolean; wam_id?: string; error?: string }> {
+  const { sid, token, from } = creds();
+  if (!sid || !token) return { ok: false, error: 'WhatsApp (Twilio) não configurado' };
+  if (!opts.contentSid) return { ok: false, error: 'contentSid obrigatório' };
+  const to = toE164BR(opts.to);
+  if (!to) return { ok: false, error: 'Telefone inválido' };
+  const params: Record<string, string> = {
+    From: from,
+    To: `whatsapp:${to}`,
+    ContentSid: opts.contentSid,
+  };
+  if (opts.variables && Object.keys(opts.variables).length > 0) {
+    params['ContentVariables'] = JSON.stringify(opts.variables);
+  }
+  return post(sid, token, params);
 }

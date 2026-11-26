@@ -1,10 +1,11 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { sendTemplate } from "../_shared/whatsapp.ts";
+import { sendText, sendTemplate } from "../_shared/whatsapp.ts";
 
-// Disparo manual de um template do WhatsApp para um número (teste do admin).
-// Valida os secrets da Meta (WHATSAPP_PHONE_NUMBER_ID / WHATSAPP_ACCESS_TOKEN) e o
-// módulo _shared/whatsapp.ts. Só Adm/Sec/Super. Grava em whatsapp_logs.
+// Disparo manual de um WhatsApp de teste para um número (teste do admin).
+// Valida os secrets da Twilio (TWILIO_ACCOUNT_SID / TWILIO_AUTH_TOKEN) e o
+// módulo _shared/whatsapp.ts. Manda TEXTO livre (Sandbox). Só Adm/Sec/Super.
+// Grava em whatsapp_logs.
 
 const ALLOWED_ORIGINS = ['https://conselho.inepadconsulting.com', 'https://app.boardplan.com.br', 'http://localhost:3000'];
 function cors(req: Request): Record<string, string> {
@@ -30,16 +31,20 @@ serve(async (req) => {
   if (!['Administrador', 'Secretário', 'SuperAdmin'].includes(role)) return json({ error: 'Sem permissão.' }, 403);
 
   try {
-    const { to, template, lang, bodyParams, urlButtonSuffix } = await req.json();
+    const { to, body, contentSid, variables } = await req.json();
     if (!to) return json({ error: 'Número (to) é obrigatório.' }, 400);
 
-    const r = await sendTemplate({
-      to: String(to),
-      template: String(template || 'hello_world'),
-      lang: lang || 'en_US',
-      bodyParams: Array.isArray(bodyParams) ? bodyParams.map(String) : [],
-      urlButtonSuffix: urlButtonSuffix ? String(urlButtonSuffix) : undefined,
-    });
+    // Se vier contentSid (ou nenhum body) → manda TEMPLATE (caminho de produção,
+    // não exige janela de 24h). Default: template de exemplo da Twilio (lembrete).
+    // Se vier body explícito → manda TEXTO livre (só funciona com janela aberta).
+    let r;
+    if (typeof body === 'string' && body.trim()) {
+      r = await sendText({ to: String(to), body: body.trim() });
+    } else {
+      const cs = (typeof contentSid === 'string' && contentSid) ? contentSid : 'HXb5b62575e6e4ff6129ad7c8efe1f983e';
+      const vars = (variables && typeof variables === 'object') ? variables : { '1': '26/11', '2': '15h' };
+      r = await sendTemplate({ to: String(to), contentSid: cs, variables: vars });
+    }
 
     // Log best-effort (service role)
     try {
@@ -48,14 +53,15 @@ serve(async (req) => {
         client_id: clientId || 'TESTE',
         member_email: user.email,
         phone: String(to),
-        template: String(template || 'hello_world'),
+        template: 'teste-texto',
         wam_id: r.wam_id ?? null,
         status: r.ok ? 'sent' : 'failed',
         error: r.error ?? null,
       }]);
     } catch (_) { /* silencioso */ }
 
-    return json(r, r.ok ? 200 : 502);
+    // Sempre 200: o app lê data.error e mostra o motivo exato da Twilio no alerta.
+    return json(r, 200);
   } catch (e: any) {
     return json({ error: String(e?.message || e) }, 500);
   }
