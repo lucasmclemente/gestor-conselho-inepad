@@ -1,6 +1,6 @@
 # CLAUDE.md — Boardplan | INEPAD Governança e Sucessão
 > Arquivo de contexto do projeto. Cole nas Project Instructions do Claude.
-> Última atualização: 25/11/2026 (v5.2 — portabilidade de dados + hardening pós-auditoria)
+> Última atualização: 26/11/2026 (v5.3 — fixes: assinaturas da ata (paginação) + alteração de reunião atualiza os convites de calendário)
 
 ---
 
@@ -18,12 +18,12 @@
 
 Plataforma corporativa que gerencia o ciclo completo de reuniões de Conselhos Deliberativos e Consultivos:
 
-- **Convocações oficiais** — disparo automático de e-mails com pauta e logística + anexo de calendário (`.ics` com RSVP)
+- **Convocações oficiais** — disparo automático de e-mails com pauta e logística + anexo de calendário (`.ics` com RSVP). **Reenviar a convocação após alterar a reunião ATUALIZA o evento na agenda do participante (mesmo UID + `SEQUENCE` crescente), sem duplicar**; ao salvar uma reunião já convocada cuja agenda mudou, o sistema pergunta se quer reenviar (ver `meetings.ics_sequence` em §4 e a nota do `.ics` em §6)
 - **Programação anual** — secretaria programa as reuniões do ano em lote (frequência mensal/bimestral/trimestral/semestral, lista de datas editável) e dispara convites de calendário (`.ics` multi-evento) para reservar a agenda dos conselheiros
 - **Ordem do Dia** — controle de pautas com cronômetro em tempo real e alertas de estouro
 - **Deliberações** — sistema formal de votação (Favor / Contra / Abstenção) com painel de votantes elegíveis
 - **Plano de Ação Global** — consolidado de iniciativas entre reuniões, com filtros e atualizações em lote
-- **Atas** — upload seguro com links assinados (7 dias) e disparo automático para participantes
+- **Atas** — upload seguro com links assinados (7 dias) e disparo automático para participantes. A **ata em PDF** (`services/generateAtaPDF.ts`) traz a seção ASSINATURAS com os **Conselheiros presentes** (participante com papel exatamente `Conselheiro`, casado por e-mail; secretário/administrador/diretor/controller/externos não assinam) — corrigido em 26/11 um bug de paginação que desenhava a 2ª linha de assinaturas em diante **fora da folha** (sumiam os conselheiros das linhas 2+ quando a seção começava perto do rodapé)
 - **Dashboard de governança** — KPIs clicáveis (drill-down) com barra de progresso, gráficos de status/produtividade, próximas reuniões programadas (contagem regressiva) e pendências prioritárias
 - **Auditoria** — logs automáticos e imutáveis de todas as ações do sistema
 - **Cadastro de Membros** — via Edge Function segura com criação no Auth + tabela members
@@ -127,6 +127,7 @@ GESTOR-CONSELHO-INEPAD/
 | atas | jsonb | Array de {name, url, uploadedAt, clicksign_key?, clicksign_status?, clicksign_signed_url?, clicksign_signed_at?} |
 | created_at | timestamptz | |
 | client_id | text | Isolamento multi-tenant |
+| ics_sequence | integer | Contador de versão do convite de calendário (iCal `SEQUENCE`), default 0 — incrementado pela `send-invitation` a cada envio p/ **atualizar** o evento na agenda em vez de duplicar (migração `20260778`) |
 
 ### Tabela: `clients`
 | Coluna | Tipo | Observação |
@@ -322,7 +323,7 @@ Auditoria multiagente adversarial. Achado **A1 ALTO** (MFA só client-side) → 
 | Função | Descrição | JWT Verify |
 |---|---|---|
 | `create-user` | Cria usuário no Auth + upsert em members + log | OFF (verifica Bearer token manualmente) |
-| `send-invitation` | Convocação oficial por e-mail + anexa convite de calendário (`.ics` RSVP). Externos e **Controller/Diretor** (via `reducedEmails`) recebem **convocação reduzida** (só as pautas deles) | ON (verificação em código + config.toml) |
+| `send-invitation` | Convocação oficial por e-mail + anexa convite de calendário (`.ics` RSVP). Externos e **Controller/Diretor** (via `reducedEmails`) recebem **convocação reduzida** (só as pautas deles). **Incrementa `meetings.ics_sequence` (via `service_role`) a cada envio → reenviar ATUALIZA o evento na agenda, sem duplicar** | ON (verificação em código + config.toml) |
 | `send-calendar-invites` | Envia 1 e-mail com `.ics` multi-evento (todas as reuniões do ano) para reservar a agenda dos participantes (RSVP) | ON (verificação em código + config.toml) |
 | `send-minute-notification` | Ata + relatório de pendências por responsável | ON (verificação em código + config.toml) |
 | `clicksign-flow` | Envia ata para assinatura digital no ClickSign + adiciona signatários | OFF |
@@ -375,6 +376,8 @@ Dashboard: seção "Próximas Reuniões Programadas" reflete as novas datas
 ```
 
 > Duração assumida no `.ics`: **120 min** por reunião (não há campo de duração no cadastro). Convite vai como **anexo** `.ics` (método REQUEST) — RSVP nativo no corpo do e-mail não é suportado pelo Resend.
+
+> **Atualização de convites ao alterar a reunião (26/11/2026):** o UID do evento é estável por reunião (`<meeting.id>@conselho.inepadconsulting.com`); o `SEQUENCE` do `.ics` **antes era fixo em 0**, então Outlook/Google ignoravam alterações. Agora `meetings.ics_sequence` (migração `20260778`) é um contador por reunião que a **`send-invitation` incrementa a cada envio via `service_role`** (começa em 1, `> 0` do convite original → atualiza até reuniões antigas); `_shared/ics.ts` usa esse valor no `SEQUENCE`. Assim, **reenviar o convite ATUALIZA o evento** (mesmo UID + `SEQUENCE` maior) em vez de duplicar. No frontend, `saveMeeting` detecta mudança de data/hora/`end_time`/tipo/local/link/título numa reunião já existente com participantes e **pergunta ao salvar** se quer reenviar. A `send-calendar-invites` (lote anual) segue mandando `SEQUENCE:0` no 1º envio (as reuniões nascem com `ics_sequence=0`), o que é compatível: o 1º reenvio via `send-invitation` manda 1 e atualiza.
 
 ### Integração ClickSign — fluxo completo
 ```
