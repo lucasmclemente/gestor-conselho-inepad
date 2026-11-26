@@ -10,6 +10,7 @@ export interface ICSEvent {
   durationMin?: number;
   location?: string;
   description?: string;
+  sequence?: number;  // versão do evento (iCal SEQUENCE); subir = atualiza na agenda em vez de duplicar
 }
 
 export interface ICSAttendee {
@@ -75,7 +76,7 @@ export function buildICS(
       ...attendeeLines,
       'STATUS:CONFIRMED',
       'TRANSP:OPAQUE',
-      'SEQUENCE:0',
+      `SEQUENCE:${Number.isFinite(ev.sequence as number) ? ev.sequence : 0}`,
       'END:VEVENT',
     ].filter(Boolean);
   });
