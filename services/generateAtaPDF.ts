@@ -282,39 +282,43 @@ export async function generateAtaPDF(
     const SIG_W = (W - ML * 2 - 10) / 2;
     const SIG_H = 28;
 
-    for (let i = 0; i < signatarios.length; i++) {
-      const col    = i % 2;
-      const row    = Math.floor(i / 2);
-      // Nova linha: checka page break antes de cada linha par
-      if (col === 0 && row > 0) {
-        y = checkPageBreak(doc, y, SIG_H + 6, H, W, ML, meeting.title);
+    // Desenha linha a linha (2 colunas por linha). ANTES de cada linha, reserva o
+    // espaço REAL dela no y corrente — senão a 2ª linha (ou qualquer linha que caísse
+    // no fim da página) era desenhada fora da folha e as assinaturas sumiam (bug
+    // corrigido 26/11/2026: faltavam os conselheiros das linhas 2+ quando a seção
+    // começava perto do rodapé).
+    for (let i = 0; i < signatarios.length; i += 2) {
+      y = checkPageBreak(doc, y, SIG_H + 6, H, W, ML, meeting.title);
+      for (let col = 0; col < 2; col++) {
+        const s = signatarios[i + col];
+        if (!s) break;
+        const sx = ML + col * (SIG_W + 10);
+        const sy = y;
+
+        // Linha de assinatura
+        doc.setDrawColor(...C.border);
+        doc.setLineDashPattern([], 0);
+        doc.line(sx, sy + SIG_H - 10, sx + SIG_W, sy + SIG_H - 10);
+
+        // Nome
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(7.5);
+        doc.setTextColor(...C.primary);
+        const nameLines = doc.splitTextToSize(s.name, SIG_W - 4);
+        doc.text(nameLines[0], sx + SIG_W / 2, sy + SIG_H - 4, { align: 'center' });
+
+        // E-mail
+        if (s.email) {
+          doc.setFont('helvetica', 'normal');
+          doc.setFontSize(6);
+          doc.setTextColor(...C.medium);
+          doc.text(s.email, sx + SIG_W / 2, sy + SIG_H, { align: 'center' });
+        }
       }
-      const sx = ML + col * (SIG_W + 10);
-      const sy = y + row * (SIG_H + 6);
-
-      // Linha de assinatura
-      doc.setDrawColor(...C.border);
-      doc.setLineDashPattern([], 0);
-      doc.line(sx, sy + SIG_H - 10, sx + SIG_W, sy + SIG_H - 10);
-
-      // Nome
-      doc.setFont('helvetica', 'bold');
-      doc.setFontSize(7.5);
-      doc.setTextColor(...C.primary);
-      const nameLines = doc.splitTextToSize(signatarios[i].name, SIG_W - 4);
-      doc.text(nameLines[0], sx + SIG_W / 2, sy + SIG_H - 4, { align: 'center' });
-
-      // E-mail
-      if (signatarios[i].email) {
-        doc.setFont('helvetica', 'normal');
-        doc.setFontSize(6);
-        doc.setTextColor(...C.medium);
-        doc.text(signatarios[i].email, sx + SIG_W / 2, sy + SIG_H, { align: 'center' });
-      }
+      y += SIG_H + 6; // avança para a próxima linha de assinaturas
     }
 
-    const totalRows = Math.ceil(signatarios.length / 2);
-    y += totalRows * (SIG_H + 6) + 6;
+    y += 6;
   }
 
   // ── Rodapé em todas as páginas ────────────────────────────────
