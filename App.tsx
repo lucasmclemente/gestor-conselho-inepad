@@ -1550,6 +1550,9 @@ const App = () => {
   const saveMeeting = async () => {
     if (!canEdit) return;
     if (!currentMeeting.title) return alert("O título é obrigatório.");
+    // Guarda a versão anterior (do estado) para detectar mudanças de agenda ao salvar
+    const wasExisting = !!currentMeeting.id;
+    const prevMeeting = wasExisting ? meetings.find((m: any) => m.id === currentMeeting.id) : null;
     const meetingData = {
       ...currentMeeting,
       client_id: currentMeeting.client_id || activeClientId || currentUser.client_id,
@@ -1558,16 +1561,49 @@ const App = () => {
       end_time: currentMeeting.end_time === "" ? null : (currentMeeting.end_time ?? null)
     };
     if (!meetingData.id) delete meetingData.id;
+    // O contador do convite (SEQUENCE) é gerido só pela Edge Function send-invitation;
+    // não deixamos o cliente sobrescrevê-lo ao salvar.
+    delete (meetingData as any).ics_sequence;
     const { data, error } = await supabase.from('meetings').upsert([meetingData]).select();
     if (error) return alert("Erro ao salvar: " + error.message);
     if (data) {
+      const saved = data[0];
       setMeetings(prev => {
-        const index = prev.findIndex(m => m.id === data[0].id);
-        if (index !== -1) { const newM = [...prev]; newM[index] = data[0]; return newM; }
-        return [data[0], ...prev];
+        const index = prev.findIndex(m => m.id === saved.id);
+        if (index !== -1) { const newM = [...prev]; newM[index] = saved; return newM; }
+        return [saved, ...prev];
       });
-      setView('list');
       addLog('Salvamento', `Reunião: ${currentMeeting.title}`);
+
+      // Perguntar ao salvar: se uma reunião JÁ EXISTENTE teve a agenda alterada
+      // (data/hora/local/link/tipo/título) e tem participantes com e-mail, oferece
+      // reenviar os convites atualizados — o reenvio ATUALIZA o evento na agenda de
+      // cada um (mesmo UID + SEQUENCE maior), sem criar duplicado.
+      const CAL_FIELDS = ['date', 'time', 'end_time', 'type', 'address', 'link', 'title'];
+      const emails = (saved.participants || []).map((p: any) => p.email).filter((e: string) => e);
+      const agendaChanged = wasExisting && prevMeeting && saved.date &&
+        CAL_FIELDS.some(f => String(prevMeeting[f] ?? '') !== String(saved[f] ?? ''));
+
+      if (agendaChanged && emails.length > 0 &&
+        window.confirm('A agenda desta reunião foi alterada (data, horário, local, link ou título).\n\nReenviar os convites atualizados aos participantes?\n\nA agenda de cada um será ATUALIZADA automaticamente (sem criar evento duplicado).')) {
+        try {
+          const roleByEmail = new Map((users || []).map((u: any) => [(u.email || '').toLowerCase(), u.role]));
+          const isReducedRole = (r: any) => r === 'Controller' || r === 'Diretor';
+          const reducedEmails = (saved.participants || []).filter((p: any) => p.email && !p.isExternal && isReducedRole(roleByEmail.get(String(p.email).toLowerCase()))).map((p: any) => p.email);
+          const { data: inv, error: invErr } = await supabase.functions.invoke('send-invitation', { body: { meetingData: saved, recipients: emails, organizer: { name: currentUser.name, email: currentUser.email }, reducedEmails } });
+          if (invErr || (inv as any)?.error) throw new Error((invErr as any)?.message || (inv as any)?.error);
+          addLog('Convocação', `Convites atualizados reenviados — ${saved.title}`);
+          setView('list');
+          alert('✅ Reunião salva e convites atualizados reenviados. A agenda dos participantes será atualizada.');
+          return;
+        } catch (e: any) {
+          setView('list');
+          alert('A reunião foi salva, mas houve um erro ao reenviar os convites: ' + (e?.message || e) + '\n\nVocê pode reenviar manualmente pela Convocação Oficial.');
+          return;
+        }
+      }
+
+      setView('list');
       alert("Sucesso na gravação!");
     }
   };

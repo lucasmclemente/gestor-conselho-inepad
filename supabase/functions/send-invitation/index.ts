@@ -100,6 +100,22 @@ serve(async (req) => {
       ? { name: organizerInput.name || organizerInput.email, email: organizerInput.email }
       : { name: 'Boardplan (não responder)', email: 'nao-responda@boardplan.com.br' }
 
+    // Versão do convite (iCal SEQUENCE): incrementamos a cada envio para que REENVIAR
+    // um convite ATUALIZE o evento na agenda (mesmo UID) em vez de duplicar. Usamos
+    // service_role (ignora RLS/MFA) só para ler/gravar o contador. Começa em 1 (> 0 do
+    // convite original), então a atualização funciona até em reuniões antigas.
+    const admin = createClient(
+      Deno.env.get('SUPABASE_URL') ?? '',
+      Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '',
+      { auth: { autoRefreshToken: false, persistSession: false } },
+    )
+    const willSendIcs = !!meetingData?.date
+    let icsSequence = 1
+    if (willSendIcs && meetingData?.id) {
+      const { data: seqRow } = await admin.from('meetings').select('ics_sequence').eq('id', meetingData.id).maybeSingle()
+      icsSequence = (Number(seqRow?.ics_sequence) || 0) + 1
+    }
+
     // Renderiza uma lista de pautas (Ordem do Dia) — usada tanto para a agenda completa
     // (participantes internos) quanto para o recorte por responsável (participantes externos)
     const renderPautas = (pautas: any[], emptyMsg: string) =>
@@ -142,6 +158,7 @@ serve(async (req) => {
           durationMin: meetingDurationMin(meetingData.time, meetingData.end_time, meetingData.pautas),
           location: locationParts.join(' • '),
           description: 'Convocação oficial do Conselho. Confirme sua presença respondendo a este convite.',
+          sequence: icsSequence,
         }],
         attendees,
         organizer,
@@ -227,6 +244,11 @@ serve(async (req) => {
 
     const results = await Promise.allSettled(sends)
     const sent = results.filter((r) => r.status === 'fulfilled').length
+
+    // Persiste o novo SEQUENCE para que o PRÓXIMO reenvio seja ainda maior (monotônico).
+    if (willSendIcs && meetingData?.id) {
+      try { await admin.from('meetings').update({ ics_sequence: icsSequence }).eq('id', meetingData.id) } catch (_) { /* não bloqueia o envio */ }
+    }
     return new Response(JSON.stringify({ success: true, sent, internal: internal.length, reduced: reduced.length }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       status: 200,
