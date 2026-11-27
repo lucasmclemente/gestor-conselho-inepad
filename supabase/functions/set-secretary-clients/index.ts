@@ -32,22 +32,50 @@ serve(async (req) => {
   if ((caller.app_metadata as any)?.role !== 'SuperAdmin') return json({ error: 'Apenas SuperAdmin pode atribuir clientes.' }, 403)
 
   try {
-    const { userId, clientIds } = await req.json()
+    // clientIds = empresas em que o usuário atua (secretary_clients).
+    // roles     = papel de GESTÃO por cliente  { clientId: papel }        (opcional)
+    // boardSeats= assento no CONSELHO por cliente { clientId: deliberativo|consultivo } (opcional)
+    // Compat: se roles/boardSeats não vierem, os mapas atuais são PRESERVADOS (front antigo só manda clientIds).
+    const { userId, clientIds, roles, boardSeats } = await req.json()
     if (!userId || !Array.isArray(clientIds)) return json({ error: 'Parâmetros inválidos.' }, 400)
     const clean = [...new Set(clientIds.map((c: any) => String(c)).filter(Boolean))]
+
+    // Papéis de gestão aceitos por cliente (SuperAdmin/Certificador/Comercial são globais → não entram aqui)
+    const GOV_ROLES = ['Administrador', 'Secretário', 'Conselheiro', 'Conselheiro Consultivo', 'Controller', 'Diretor', 'Assistente']
+    const SEATS = ['deliberativo', 'consultivo']
+    const cleanMap = (obj: any, allowed: string[]): Record<string, string> => {
+      const out: Record<string, string> = {}
+      if (obj && typeof obj === 'object') {
+        for (const [k, v] of Object.entries(obj)) {
+          const key = String(k); const val = String(v)
+          if (key && allowed.includes(val)) out[key] = val
+        }
+      }
+      return out
+    }
+    const hasRoles = roles !== undefined
+    const hasSeats = boardSeats !== undefined
+    const cleanRoles = hasRoles ? cleanMap(roles, GOV_ROLES) : null
+    const cleanSeats = hasSeats ? cleanMap(boardSeats, SEATS) : null
 
     const admin = createClient(Deno.env.get('SUPABASE_URL') ?? '', Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '', { auth: { autoRefreshToken: false, persistSession: false } })
 
     const { data: au } = await admin.auth.admin.getUserById(userId)
     if (!au?.user) return json({ error: 'Usuário não encontrado.' }, 404)
     const existingApp = (au.user.app_metadata as any) || {}
-    const { error: authUpdErr } = await admin.auth.admin.updateUserById(userId, { app_metadata: { ...existingApp, secretary_clients: clean } })
+
+    const appPatch: Record<string, unknown> = { ...existingApp, secretary_clients: clean }
+    const memPatch: Record<string, unknown> = { secretary_clients: clean }
+    if (hasRoles) { appPatch.client_roles = cleanRoles; memPatch.client_roles = cleanRoles }
+    if (hasSeats) { appPatch.board_seats = cleanSeats; memPatch.board_seats = cleanSeats }
+
+    const { error: authUpdErr } = await admin.auth.admin.updateUserById(userId, { app_metadata: appPatch })
     if (authUpdErr) return json({ error: 'Erro ao atualizar login: ' + authUpdErr.message }, 400)
 
-    const { error: memErr } = await admin.from('members').update({ secretary_clients: clean }).eq('id', userId)
+    const { error: memErr } = await admin.from('members').update(memPatch).eq('id', userId)
     if (memErr) return json({ error: 'Erro ao atualizar membro: ' + memErr.message }, 400)
 
-    return json({ success: true, secretary_clients: clean })
+    return json({ success: true, secretary_clients: clean, client_roles: cleanRoles, board_seats: cleanSeats })
   } catch (e: any) {
     return json({ error: e.message }, 400)
   }
