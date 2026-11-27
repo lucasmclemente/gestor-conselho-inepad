@@ -350,7 +350,10 @@ const App = () => {
   // Membros do cliente atual (SuperAdmin enxerga todos; aqui escopamos ao próprio cliente)
   const clientMembers = (users || []).filter((u: any) => {
     const cid = activeClientId || currentUser?.client_id;
-    return u.client_id === cid || (Array.isArray(u.secretary_clients) && u.secretary_clients.includes(cid));
+    return u.client_id === cid
+      || (Array.isArray(u.secretary_clients) && u.secretary_clients.includes(cid))
+      || (u.board_seats && typeof u.board_seats === 'object' && !!u.board_seats[cid])
+      || (u.client_roles && typeof u.client_roles === 'object' && !!u.client_roles[cid]);
   });
 
   // --- LOGICA DE SESSÃO ---
