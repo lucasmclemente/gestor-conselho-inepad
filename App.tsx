@@ -209,6 +209,8 @@ const App = () => {
   const [superViewAll, setSuperViewAll] = useState(true);
   const [secModalUser, setSecModalUser] = useState<any>(null);
   const [secModalSelected, setSecModalSelected] = useState<string[]>([]);
+  const [secModalRoles, setSecModalRoles] = useState<Record<string, string>>({});
+  const [secModalSeats, setSecModalSeats] = useState<Record<string, string>>({});
   const [secModalSaving, setSecModalSaving] = useState(false);
   // Comitês (add-on): sub-espaços que assessoram o Conselho, isolados por RLS (migração 20260769)
   const [comitesList, setComitesList] = useState<any[]>([]);       // comitês ativos do cliente
@@ -291,14 +293,31 @@ const App = () => {
   const [trigForm, setTrigForm] = useState<any>({ name: '', operator: 'lt', threshold_value: '', threshold_value_secondary: '', severity: 'attention', scenario: 'Base', create_action_on_breach: true, notify_on_breach: true, assignee_member_id: '' });
   const [trigSaving, setTrigSaving] = useState(false);
 
+  // ── Papéis por cliente + assento de conselheiro (ver SPEC-papeis-por-cliente.md) ──
+  // Papel EFETIVO = papel específico do cliente ativo (client_roles), senão o papel global.
+  const activeCid = activeClientId || currentUser?.client_id || '';
+  const clientRolesMap = (currentUser?.client_roles && typeof currentUser.client_roles === 'object') ? currentUser.client_roles : {};
+  const boardSeatsMap = (currentUser?.board_seats && typeof currentUser.board_seats === 'object') ? currentUser.board_seats : {};
+  const effectiveRole = clientRolesMap[activeCid] || currentUser?.role;
+  // Assento no conselho: inferido do papel de conselho; board_seats sobrepõe (assento ADITIVO p/ Super/Admin).
+  const seatFromRole = (r: any) => r === 'Conselheiro' ? 'deliberativo' : (r === 'Conselheiro Consultivo' ? 'consultivo' : null);
+  const effectiveSeat = boardSeatsMap[activeCid] || seatFromRole(effectiveRole);
+  // Capacidades de conselho no cliente ativo
+  const canSignAta = effectiveSeat === 'deliberativo';   // assina a ata (bloco de assinaturas)
+  const canVote = effectiveSeat === 'deliberativo';      // vota em deliberações
+  const canApproveAta = effectiveSeat === 'deliberativo' || effectiveSeat === 'consultivo'; // aprova/ressalva
+  // Papel/assento de OUTRO membro no cliente X (monta listas de assinantes/aprovadores/votantes)
+  const effRoleOf = (m: any, cid: string) => { const cr = (m?.client_roles && typeof m.client_roles === 'object') ? m.client_roles : {}; return cr[cid] || m?.role; };
+  const seatOf = (m: any, cid: string) => { const bs = (m?.board_seats && typeof m.board_seats === 'object') ? m.board_seats : {}; return bs[cid] || seatFromRole(effRoleOf(m, cid)); };
+
   const isSuper = currentUser?.role === 'SuperAdmin';
-  const isAdm = currentUser?.role === 'Administrador' || isSuper;
-  const isSec = currentUser?.role === 'Secretário';
+  const isAdm = effectiveRole === 'Administrador' || isSuper;
+  const isSec = effectiveRole === 'Secretário';
   const canEdit = isAdm || isSec;
-  const isAssistant = currentUser?.role === 'Assistente';
+  const isAssistant = effectiveRole === 'Assistente';
   const isComercial = currentUser?.role === 'Comercial';
-  const isController = currentUser?.role === 'Controller';
-  const isDiretor = currentUser?.role === 'Diretor';
+  const isController = effectiveRole === 'Controller';
+  const isDiretor = effectiveRole === 'Diretor';
   // Diretor tem as MESMAS permissões do Controller — tudo que vale p/ Controller vale p/ Diretor
   const isControllerLike = isController || isDiretor;
   const isCertifier = currentUser?.role === 'Certificador';
@@ -322,7 +341,7 @@ const App = () => {
   // Supervisor de comitês no front (espelha can_supervise_comites() do banco: Admin/Super ou Secretário)
   const canSuperviseComites = isAdm || isSec;
   // Quem vê o menu/acompanhamento de Comitês = o Conselho (supervisores + Conselheiros)
-  const canSeeComitesMenu = committeesEnabled && (canSuperviseComites || currentUser?.role === 'Conselheiro');
+  const canSeeComitesMenu = committeesEnabled && (canSuperviseComites || effectiveRole === 'Conselheiro' || effectiveRole === 'Conselheiro Consultivo');
   // Nome do espaço ativo (Conselho ou o comitê selecionado) — usado no seletor e no título
   const activeComiteNome = activeComiteId ? (comitesList.find((c: any) => c.id === activeComiteId)?.nome || 'Comitê') : null;
   // O próprio usuário acessa o Conselho? (false = só comitê). Default true até carregar o perfil.
@@ -436,12 +455,14 @@ const App = () => {
         email: user?.email ?? '',
         role: appMeta.role,
         client_id: appMeta.client_id,
-        secretary_clients: Array.isArray(appMeta.secretary_clients) ? appMeta.secretary_clients : []
+        secretary_clients: Array.isArray(appMeta.secretary_clients) ? appMeta.secretary_clients : [],
+        client_roles: (appMeta.client_roles && typeof appMeta.client_roles === 'object') ? appMeta.client_roles : {},
+        board_seats: (appMeta.board_seats && typeof appMeta.board_seats === 'object') ? appMeta.board_seats : {}
       };
     } else {
       // Fallback para tabela members (compatibilidade com usuários sem metadata)
-      const { data } = await supabase.from('members').select('id, name, email, role, client_id, secretary_clients').eq('id', userId).single();
-      if (data) profile = { ...data, secretary_clients: data.secretary_clients || [] };
+      const { data } = await supabase.from('members').select('id, name, email, role, client_id, secretary_clients, client_roles, board_seats').eq('id', userId).single();
+      if (data) profile = { ...data, secretary_clients: data.secretary_clients || [], client_roles: data.client_roles || {}, board_seats: data.board_seats || {} };
     }
     if (!profile) return;
     // Bloqueia o acesso se a conta da empresa estiver inativa (SuperAdmin nunca é bloqueado)
@@ -705,7 +726,7 @@ const App = () => {
       }
       if (isControllerLike) setActiveMenu('minhas-pautas');
       if (isCertifier) setActiveMenu('certificacao');
-      const memberCols = 'id, name, email, role, client_id, created_at, secretary_clients, conselho_member';
+      const memberCols = 'id, name, email, role, client_id, created_at, secretary_clients, conselho_member, client_roles, board_seats';
       let mQuery = supabase.from('meetings').select('*');
       let lQuery = supabase.from('audit_logs').select('*');
       // Filtra por cliente exceto quando o SuperAdmin está na visão "Consolidado Geral"
@@ -883,7 +904,7 @@ const App = () => {
         // Ata publicada e salva. A secretaria escolhe QUEM assina (só conselheiros por padrão) antes de enviar para aprovação.
         const internos = (currentMeeting.participants || []).filter((p: any) => !p.isExternal && p.email && p.name);
         // Só Conselheiros assinam a ata (secretário, administradores e externos participam mas não assinam)
-        const candidates = internos.map((p: any) => ({ name: p.name, email: p.email, role: (clientMembers.find((u: any) => (u.email || '').toLowerCase() === (p.email || '').toLowerCase())?.role) || '' })).filter((c: any) => c.role === 'Conselheiro');
+        const candidates = internos.map((p: any) => { const mm = clientMembers.find((u: any) => (u.email || '').toLowerCase() === (p.email || '').toLowerCase()); return { name: p.name, email: p.email, role: mm?.role || '', seat: mm ? seatOf(mm, activeCid) : null }; }).filter((c: any) => c.seat === 'deliberativo' || c.seat === 'consultivo');
         if (candidates.length > 0) {
           const selected = candidates.map((c: any) => c.name);
           setSignerModal({ ataId: newFile.id, ataName: file.name, minuteUrl: secureUrl, mode: 'publish', candidates, selected });
@@ -2043,14 +2064,16 @@ const App = () => {
     if (!isSuper) return;
     setSecModalUser(u);
     setSecModalSelected(Array.isArray(u.secretary_clients) ? u.secretary_clients : []);
+    setSecModalRoles((u.client_roles && typeof u.client_roles === 'object') ? { ...u.client_roles } : {});
+    setSecModalSeats((u.board_seats && typeof u.board_seats === 'object') ? { ...u.board_seats } : {});
   };
   const saveSecModal = async () => {
     if (!secModalUser) return;
     setSecModalSaving(true);
     try {
-      const { data, error } = await supabase.functions.invoke('set-secretary-clients', { body: { userId: secModalUser.id, clientIds: secModalSelected } });
+      const { data, error } = await supabase.functions.invoke('set-secretary-clients', { body: { userId: secModalUser.id, clientIds: secModalSelected, roles: secModalRoles, boardSeats: secModalSeats } });
       if (error || data?.error) throw new Error(error?.message || data?.error);
-      setUsers(prev => prev.map((x: any) => x.id === secModalUser.id ? { ...x, secretary_clients: data.secretary_clients } : x));
+      setUsers(prev => prev.map((x: any) => x.id === secModalUser.id ? { ...x, secretary_clients: data.secretary_clients, client_roles: data.client_roles || {}, board_seats: data.board_seats || {} } : x));
       addLog('Configuração', `Clientes de ${secModalUser.name} (${secModalUser.role}): ${data.secretary_clients.join(', ') || '(nenhum)'}`);
       alert(`✅ Clientes atualizados para ${secModalUser.name}.\n\nEle precisará sair e entrar novamente para o acesso valer.`);
       setSecModalUser(null);
@@ -2953,7 +2976,7 @@ const App = () => {
 
   const openExtraDelibModal = () => {
     if (!canEdit) return;
-    setExtraDelibForm({ title: '', voters: clientMembers.map((u: any) => u.name) });
+    setExtraDelibForm({ title: '', voters: clientMembers.filter((u: any) => seatOf(u, activeCid) !== 'consultivo').map((u: any) => u.name) });
     setIsExtraDelibOpen(true);
   };
 
@@ -3512,7 +3535,7 @@ const App = () => {
     const internos = (currentMeeting.participants || []).filter((p: any) => !p.isExternal && p.email && p.name);
     if (internos.length === 0) { alert('A reunião não tem participantes internos com e-mail.'); return; }
     // Só Conselheiros assinam a ata (secretário, administradores e externos participam mas não assinam)
-    const candidates = internos.map((p: any) => ({ name: p.name, email: p.email, role: (clientMembers.find((u: any) => (u.email || '').toLowerCase() === (p.email || '').toLowerCase())?.role) || '' })).filter((c: any) => c.role === 'Conselheiro');
+    const candidates = internos.map((p: any) => { const mm = clientMembers.find((u: any) => (u.email || '').toLowerCase() === (p.email || '').toLowerCase()); return { name: p.name, email: p.email, role: mm?.role || '', seat: mm ? seatOf(mm, activeCid) : null }; }).filter((c: any) => c.seat === 'deliberativo' || c.seat === 'consultivo');
     if (candidates.length === 0) { alert('Nenhum Conselheiro entre os participantes desta reunião. Verifique se os conselheiros estão cadastrados com o papel "Conselheiro" e incluídos como participantes.'); return; }
     const selected = candidates.map((c: any) => c.name);
     setSignerModal({ ataId: ata.id, ataName: ata.name, minuteUrl: ata.url, mode, candidates, selected });
@@ -4554,7 +4577,7 @@ const App = () => {
                   </div>
                 ) : (
                   <div className="animate-in fade-in duration-300 pb-20">
-                    <div className="flex items-center justify-between mb-6 bg-white p-4 rounded-xl border border-slate-200 shadow-sm sticky top-0 z-10"><button onClick={() => setView('list')} className="p-2 text-slate-500 hover:bg-slate-100 rounded-lg transition-all flex items-center gap-2 text-xs font-bold uppercase tracking-widest"><ChevronRight className="rotate-180" size={20} /> Voltar</button><div className="flex items-center gap-2">{currentMeeting.id && (<button onClick={() => generateMeetingPDF(currentMeeting, clientProfile?.name || activeClientId || currentUser?.client_id || 'INEPAD')} className="border border-slate-200 text-slate-600 hover:bg-slate-50 hover:border-amber-400 hover:text-amber-600 px-4 py-2.5 rounded-lg font-bold text-xs uppercase shadow-sm flex items-center gap-2 transition-all"><Download size={15} /> Exportar PDF</button>)}{currentMeeting.id && (<button onClick={() => generateAtaPDF(currentMeeting, clientProfile?.name || activeClientId || currentUser.client_id, clientProfile?.logo_url, clientMembers.filter((u: any) => u.role === 'Conselheiro').map((u: any) => (u.email || '').toLowerCase())).catch((e: any) => alert('Erro ao gerar ata: ' + e.message))} className="border border-amber-300 bg-amber-50 text-amber-700 hover:bg-amber-100 hover:border-amber-400 px-4 py-2.5 rounded-lg font-bold text-xs uppercase shadow-sm flex items-center gap-2 transition-all"><FileText size={15} /> Gerar Ata</button>)}{canEdit && (<button onClick={saveMeeting} className="bg-slate-800 hover:bg-slate-900 text-white px-6 py-2.5 rounded-lg font-bold text-xs uppercase shadow-sm flex items-center gap-2 transition-all"><Save size={16} className="text-amber-500" /> Salvar</button>)}</div></div>
+                    <div className="flex items-center justify-between mb-6 bg-white p-4 rounded-xl border border-slate-200 shadow-sm sticky top-0 z-10"><button onClick={() => setView('list')} className="p-2 text-slate-500 hover:bg-slate-100 rounded-lg transition-all flex items-center gap-2 text-xs font-bold uppercase tracking-widest"><ChevronRight className="rotate-180" size={20} /> Voltar</button><div className="flex items-center gap-2">{currentMeeting.id && (<button onClick={() => generateMeetingPDF(currentMeeting, clientProfile?.name || activeClientId || currentUser?.client_id || 'INEPAD')} className="border border-slate-200 text-slate-600 hover:bg-slate-50 hover:border-amber-400 hover:text-amber-600 px-4 py-2.5 rounded-lg font-bold text-xs uppercase shadow-sm flex items-center gap-2 transition-all"><Download size={15} /> Exportar PDF</button>)}{currentMeeting.id && (<button onClick={() => generateAtaPDF(currentMeeting, clientProfile?.name || activeClientId || currentUser.client_id, clientProfile?.logo_url, clientMembers.filter((u: any) => seatOf(u, activeCid) === 'deliberativo').map((u: any) => (u.email || '').toLowerCase())).catch((e: any) => alert('Erro ao gerar ata: ' + e.message))} className="border border-amber-300 bg-amber-50 text-amber-700 hover:bg-amber-100 hover:border-amber-400 px-4 py-2.5 rounded-lg font-bold text-xs uppercase shadow-sm flex items-center gap-2 transition-all"><FileText size={15} /> Gerar Ata</button>)}{canEdit && (<button onClick={saveMeeting} className="bg-slate-800 hover:bg-slate-900 text-white px-6 py-2.5 rounded-lg font-bold text-xs uppercase shadow-sm flex items-center gap-2 transition-all"><Save size={16} className="text-amber-500" /> Salvar</button>)}</div></div>
                     <input placeholder="Título..." className="text-3xl md:text-4xl font-bold italic text-slate-900 bg-transparent outline-none w-full border-b border-slate-200 focus:border-amber-500 pb-2 mb-8" value={currentMeeting.title} onChange={e => setCurrentMeeting({ ...currentMeeting, title: e.target.value })} readOnly={!canEdit} />
                     <div className="border-b border-slate-200 flex gap-6 mb-8 overflow-x-auto font-bold text-[10px] uppercase tracking-widest no-scrollbar italic py-2">{['Informações', 'Ordem do Dia', 'Materiais', 'Deliberações', 'Plano de Ação', 'Atas'].map((label, i) => { const ids = ['info', 'pauta', 'materiais', 'delib', 'acoes', 'atas']; return <button key={i} onClick={() => setTab(ids[i])} className={`pb-3 transition-all relative whitespace-nowrap ${tab === ids[i] ? 'text-amber-600 border-b-2 border-amber-600 scale-105' : 'text-slate-400 hover:text-slate-800'}`}>{label}</button> })}</div>
 
@@ -4975,7 +4998,7 @@ const App = () => {
                               );
                               return match?.name ?? null;
                             })();
-                            const canUserVote = !!myVoterName;
+                            const canUserVote = !!myVoterName && effectiveSeat !== 'consultivo';
                             const userVote = myVoterName ? votes[myVoterName] : undefined;
                             const favorCount = voters.filter(v => votes[v] === 'Favor').length;
                             const contraCount = voters.filter(v => votes[v] === 'Contra').length;
@@ -5124,7 +5147,7 @@ const App = () => {
                             <div className="space-y-2">
                               <label className="text-[9px] font-bold uppercase text-amber-700 tracking-widest">Atribuir direito a voto</label>
                               {(() => {
-                                const internalMembers = (currentMeeting.participants || []).filter((p: any) => !p.isExternal);
+                                const internalMembers = (currentMeeting.participants || []).filter((p: any) => { if (p.isExternal) return false; const mm = clientMembers.find((u: any) => (u.email || '').toLowerCase() === (p.email || '').toLowerCase()); return !(mm && seatOf(mm, activeCid) === 'consultivo'); });
                                 const available = internalMembers.filter((p: any) => !tmpDelib.voters.includes(p.name));
                                 if (internalMembers.length === 0) {
                                   return (
@@ -7355,8 +7378,8 @@ const App = () => {
                             </td>
                             <td className="px-6 py-4 text-center">
                               <div className="flex items-center justify-center gap-2">
-                                {isSuper && (u.role === 'Secretário' || u.role === 'Conselheiro' || u.role === 'Administrador' || u.role === 'SuperAdmin') && (
-                                  <button onClick={() => openSecModal(u)} className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[9px] font-bold uppercase tracking-wider border border-slate-200 text-slate-500 hover:border-amber-400 hover:text-amber-600 transition-all not-italic" title={u.role === 'Conselheiro' ? 'Empresas em que é conselheiro' : u.role === 'Administrador' ? 'Clientes que este administrador pode gerir' : u.role === 'SuperAdmin' ? 'Empresas em que aparece como participante (convocação, materiais, votação) — não altera o acesso total do SuperAdmin' : 'Clientes que este secretário pode atender'}>
+                                {isSuper && !['Comercial', 'Certificador'].includes(u.role) && (
+                                  <button onClick={() => openSecModal(u)} className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[9px] font-bold uppercase tracking-wider border border-slate-200 text-slate-500 hover:border-amber-400 hover:text-amber-600 transition-all not-italic" title="Empresas que acessa, papel por cliente e assento no conselho (assina/vota/aprova)">
                                     <Building2 size={12} /> Clientes{(u.secretary_clients?.length ? ` (${u.secretary_clients.length})` : '')}
                                   </button>
                                 )}
@@ -7658,7 +7681,7 @@ const App = () => {
                 <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Conselheiros votantes ({extraDelibForm.voters.length})</label>
                 {clientMembers.length === 0 ? <p className="text-[10px] text-slate-400 italic">Nenhum membro cadastrado.</p> : (
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-52 overflow-y-auto pr-1">
-                    {clientMembers.map((u: any) => {
+                    {clientMembers.filter((u: any) => seatOf(u, activeCid) !== 'consultivo').map((u: any) => {
                       const checked = extraDelibForm.voters.includes(u.name);
                       return (
                         <label key={u.id} className={`flex items-center gap-3 p-2.5 rounded-lg border cursor-pointer transition-all ${checked ? 'bg-amber-50 border-amber-200' : 'bg-white border-slate-100 hover:bg-slate-50'}`}>
@@ -7687,7 +7710,7 @@ const App = () => {
         const r = deliberationResult(d);
         const voters: string[] = d.voters || [];
         const votes: Record<string, string> = d.votes || {};
-        const myName = resolveVoterNameIn(container.participants || [], voters);
+        const myName = effectiveSeat === 'consultivo' ? null : resolveVoterNameIn(container.participants || [], voters);
         const myVote = myName ? votes[myName] : undefined;
         const availableToAdd = clientMembers.filter((u: any) => !voters.includes(u.name));
         return (
@@ -7765,18 +7788,40 @@ const App = () => {
               <button onClick={() => setSecModalUser(null)} className="p-2 hover:bg-slate-200 rounded-full transition-all text-slate-400"><X size={20} /></button>
             </div>
             <div className="flex-1 overflow-y-auto p-6 bg-slate-50/30">
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+              <div className="space-y-2">
                 {allClientsList.map((c: any) => {
                   const checked = secModalSelected.includes(c.client_id);
+                  const roleVal = secModalRoles[c.client_id] || '';
+                  const seatVal = secModalSeats[c.client_id] || '';
+                  const active = checked || !!roleVal || !!seatVal;
                   return (
-                    <label key={c.client_id} className={`flex items-center gap-3 p-3 rounded-lg border cursor-pointer transition-all ${checked ? 'bg-amber-50 border-amber-200' : 'bg-white border-slate-100 hover:bg-slate-50'}`}>
-                      <input type="checkbox" checked={checked} onChange={() => setSecModalSelected(prev => checked ? prev.filter((x: string) => x !== c.client_id) : [...prev, c.client_id])} className="accent-amber-600 w-4 h-4" />
-                      <div className="min-w-0"><p className="text-sm font-bold text-slate-800 italic truncate">{c.name || c.client_id}</p><p className="text-[9px] text-slate-400 uppercase tracking-widest truncate">{c.client_id}</p></div>
-                    </label>
+                    <div key={c.client_id} className={`p-3 rounded-lg border transition-all ${active ? 'bg-amber-50 border-amber-200' : 'bg-white border-slate-100'}`}>
+                      <label className="flex items-center gap-3 cursor-pointer min-w-0">
+                        <input type="checkbox" checked={checked} onChange={() => setSecModalSelected(prev => checked ? prev.filter((x: string) => x !== c.client_id) : [...prev, c.client_id])} className="accent-amber-600 w-4 h-4 shrink-0" />
+                        <div className="min-w-0"><p className="text-sm font-bold text-slate-800 italic truncate">{c.name || c.client_id}</p><p className="text-[9px] text-slate-400 uppercase tracking-widest truncate">{c.client_id}</p></div>
+                      </label>
+                      <div className="grid grid-cols-2 gap-2 mt-2 pl-7">
+                        <div>
+                          <label className="text-[8px] font-bold uppercase text-slate-400 tracking-widest">Papel neste cliente</label>
+                          <select value={roleVal} onChange={e => setSecModalRoles(prev => { const n = { ...prev }; if (e.target.value) n[c.client_id] = e.target.value; else delete n[c.client_id]; return n; })} className="w-full text-[11px] font-bold border border-slate-200 rounded px-2 py-1.5 bg-white outline-none focus:border-amber-400">
+                            <option value="">(padrão: {secModalUser.role})</option>
+                            {['Administrador', 'Secretário', 'Conselheiro', 'Conselheiro Consultivo', 'Controller', 'Diretor', 'Assistente'].map(r => <option key={r} value={r}>{r}</option>)}
+                          </select>
+                        </div>
+                        <div>
+                          <label className="text-[8px] font-bold uppercase text-slate-400 tracking-widest">Assento no conselho</label>
+                          <select value={seatVal} onChange={e => setSecModalSeats(prev => { const n = { ...prev }; if (e.target.value) n[c.client_id] = e.target.value; else delete n[c.client_id]; return n; })} className="w-full text-[11px] font-bold border border-slate-200 rounded px-2 py-1.5 bg-white outline-none focus:border-amber-400">
+                            <option value="">(automático)</option>
+                            <option value="deliberativo">Deliberativo (assina + vota)</option>
+                            <option value="consultivo">Consultivo (só aprova)</option>
+                          </select>
+                        </div>
+                      </div>
+                    </div>
                   );
                 })}
               </div>
-              <p className="text-[10px] text-slate-400 mt-3">Marque todas as empresas vinculadas a este usuário. Ele alterna entre elas pelo seletor no topo do sistema {secModalUser.role === 'Conselheiro' ? 'e poderá ser incluído como votante nas deliberações dessas empresas.' : secModalUser.role === 'Administrador' ? 'com poderes de administrador em cada uma.' : 'com poderes de secretário.'}</p>
+              <p className="text-[10px] text-slate-400 mt-3">Marque as empresas que o usuário acessa (ele alterna pelo seletor no topo). <b>Papel neste cliente</b> sobrepõe o papel global só naquela empresa. <b>Assento no conselho</b> define quem assina/vota/aprova — deixe em "automático" (o Conselheiro já vira deliberativo) e use para dar assento a um Admin/SuperAdmin sem trocar o papel dele. O usuário precisa sair e entrar de novo para valer.</p>
             </div>
             <div className="p-6 border-t bg-white flex gap-3">
               <button onClick={() => setSecModalUser(null)} className="flex-1 border border-slate-200 text-slate-600 py-3 rounded-xl font-bold uppercase text-[10px] tracking-[2px] hover:bg-slate-50">Cancelar</button>
