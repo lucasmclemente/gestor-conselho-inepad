@@ -38,7 +38,6 @@ serve(async (req) => {
     // Compat: se roles/boardSeats não vierem, os mapas atuais são PRESERVADOS (front antigo só manda clientIds).
     const { userId, clientIds, roles, boardSeats } = await req.json()
     if (!userId || !Array.isArray(clientIds)) return json({ error: 'Parâmetros inválidos.' }, 400)
-    const clean = [...new Set(clientIds.map((c: any) => String(c)).filter(Boolean))]
 
     // Papéis de gestão aceitos por cliente (SuperAdmin/Certificador/Comercial são globais → não entram aqui)
     const GOV_ROLES = ['Administrador', 'Secretário', 'Conselheiro', 'Conselheiro Consultivo', 'Controller', 'Diretor', 'Assistente']
@@ -57,6 +56,11 @@ serve(async (req) => {
     const hasSeats = boardSeats !== undefined
     const cleanRoles = hasRoles ? cleanMap(roles, GOV_ROLES) : null
     const cleanSeats = hasSeats ? cleanMap(boardSeats, SEATS) : null
+
+    // Dar um papel/assento numa empresa IMPLICA acesso a ela → entra no secretary_clients
+    // automaticamente (evita a pegadinha de dar o assento e esquecer de marcar o acesso).
+    const seatRoleClients = [...Object.keys(cleanRoles || {}), ...Object.keys(cleanSeats || {})]
+    const clean = [...new Set([...clientIds.map((c: any) => String(c)).filter(Boolean), ...seatRoleClients])]
 
     const admin = createClient(Deno.env.get('SUPABASE_URL') ?? '', Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '', { auth: { autoRefreshToken: false, persistSession: false } })
 
